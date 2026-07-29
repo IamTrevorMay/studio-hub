@@ -120,7 +120,7 @@ Deno.serve(async (req: Request) => {
       });
     }
     const { data: profile } = await supabase.from("profiles").select("role, assigned_drive_folder_id").eq("id", user.id).single();
-    if (!["admin", "director_creative", "director_comms", "freelancer", "member"].includes(profile?.role)) {
+    if (!["admin", "director_creative", "director_comms", "contractor", "freelancer", "member"].includes(profile?.role)) {
       return new Response(JSON.stringify({ error: "Access required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -159,11 +159,11 @@ Deno.serve(async (req: Request) => {
 
       // Per-assignment submit-folder overrides: trust any folder an admin set as
       // the submit destination on one of this contractor's own assignments. RLS
-      // scopes this read to rows where freelancer_id = the calling user.
+      // scopes this read to rows where contractor_id = the calling user.
       const { data: overrideRows } = await supabase
-        .from("freelancer_assignments")
+        .from("contractor_assignments")
         .select("submit_folder_id")
-        .eq("freelancer_id", user.id)
+        .eq("contractor_id", user.id)
         .not("submit_folder_id", "is", null);
       if (overrideRows) {
         for (const r of overrideRows) {

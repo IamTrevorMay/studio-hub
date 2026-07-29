@@ -5,7 +5,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 
-export default function FreelancerDocuments() {
+export default function ContractorDocuments() {
   const { user } = useAuth();
   const { refreshNotifications } = useNotifications();
   const [documents, setDocuments] = useState([]);
@@ -19,9 +19,9 @@ export default function FreelancerDocuments() {
   const fetchDocuments = useCallback(async () => {
     if (!user) return;
     const { data, error } = await supabase
-      .from('freelancer_documents')
+      .from('contractor_documents')
       .select('*')
-      .eq('freelancer_id', user.id)
+      .eq('contractor_id', user.id)
       .order('created_at', { ascending: false });
     if (!error) setDocuments(data || []);
     setLoading(false);
@@ -54,7 +54,7 @@ export default function FreelancerDocuments() {
     if (!signingDoc || !signedName.trim() || !agreed) return;
     setSigning(true);
     const { error } = await supabase
-      .from('freelancer_documents')
+      .from('contractor_documents')
       .update({
         signed_at: new Date().toISOString(),
         signed_name: signedName.trim(),

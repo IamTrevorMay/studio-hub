@@ -9,11 +9,11 @@ import { colors } from '../lib/styleTokens';
 
 const ROLE_LABELS = {
   admin: 'Admin', assistant: 'Assistant', member: 'Member',
-  partner: 'Partner', freelancer: 'Contractor',
+  partner: 'Partner', contractor: 'Contractor', freelancer: 'Contractor',
 };
 const ROLE_COLORS = {
   admin: '#8fb4d8', assistant: '#86efac', member: 'rgba(255,255,255,0.55)',
-  partner: '#fcd34d', freelancer: '#f9a8d4',
+  partner: '#fcd34d', contractor: '#f9a8d4', freelancer: '#f9a8d4',
 };
 
 export default function AdminPanelMobile() {

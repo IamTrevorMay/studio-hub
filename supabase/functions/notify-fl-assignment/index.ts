@@ -41,16 +41,16 @@ Deno.serve(async (req: Request) => {
     );
 
     const { data: assignment, error: aErr } = await supabase
-      .from("freelancer_assignments")
-      .select("id, title, freelancer_id, status, asset_url")
+      .from("contractor_assignments")
+      .select("id, title, contractor_id, status, asset_url")
       .eq("id", assignmentId)
       .single();
 
     if (aErr || !assignment) {
       return jsonResponse({ error: "Assignment not found" }, 404);
     }
-    if (!assignment.freelancer_id) {
-      return jsonResponse({ skipped: "no freelancer assigned" });
+    if (!assignment.contractor_id) {
+      return jsonResponse({ skipped: "no contractor assigned" });
     }
     if (assignment.status === "completed") {
       return jsonResponse({ skipped: "assignment already completed" });
@@ -59,7 +59,7 @@ Deno.serve(async (req: Request) => {
     const { data: profile, error: pErr } = await supabase
       .from("profiles")
       .select("email, full_name")
-      .eq("id", assignment.freelancer_id)
+      .eq("id", assignment.contractor_id)
       .single();
 
     if (pErr || !profile?.email) {

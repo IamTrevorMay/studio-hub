@@ -288,11 +288,11 @@ async function handleDueSoonCron(
   const tomorrowStr = ptDayString(new Date(Date.now() + 86400000));
 
   const { data: assignments } = await supabase
-    .from("freelancer_assignments")
-    .select("id, title, freelancer_id, due_date, status")
+    .from("contractor_assignments")
+    .select("id, title, contractor_id, due_date, status")
     .eq("due_date", tomorrowStr)
     .neq("status", "completed")
-    .not("freelancer_id", "is", null);
+    .not("contractor_id", "is", null);
 
   if (!assignments?.length) return json({ sent: 0, skipped: 0, reason: "no assignments due tomorrow" });
 
@@ -304,7 +304,7 @@ async function handleDueSoonCron(
     const { data: pref } = await supabase
       .from("email_notification_preferences")
       .select("enabled")
-      .eq("user_id", a.freelancer_id)
+      .eq("user_id", a.contractor_id)
       .eq("trigger_key", "fl_assignment_due_soon")
       .maybeSingle();
 
@@ -313,7 +313,7 @@ async function handleDueSoonCron(
     const { data: profile } = await supabase
       .from("profiles")
       .select("email")
-      .eq("id", a.freelancer_id)
+      .eq("id", a.contractor_id)
       .single();
 
     if (!profile?.email) { skipped++; continue; }

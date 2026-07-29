@@ -7,7 +7,7 @@ import usePersistedTab from '../hooks/usePersistedTab';
 import { colors } from '../lib/styleTokens';
 
 
-const FREELANCER_TITLES = [
+const CONTRACTOR_TITLES = [
   'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
   'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
 ];
@@ -92,7 +92,7 @@ export default function AdminPanel({ initialTab }) {
             'Authorization': `Bearer ${session.access_token}`,
             'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ email: inviteEmail.toLowerCase().trim(), role: inviteRole, title: inviteRole === 'freelancer' ? inviteTitle : null }),
+          body: JSON.stringify({ email: inviteEmail.toLowerCase().trim(), role: inviteRole, title: inviteRole === 'contractor' ? inviteTitle : null }),
         }
       );
 
@@ -128,7 +128,7 @@ export default function AdminPanel({ initialTab }) {
   async function handleRoleChange(userId, newRole) {
     const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
     if (error) console.error('Role change failed:', error);
-    if (newRole === 'freelancer') {
+    if (newRole === 'contractor') {
       setTitlePickerFor(userId);
     } else {
       setTitlePickerFor(null);
@@ -232,7 +232,7 @@ export default function AdminPanel({ initialTab }) {
     const { data: flProfiles } = await supabase
       .from('profiles')
       .select('id, full_name')
-      .eq('role', 'freelancer')
+      .in('role', ['contractor', 'freelancer'])
       .order('full_name');
     setContractors(flProfiles || []);
 
@@ -444,25 +444,25 @@ export default function AdminPanel({ initialTab }) {
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <select
                   value={inviteRole}
-                  onChange={(e) => { setInviteRole(e.target.value); if (e.target.value !== 'freelancer') setInviteTitle(''); }}
+                  onChange={(e) => { setInviteRole(e.target.value); if (e.target.value !== 'contractor') setInviteTitle(''); }}
                   style={styles.roleSelect}
                 >
                   <option value="member">Member</option>
                   <option value="assistant">Assistant</option>
                   <option value="partner">Partner</option>
-                  <option value="freelancer">Contractor</option>
+                  <option value="contractor">Contractor</option>
                   <option value="director_creative">Director of Creative</option>
                   <option value="director_comms">Director of Communications</option>
                   <option value="admin">Admin</option>
                 </select>
-                {inviteRole === 'freelancer' && (
+                {inviteRole === 'contractor' && (
                   <select
                     value={inviteTitle}
                     onChange={(e) => setInviteTitle(e.target.value)}
                     style={styles.roleSelect}
                   >
                     <option value="">Select title...</option>
-                    {FREELANCER_TITLES.map(t => (
+                    {CONTRACTOR_TITLES.map(t => (
                       <option key={t} value={t}>{t}</option>
                     ))}
                   </select>
@@ -555,7 +555,7 @@ export default function AdminPanel({ initialTab }) {
                   <option value="member">Member</option>
                   <option value="assistant">Assistant</option>
                   <option value="partner">Partner</option>
-                  <option value="freelancer">Contractor</option>
+                  <option value="contractor">Contractor</option>
                   <option value="director_creative">Director of Creative</option>
                   <option value="director_comms">Director of Communications</option>
                   <option value="admin">Admin</option>
@@ -567,7 +567,7 @@ export default function AdminPanel({ initialTab }) {
                     style={styles.roleSelect}
                   >
                     <option value="">Assign title...</option>
-                    {FREELANCER_TITLES.map(t => (
+                    {CONTRACTOR_TITLES.map(t => (
                       <option key={t} value={t}>{t}</option>
                     ))}
                   </select>

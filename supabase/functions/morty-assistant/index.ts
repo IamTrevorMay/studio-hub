@@ -13,7 +13,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const BLOCKED_ROLES = new Set(["freelancer", "partner", "agency"]);
+const BLOCKED_ROLES = new Set(["contractor", "freelancer", "partner", "agency"]);
 const MAX_MESSAGES = 20;
 const MAX_MESSAGE_CHARS = 4000;
 

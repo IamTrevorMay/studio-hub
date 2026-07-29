@@ -64,7 +64,7 @@ export default function ResearchScopeModal({ open, project, onClose, onSubmitted
   }, [open, project?.id]); // eslint-disable-line
 
   const team = useMemo(() => profiles.filter(p => TEAM_ROLES.includes(p.role)), [profiles]);
-  const contractors = useMemo(() => profiles.filter(p => p.role === 'freelancer'), [profiles]);
+  const contractors = useMemo(() => profiles.filter(p => p.role === 'contractor' || p.role === 'freelancer'), [profiles]);
 
   const toggleAssignee = (id) => {
     setAssignees(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);

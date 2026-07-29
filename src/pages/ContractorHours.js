@@ -41,7 +41,7 @@ function getPayPeriods(count = 6) {
   return periods;
 }
 
-export default function FreelancerHours() {
+export default function ContractorHours() {
   const { profile } = useAuth();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -58,18 +58,18 @@ export default function FreelancerHours() {
     if (!profile?.id) return;
     setLoading(true);
     const { data } = await supabase
-      .from('freelancer_hours')
-      .select('*, reviewer:profiles!freelancer_hours_reviewed_by_fkey(full_name)')
-      .eq('freelancer_id', profile.id)
+      .from('contractor_hours')
+      .select('*, reviewer:profiles!reviewed_by(full_name)')
+      .eq('contractor_id', profile.id)
       .order('period_start', { ascending: false });
     setRecords(data || []);
 
     // Auto-sum hours_spent from completed assignments, bucketed by the pay
     // period their completed_at (PT calendar day) falls into.
     const { data: asgs } = await supabase
-      .from('freelancer_assignments')
+      .from('contractor_assignments')
       .select('hours_spent, completed_at')
-      .eq('freelancer_id', profile.id)
+      .eq('contractor_id', profile.id)
       .not('hours_spent', 'is', null)
       .not('completed_at', 'is', null);
     const auto = {};
@@ -123,14 +123,14 @@ export default function FreelancerHours() {
     const notes = getFormValue(key, 'notes') ?? (record ? record.notes : '');
 
     setSubmitting(key);
-    await supabase.from('freelancer_hours').upsert({
-      freelancer_id: profile.id,
+    await supabase.from('contractor_hours').upsert({
+      contractor_id: profile.id,
       period_start: period.start,
       period_end: period.end,
       total_hours: totalHours,
       notes: notes || null,
       submitted_at: new Date().toISOString(),
-    }, { onConflict: 'freelancer_id,period_start,period_end' });
+    }, { onConflict: 'contractor_id,period_start,period_end' });
     supabase.functions.invoke('send-notification-email', {
       body: {
         trigger_key: 'fl_hours_submitted',

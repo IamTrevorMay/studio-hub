@@ -122,7 +122,7 @@ export default function Payroll() {
 
   // Data
   const [contractors, setContractors] = useState([]);
-  const [freelancerProfiles, setFreelancerProfiles] = useState([]);
+  const [freelancerProfiles, setContractorProfiles] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [salariedMembers, setSalariedMembers] = useState([]);
   const [salaries, setSalaries] = useState([]);
@@ -151,10 +151,10 @@ export default function Payroll() {
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     const [contractorsRes, fpRes, assignmentsRes, membersRes, salariesRes, oneOffsRes, paidRes] = await Promise.all([
-      supabase.from('profiles').select('id, full_name, avatar_url, title, pay_method, pay_method_detail').eq('role', 'freelancer'),
-      supabase.from('freelancer_profiles').select('id, payment_type, rate'),
-      supabase.from('freelancer_assignments')
-        .select('id, freelancer_id, title, pay_amount, hours_spent, completed_at, status')
+      supabase.from('profiles').select('id, full_name, avatar_url, title, pay_method, pay_method_detail').in('role', ['contractor', 'freelancer']),
+      supabase.from('contractor_profiles').select('id, payment_type, rate'),
+      supabase.from('contractor_assignments')
+        .select('id, contractor_id, title, pay_amount, hours_spent, completed_at, status')
         .eq('status', 'completed')
         .gte('completed_at', ptDateToUtcISO(selectedPeriod.start))
         .lt('completed_at', ptDateToUtcISO(selectedPeriod.end, true)),
@@ -166,7 +166,7 @@ export default function Payroll() {
     const HIDDEN = ['Test1', 'Test2'];
     const notHidden = p => !HIDDEN.includes(p.full_name);
     setContractors((contractorsRes.data || []).filter(notHidden));
-    setFreelancerProfiles(fpRes.data || []);
+    setContractorProfiles(fpRes.data || []);
     setAssignments(assignmentsRes.data || []);
     setSalariedMembers((membersRes.data || []).filter(notHidden));
     setSalaries(salariesRes.data || []);
@@ -194,7 +194,7 @@ export default function Payroll() {
   // Group assignments by contractor
   const contractorPayroll = contractors.map(c => {
     const fp = fpMap[c.id] || {};
-    const myAssignments = assignments.filter(a => a.freelancer_id === c.id);
+    const myAssignments = assignments.filter(a => a.contractor_id === c.id);
     let total = 0;
     const rows = myAssignments.map(a => {
       let amount = 0;

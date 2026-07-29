@@ -467,7 +467,7 @@ export default function Workflows() {
       );
       setContractorProfiles(
         active
-          .filter(p => p.role === 'freelancer')
+          .filter(p => p.role === 'contractor' || p.role === 'freelancer')
           .map(p => ({ id: p.id, name: p.full_name || p.email || 'Unknown', role: 'contractor' })),
       );
     })();
@@ -483,7 +483,7 @@ export default function Workflows() {
     // doesn't have to round-trip a second time.
     const TASK_COLS = 'id, title, description, assignee_id, due_date, status, snoozed_until, hold_reason, planned_date, workflow_instance_id, automation_id, created_at';
     const TASK_DONE_COLS = TASK_COLS + ', completed_at';
-    const FL_COLS = 'id, title, description, freelancer_id, status, due_date, due_time, pay_amount, asset_url, completed_at, created_at, created_by';
+    const FL_COLS = 'id, title, description, contractor_id, status, due_date, due_time, pay_amount, asset_url, completed_at, created_at, created_by';
     const [
       pend,
       { data: completed },
@@ -499,18 +499,18 @@ export default function Workflows() {
         .eq('status', 'complete')
         .gte('completed_at', cutoff)
         .not('assignee_id', 'is', null),
-      supabase.from('freelancer_assignments')
+      supabase.from('contractor_assignments')
         .select(FL_COLS)
         .in('status', ['assigned', 'in_progress']),
-      supabase.from('freelancer_assignments')
+      supabase.from('contractor_assignments')
         .select(FL_COLS)
         .eq('status', 'completed')
         .gte('completed_at', cutoff),
     ]);
-    // Alias freelancer_id → assignee_id so the shared ProgressTable
+    // Alias contractor_id → assignee_id so the shared ProgressTable
     // grouping logic doesn't need a special case for contractors.
-    setFlPending((flPend || []).map((a) => ({ ...a, assignee_id: a.freelancer_id })));
-    setFlDone((flDoneData || []).map((a) => ({ ...a, assignee_id: a.freelancer_id })));
+    setFlPending((flPend || []).map((a) => ({ ...a, assignee_id: a.contractor_id })));
+    setFlDone((flDoneData || []).map((a) => ({ ...a, assignee_id: a.contractor_id })));
 
     // Sprint overlay: keep the existing per-admin in_progress overlay for
     // tasks-linked sprint cards (drives the yellow "active" dot on rows
@@ -585,7 +585,7 @@ export default function Workflows() {
     if (!task || typeof task.id !== 'string') return;
     if (task.id.startsWith('sprint-') || task.id.startsWith('progress-card-')) return;
     if (groupKey === 'contractors') {
-      // Contractor rows store freelancer_assignments shape — the row
+      // Contractor rows store contractor_assignments shape — the row
       // already has the columns ContractorAssignmentModal expects.
       setEditingContractorAssign(task);
     } else {
@@ -1168,7 +1168,7 @@ export default function Workflows() {
                   onClick={() => { setAssignMenuOpen(false); setContractorAssignOpen(true); }}
                 >
                   <div style={styles.assignMenuLabel}>Contractor</div>
-                  <div style={styles.assignMenuDesc}>Freelancer — paid assignment</div>
+                  <div style={styles.assignMenuDesc}>Contractor — paid assignment</div>
                 </button>
               </div>
             </>

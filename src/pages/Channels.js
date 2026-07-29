@@ -23,14 +23,21 @@ const CHANNEL_ROLE_OPTIONS = [
   { value: 'member', label: 'Member' },
   { value: 'partner', label: 'Partner' },
   { value: 'producer', label: 'Producer' },
-  { value: 'freelancer', label: 'Contractor' },
+  { value: 'contractor', label: 'Contractor' },
 ];
 
 // A null/empty allowed_roles list is open to everyone. Otherwise only the
 // listed roles — plus admin-tier, who always see everything.
 function rolesAllow(allowed, role) {
   if (!allowed || allowed.length === 0) return true;
-  return allowed.includes(role);
+  if (allowed.includes(role)) return true;
+  // Contractor rename compat: 'freelancer' (legacy) and 'contractor' are the
+  // same role. Match either the stored value or the user's value across the
+  // expand/contract window (and any legacy allowed_roles arrays post-cutover).
+  if (role === 'contractor' || role === 'freelancer') {
+    return allowed.includes('contractor') || allowed.includes('freelancer');
+  }
+  return false;
 }
 
 // A grouped channel's visibility is governed by its group's permissions (the

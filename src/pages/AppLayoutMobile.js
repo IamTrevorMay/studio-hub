@@ -28,11 +28,11 @@ import Research from './ResearchMobile';
 import BusinessDev from './BusinessDevMobile';
 import Invoicing from './InvoicingMobile';
 import Production from './ProductionMobile';
-import FreelancerDashboard from './FreelancerDashboardMobile';
+import ContractorDashboard from './ContractorDashboardMobile';
 import Deliverables from './DeliverablesMobile';
 import Ideas from './IdeasMobile';
 import Workflows from './WorkflowsMobile';
-import Freelancers from './FreelancersMobile';
+import Contractors from './ContractorsMobile';
 import Ops from './OpsMobile';
 import Analytics from './AnalyticsMobile';
 import Tracking from './TrackingMobile';
@@ -167,7 +167,7 @@ const TAB_LABELS = NAV_ITEMS.reduce((acc, item) => { acc[item.key] = item.label;
 });
 
 export default function AppLayoutMobile() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isContractor, restrictedNavKeys } = useAuth();
   const { unreadNotificationCount, markDashboardSeen, refreshNotifications } = useNotifications();
   const { getResolvedNav } = useNavConfig();
   // Suite gating (mirror desktop AppLayout): the launcher + Bridge branding +
@@ -175,7 +175,7 @@ export default function AppLayoutMobile() {
   // This single flag gates the launcher landing, the suite URL deep-links, the
   // Bridge brand mark, and the Apps row. Non-admins keep the classic
   // "Mayday Studio" tab app; bare '/' resolves to Bridge (src/lib/suite.js).
-  // Widen back to `!isFreelancer && !isPartner` to reopen the suite to staff.
+  // Widen back to `!isContractor && !isPartner` to reopen the suite to staff.
   const isSuiteUser = isAdmin;
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   // 'launcher' | 'harbor' | null (null = Bridge, the classic tab world).
@@ -240,29 +240,29 @@ export default function AppLayoutMobile() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [isSuiteUser]);
 
-  // Freelancer redirect (mirror desktop AppLayout)
+  // Contractor redirect (mirror desktop AppLayout)
   useEffect(() => {
-    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'pitch_videos' && activeTab !== 'channels' && activeTab !== 'messages') {
+    if (isContractor && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'pitch_videos' && activeTab !== 'channels' && activeTab !== 'messages') {
       setActiveTab('fl_dashboard');
     }
-  }, [isFreelancer]); // eslint-disable-line
+  }, [isContractor]); // eslint-disable-line
 
   // Restricted-nav route guard (mirror desktop AppLayout). Without this, a role
   // whose nav keys are restricted (e.g. director_creative/director_comms, who are
   // admin-tier so isAdmin is true) could still open a restricted page directly.
   useEffect(() => {
     if (restrictedNavKeys?.has(activeTab)) {
-      setActiveTab(isFreelancer ? 'fl_dashboard' : 'dashboard');
+      setActiveTab(isContractor ? 'fl_dashboard' : 'dashboard');
     }
     // eslint-disable-next-line
-  }, [activeTab, restrictedNavKeys, isFreelancer]);
+  }, [activeTab, restrictedNavKeys, isContractor]);
 
   // Pin non-admins to Work View; persist mode across reloads.
   useEffect(() => { if (!isAdmin && mode !== 'work') setMode('work'); }, [isAdmin, mode]);
   useEffect(() => { localStorage.setItem('studio-hub-mode', mode); }, [mode]);
 
   const resolvedNav = stripExcludedFolders(
-    getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile, restrictedNavKeys)
+    getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isContractor, profile, restrictedNavKeys)
   );
   const adminModeKeySet = getAdminModeKeySet(resolvedNav);
 
@@ -400,7 +400,7 @@ export default function AppLayoutMobile() {
           isAdmin,
           isAssistant,
           isPartner,
-          isFreelancer,
+          isContractor,
           navTarget,
           setNavTarget,
           navigateTo,
@@ -441,12 +441,12 @@ export default function AppLayoutMobile() {
         <SubmitModalMobile onClose={() => setShowSubmitModal(false)} />
       )}
 
-      {!isFreelancer && !isPartner && profile?.assistant_enabled !== false && <MortyChat />}
+      {!isContractor && !isPartner && profile?.assistant_enabled !== false && <MortyChat />}
     </div>
   );
 }
 
-function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelancer, navTarget, setNavTarget, navigateTo, setActiveTab }) {
+function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isContractor, navTarget, setNavTarget, navigateTo, setActiveTab }) {
   // Excluded routes -> friendly screen
   if (isExcludedOnMobile(activeTab)) {
     return (
@@ -475,21 +475,21 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
     case 'production': return <Production initialSheetId={navTarget} onSheetOpened={() => setNavTarget(null)} />;
     case 'ideation': return <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />;
     case 'resources': return <Resources />;
-    case 'pitch_videos': return <PitchVideos onBack={() => setActiveTab(isFreelancer ? 'fl_dashboard' : 'dashboard')} />;
+    case 'pitch_videos': return <PitchVideos onBack={() => setActiveTab(isContractor ? 'fl_dashboard' : 'dashboard')} />;
     case 'research': return <Research />;
     case 'business_dev': return <BusinessDev />;
     case 'invoicing': return <Invoicing />;
     case 'deliverables': return <Deliverables />;
     case 'ideas': return <Ideas />;
     case 'workflows': return <Workflows />;
-    case 'freelancers': return <Freelancers />;
+    case 'freelancers': return <Contractors />;
     case 'ops': return <Ops />;
     case 'analytics': return <Analytics />;
     case 'tracking': return <Tracking />;
     case 'channels': return <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />;
     case 'messages': return <Messages onNavigate={navigateTo} />;
     case 'admin': return <AdminPanel />;
-    case 'fl_dashboard': return isFreelancer ? <FreelancerDashboard onNavigate={navigateTo} /> : null;
+    case 'fl_dashboard': return isContractor ? <ContractorDashboard onNavigate={navigateTo} /> : null;
     default: return <Dashboard onNavigate={navigateTo} />;
   }
 }

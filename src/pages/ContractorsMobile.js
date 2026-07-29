@@ -38,7 +38,7 @@ function fmtTime(t) {
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
-export default function FreelancersMobile() {
+export default function ContractorsMobile() {
   const { profile, isAdmin } = useAuth();
   const [tab, setTab] = usePersistedTab('freelancers-tab-mobile', 'Assignments', ['Assignments', 'Hours']);
   const [creating, setCreating] = useState(false);
@@ -127,8 +127,8 @@ function AssignmentsPane({ onOpen, onEdit }) {
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
-      .from('freelancer_assignments')
-      .select('*, freelancer:profiles!freelancer_assignments_freelancer_id_fkey(full_name, avatar_url)')
+      .from('contractor_assignments')
+      .select('*, freelancer:profiles!contractor_id(full_name, avatar_url)')
       .order('created_at', { ascending: false })
       .limit(100);
     setRows(data || []);
@@ -205,8 +205,8 @@ function AssignmentDetail({ assignment, currentUserId, onEdit, onClose }) {
     (async () => {
       setLoadingComments(true);
       const { data } = await supabase
-        .from('freelancer_assignment_comments')
-        .select('*, author:profiles!freelancer_assignment_comments_author_id_fkey(full_name, avatar_url)')
+        .from('contractor_assignment_comments')
+        .select('*, author:profiles!author_id(full_name, avatar_url)')
         .eq('assignment_id', assignment.id)
         .order('created_at', { ascending: true });
       if (!cancelled) { setComments(data || []); setLoadingComments(false); }
@@ -218,14 +218,14 @@ function AssignmentDetail({ assignment, currentUserId, onEdit, onClose }) {
     if (!newComment.trim() || posting) return;
     setPosting(true);
     try {
-      await supabase.from('freelancer_assignment_comments').insert({
+      await supabase.from('contractor_assignment_comments').insert({
         assignment_id: assignment.id,
         author_id: currentUserId,
         body: newComment.trim(),
       });
-      if (assignment.freelancer_id !== currentUserId) {
+      if (assignment.contractor_id !== currentUserId) {
         await supabase.from('notifications').insert({
-          user_id: assignment.freelancer_id,
+          user_id: assignment.contractor_id,
           type: 'fl_comment',
           title: 'New Comment',
           body: `New comment on "${assignment.title}"`,
@@ -234,8 +234,8 @@ function AssignmentDetail({ assignment, currentUserId, onEdit, onClose }) {
         });
       }
       const { data } = await supabase
-        .from('freelancer_assignment_comments')
-        .select('*, author:profiles!freelancer_assignment_comments_author_id_fkey(full_name, avatar_url)')
+        .from('contractor_assignment_comments')
+        .select('*, author:profiles!author_id(full_name, avatar_url)')
         .eq('assignment_id', assignment.id)
         .order('created_at', { ascending: true });
       setComments(data || []);
@@ -318,8 +318,8 @@ function HoursPane({ currentUserId, onOpen }) {
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
-      .from('freelancer_hours')
-      .select('*, freelancer:profiles!freelancer_hours_freelancer_id_fkey(full_name)')
+      .from('contractor_hours')
+      .select('*, freelancer:profiles!contractor_id(full_name)')
       .order('period_start', { ascending: false })
       .limit(100);
     setRows(data || []);
@@ -382,26 +382,26 @@ function HoursDetail({ entry, currentUserId, onReviewed }) {
     let cancelled = false;
     (async () => {
       const { data, error } = await supabase.rpc('compute_freelancer_pay', {
-        p_freelancer: entry.freelancer_id,
+        p_freelancer: entry.contractor_id,
         p_start: entry.period_start,
         p_end: entry.period_end,
       });
       if (!cancelled) setPay(error ? null : data);
     })();
     return () => { cancelled = true; };
-  }, [entry.freelancer_id, entry.period_start, entry.period_end]);
+  }, [entry.contractor_id, entry.period_start, entry.period_end]);
 
   async function approve() {
     if (working || entry.reviewed_at) return;
     setWorking(true);
     try {
-      await supabase.from('freelancer_hours').update({
+      await supabase.from('contractor_hours').update({
         reviewed_by: currentUserId,
         reviewed_at: new Date().toISOString(),
       }).eq('id', entry.id).is('reviewed_at', null);
       const periodLabel = `${fmtDate(entry.period_start)} – ${fmtDate(entry.period_end)}`;
       await supabase.from('notifications').insert({
-        user_id: entry.freelancer_id,
+        user_id: entry.contractor_id,
         type: 'fl_hours_reviewed',
         title: 'Hours Reviewed',
         body: `Your hours for ${periodLabel} have been reviewed.`,

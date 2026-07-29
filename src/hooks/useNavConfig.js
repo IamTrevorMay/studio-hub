@@ -87,11 +87,11 @@ export default function useNavConfig() {
    * - Items in config but not in code are skipped
    * - Items in code but not in config are appended at the end
    */
-  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isFreelancer, profile, restrictedNavKeys) => {
+  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isContractor, profile, restrictedNavKeys) => {
     const restricted = restrictedNavKeys instanceof Set ? restrictedNavKeys : new Set();
     const isRestricted = (key) => restricted.has(key);
-    // Freelancers get a locked sidebar
-    if (isFreelancer) {
+    // Contractors get a locked sidebar
+    if (isContractor) {
       const items = [
         { type: 'item', key: 'fl_dashboard', label: 'Dashboard' },
       ];

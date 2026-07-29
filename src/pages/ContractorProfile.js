@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { colors } from '../lib/styleTokens';
 
-export default function FreelancerProfile() {
+export default function ContractorProfile() {
   const { profile, updateProfile } = useAuth();
   const [form, setForm] = useState({
     full_name: '',
@@ -31,7 +31,7 @@ export default function FreelancerProfile() {
     setLoading(true);
     const [{ data: prof }, { data: flProf }] = await Promise.all([
       supabase.from('profiles').select('full_name, email, avatar_url, title').eq('id', profile.id).single(),
-      supabase.from('freelancer_profiles').select('*').eq('id', profile.id).single(),
+      supabase.from('contractor_profiles').select('*').eq('id', profile.id).single(),
     ]);
     setForm({
       full_name: prof?.full_name || '',
@@ -67,7 +67,7 @@ export default function FreelancerProfile() {
           full_name: form.full_name,
           updated_at: new Date().toISOString(),
         }).eq('id', profile.id),
-        supabase.from('freelancer_profiles').update({
+        supabase.from('contractor_profiles').update({
           phone: form.phone || null,
           payment_method: form.payment_method || null,
           payment_details: form.payment_details || null,

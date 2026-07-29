@@ -99,13 +99,13 @@ export default function AuthPage() {
           .eq('id', user.id);
         if (profileError) throw profileError;
 
-        // If freelancer, create their freelancer_profiles row with payment info
-        if (assignedRole === 'freelancer') {
+        // If freelancer, create their contractor_profiles row with payment info
+        if (assignedRole === 'contractor' || assignedRole === 'freelancer') {
           // Retainer/overtime come off the invitation. The
           // fl_profile_set_payment_from_invitation trigger re-asserts these
           // server-side on insert, so these client values can't be spoofed —
           // they're passed for admin-initiated inserts and older invitations.
-          await supabase.from('freelancer_profiles').upsert({
+          await supabase.from('contractor_profiles').upsert({
             id: user.id,
             payment_type: invitation?.payment_type || null,
             rate: invitation?.rate != null ? Number(invitation.rate) : null,
@@ -128,8 +128,8 @@ export default function AuthPage() {
                   .from('freelancer-documents')
                   .upload(newPath, fileData, { upsert: true });
                 // Create the document record
-                await supabase.from('freelancer_documents').insert({
-                  freelancer_id: user.id,
+                await supabase.from('contractor_documents').insert({
+                  contractor_id: user.id,
                   uploaded_by: invitation.invited_by,
                   title: 'Contract',
                   doc_type: 'signing',

@@ -11,7 +11,7 @@ const TOUR_STEPS = [
   { key: 'fl_profile', title: 'Profile', description: 'Set up your payment method and contact info so you can get paid.' },
 ];
 
-export default function FreelancerTour({ onComplete, onNavigate }) {
+export default function ContractorTour({ onComplete, onNavigate }) {
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState(null);
 

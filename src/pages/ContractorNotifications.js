@@ -28,7 +28,7 @@ function formatRelativeTime(dateStr) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export default function FreelancerNotifications({ onNavigate }) {
+export default function ContractorNotifications({ onNavigate }) {
   const { profile } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);

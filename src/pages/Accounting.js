@@ -36,7 +36,7 @@ const EXPENSE_CATEGORY_META = {
   'Admin Subscriptions':    { label: 'Admin Subs',          color: '#84cc16' },
   'Creative Subscriptions': { label: 'Creative Subs',       color: '#eab308' },
   'Insurance':              { label: 'Insurance',           color: '#f59e0b' },
-  'Freelancers':            { label: 'Freelancers',         color: '#f97316' },
+  'Contractors':            { label: 'Contractors',         color: '#f97316' },
   'Misc Expense':           { label: 'Misc',                color: '#ef4444' },
   'Administration':         { label: 'Administration',      color: '#ec4899' },
   'Supplies':               { label: 'Supplies',            color: '#d946ef' },

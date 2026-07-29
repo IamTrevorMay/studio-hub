@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 
-// Create / edit a freelancer_assignments row. The Workflows Progress
+// Create / edit a contractor_assignments row. The Workflows Progress
 // table opens this in edit mode when a contractor row is clicked; the
 // `+ Assignment` button on Workflows opens it in create mode.
 //
@@ -36,7 +36,7 @@ function parseDriveFolderId(raw) {
 
 function toDateInput(v) {
   if (!v) return '';
-  // freelancer_assignments.due_date is a `date` column → 'YYYY-MM-DD'.
+  // contractor_assignments.due_date is a `date` column → 'YYYY-MM-DD'.
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return '';
@@ -53,28 +53,28 @@ export default function ContractorAssignmentModal({
   open, onClose, onCreated, onSaved, showToast, currentUserId, existing,
 }) {
   const isEdit = !!existing;
-  const [freelancers, setFreelancers] = useState([]);
+  const [freelancers, setContractors] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
-    freelancer_id: '', title: '', description: '', asset_url: '',
+    contractor_id: '', title: '', description: '', asset_url: '',
     due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '',
   });
 
-  const fetchFreelancers = useCallback(async () => {
+  const fetchContractors = useCallback(async () => {
     const { data } = await supabase
       .from('profiles')
       .select('id, full_name, email, title')
-      .eq('role', 'freelancer')
+      .in('role', ['contractor', 'freelancer'])
       .order('full_name');
-    setFreelancers(data || []);
+    setContractors(data || []);
   }, []);
 
   useEffect(() => {
     if (!open) return;
-    fetchFreelancers();
+    fetchContractors();
     if (isEdit) {
       setForm({
-        freelancer_id: existing.freelancer_id || '',
+        contractor_id: existing.contractor_id || '',
         title: existing.title || '',
         description: existing.description || '',
         asset_url: existing.asset_url || '',
@@ -86,20 +86,20 @@ export default function ContractorAssignmentModal({
       });
     } else {
       setForm({
-        freelancer_id: '', title: '', description: '', asset_url: '',
+        contractor_id: '', title: '', description: '', asset_url: '',
         due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '',
       });
     }
-  }, [open, isEdit, existing, fetchFreelancers]);
+  }, [open, isEdit, existing, fetchContractors]);
 
-  const canSubmit = form.freelancer_id && form.title.trim() && !submitting;
+  const canSubmit = form.contractor_id && form.title.trim() && !submitting;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
       const base = {
-        freelancer_id: form.freelancer_id,
+        contractor_id: form.contractor_id,
         title: form.title.trim(),
         description: form.description.trim() || null,
         asset_url: form.asset_url.trim() || null,
@@ -119,7 +119,7 @@ export default function ContractorAssignmentModal({
         }
         updates.updated_at = new Date().toISOString();
         const { error } = await supabase
-          .from('freelancer_assignments')
+          .from('contractor_assignments')
           .update(updates)
           .eq('id', existing.id);
         if (error) throw error;
@@ -127,13 +127,13 @@ export default function ContractorAssignmentModal({
         if (onSaved) onSaved();
       } else {
         const row = { ...base, created_by: currentUserId || null };
-        const { error } = await supabase.from('freelancer_assignments').insert(row);
+        const { error } = await supabase.from('contractor_assignments').insert(row);
         if (error) throw error;
         // Best-effort notification — a failure here must not report the (already
         // created) assignment as failed.
         try {
           await supabase.from('notifications').insert({
-            user_id: form.freelancer_id,
+            user_id: form.contractor_id,
             type: 'assignment',
             title: 'New Assignment',
             body: `You have been assigned "${form.title.trim()}"`,
@@ -158,7 +158,7 @@ export default function ContractorAssignmentModal({
     if (!window.confirm(`Delete assignment "${existing.title}"? This cannot be undone.`)) return;
     setSubmitting(true);
     try {
-      const { error } = await supabase.from('freelancer_assignments').delete().eq('id', existing.id);
+      const { error } = await supabase.from('contractor_assignments').delete().eq('id', existing.id);
       if (error) throw error;
       if (showToast) showToast('Assignment deleted');
       if (onSaved) onSaved();
@@ -181,7 +181,7 @@ export default function ContractorAssignmentModal({
             <p style={styles.subtitle}>
               {isEdit
                 ? `Created ${existing.created_at ? new Date(existing.created_at).toLocaleString() : 'recently'}`
-                : 'Create a paid assignment for a freelancer.'}
+                : 'Create a paid assignment for a contractor.'}
             </p>
           </div>
           <button style={styles.closeBtn} onClick={onClose}>×</button>
@@ -192,8 +192,8 @@ export default function ContractorAssignmentModal({
             <div style={styles.formField}>
               <label style={styles.label}>Contractor *</label>
               <select
-                value={form.freelancer_id}
-                onChange={e => setForm(p => ({ ...p, freelancer_id: e.target.value }))}
+                value={form.contractor_id}
+                onChange={e => setForm(p => ({ ...p, contractor_id: e.target.value }))}
                 style={styles.select}
                 disabled={isEdit}
               >

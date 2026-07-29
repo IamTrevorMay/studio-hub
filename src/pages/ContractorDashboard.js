@@ -65,7 +65,7 @@ function getDueDateStatus(dateString) {
   return 'future';
 }
 
-export default function FreelancerDashboard({ onNavigate }) {
+export default function ContractorDashboard({ onNavigate }) {
   const { profile } = useAuth();
 
   const [assignments, setAssignments] = useState([]);
@@ -107,9 +107,9 @@ export default function FreelancerDashboard({ onNavigate }) {
   const fetchAssignments = useCallback(async () => {
     if (!profile?.id) return;
     const { data } = await supabase
-      .from('freelancer_assignments')
-      .select('*, created_by_profile:profiles!freelancer_assignments_created_by_fkey(full_name, avatar_url)')
-      .eq('freelancer_id', profile.id)
+      .from('contractor_assignments')
+      .select('*, created_by_profile:profiles!created_by(full_name, avatar_url)')
+      .eq('contractor_id', profile.id)
       .order('created_at', { ascending: false });
     setAssignments(data || []);
     setLoading(false);
@@ -118,8 +118,8 @@ export default function FreelancerDashboard({ onNavigate }) {
   const fetchComments = useCallback(async (assignmentId) => {
     if (!assignmentId) return;
     const { data } = await supabase
-      .from('freelancer_assignment_comments')
-      .select('*, author:profiles!freelancer_assignment_comments_author_id_fkey(full_name, avatar_url)')
+      .from('contractor_assignment_comments')
+      .select('*, author:profiles!author_id(full_name, avatar_url)')
       .eq('assignment_id', assignmentId)
       .order('created_at', { ascending: true });
     setComments(data || []);
@@ -173,7 +173,7 @@ export default function FreelancerDashboard({ onNavigate }) {
 
   useEffect(() => {
     if (!profile?.id) return;
-    supabase.from('freelancer_profiles').select('payment_type').eq('id', profile.id).single()
+    supabase.from('contractor_profiles').select('payment_type').eq('id', profile.id).single()
       .then(({ data }) => { if (data) setMyPaymentType(data.payment_type); });
   }, [profile?.id]);
 
@@ -198,14 +198,14 @@ export default function FreelancerDashboard({ onNavigate }) {
   }, [selectedId, fetchComments]);
 
   useRealtimeTable('fl-assignments', {
-    table: 'freelancer_assignments',
-    filter: profile?.id ? `freelancer_id=eq.${profile.id}` : undefined,
+    table: 'contractor_assignments',
+    filter: profile?.id ? `contractor_id=eq.${profile.id}` : undefined,
     onAny: fetchAssignments,
     enabled: !!profile?.id,
   });
 
   useRealtimeTable('fl-comments', {
-    table: 'freelancer_assignment_comments',
+    table: 'contractor_assignment_comments',
     // Scope to the open assignment — refetchComments only loads selectedId's
     // thread, so an unfiltered subscription just caused needless refetch churn.
     filter: selectedId ? `assignment_id=eq.${selectedId}` : undefined,
@@ -234,7 +234,7 @@ export default function FreelancerDashboard({ onNavigate }) {
     try {
       const updates = { status: newStatus, updated_at: new Date().toISOString() };
       if (newStatus === 'completed') updates.completed_at = new Date().toISOString();
-      await supabase.from('freelancer_assignments').update(updates).eq('id', assignment.id);
+      await supabase.from('contractor_assignments').update(updates).eq('id', assignment.id);
 
       if (newStatus === 'completed' && assignment.created_by) {
         await supabase.from('notifications').insert({
@@ -265,7 +265,7 @@ export default function FreelancerDashboard({ onNavigate }) {
   async function handleDeclineAssignment(assignment) {
     if (!window.confirm(`Decline "${assignment.title}"? Your admin will be notified.`)) return;
     await supabase
-      .from('freelancer_assignments')
+      .from('contractor_assignments')
       .update({ declined_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', assignment.id);
 
@@ -294,7 +294,7 @@ export default function FreelancerDashboard({ onNavigate }) {
     if (!newComment.trim() || postingComment) return; // guard double-submit (Enter + button)
     setPostingComment(true);
     try {
-      await supabase.from('freelancer_assignment_comments').insert({
+      await supabase.from('contractor_assignment_comments').insert({
         assignment_id: selectedId,
         author_id: profile.id,
         body: newComment.trim(),
@@ -337,7 +337,7 @@ export default function FreelancerDashboard({ onNavigate }) {
         updated_at: new Date().toISOString(),
         hours_spent: hours,
       };
-      await supabase.from('freelancer_assignments').update(updates).eq('id', hoursModalAssignment.id);
+      await supabase.from('contractor_assignments').update(updates).eq('id', hoursModalAssignment.id);
 
       if (hoursModalAssignment.created_by) {
         await supabase.from('notifications').insert({
@@ -371,7 +371,7 @@ export default function FreelancerDashboard({ onNavigate }) {
     if (!stuckText.trim() || stuckSending) return;
     setStuckSending(true);
     try {
-      await supabase.from('freelancer_assignment_comments').insert({
+      await supabase.from('contractor_assignment_comments').insert({
         assignment_id: assignment.id,
         author_id: profile.id,
         body: `\u{1F6A7} Stuck: ${stuckText.trim()}`,
@@ -406,7 +406,7 @@ export default function FreelancerDashboard({ onNavigate }) {
 
   async function handleUploadSuccess(assignment, driveFileUrl) {
     setUploadedFileUrls(prev => ({ ...prev, [assignment.id]: driveFileUrl }));
-    await supabase.from('freelancer_assignments')
+    await supabase.from('contractor_assignments')
       .update({ asset_url: driveFileUrl, updated_at: new Date().toISOString() })
       .eq('id', assignment.id);
     fetchAssignments();

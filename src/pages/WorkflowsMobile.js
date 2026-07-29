@@ -62,7 +62,7 @@ export default function WorkflowsMobile() {
         })),
       );
       setContractorProfiles(
-        active.filter((p) => p.role === 'freelancer').map((p) => ({
+        active.filter((p) => p.role === 'contractor' || p.role === 'freelancer').map((p) => ({
           id: p.id, name: p.full_name || p.email || 'Unknown', role: 'contractor',
         })),
       );
@@ -77,19 +77,19 @@ export default function WorkflowsMobile() {
     const cutoff = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
     const TASK_COLS = 'id, title, description, assignee_id, due_date, status, snoozed_until, hold_reason, planned_date, workflow_instance_id, automation_id, created_at';
     const TASK_DONE_COLS = TASK_COLS + ', completed_at';
-    const FL_COLS = 'id, title, description, freelancer_id, status, due_date, due_time, pay_amount, asset_url, completed_at, created_at, created_by';
+    const FL_COLS = 'id, title, description, contractor_id, status, due_date, due_time, pay_amount, asset_url, completed_at, created_at, created_by';
     try {
       const [pend, { data: completed }, { data: flPendData }, { data: flDoneData }, { data: sprintRows }] = await Promise.all([
         fetchAllRows(supabase.from('tasks').select(TASK_COLS).in('status', ['active', 'pending', 'on_hold']).not('assignee_id', 'is', null).order('created_at', { ascending: true }).order('id', { ascending: true })),
         supabase.from('tasks').select(TASK_DONE_COLS).eq('status', 'complete').gte('completed_at', cutoff).not('assignee_id', 'is', null),
-        supabase.from('freelancer_assignments').select(FL_COLS).in('status', ['assigned', 'in_progress']),
-        supabase.from('freelancer_assignments').select(FL_COLS).eq('status', 'completed').gte('completed_at', cutoff),
+        supabase.from('contractor_assignments').select(FL_COLS).in('status', ['assigned', 'in_progress']),
+        supabase.from('contractor_assignments').select(FL_COLS).eq('status', 'completed').gte('completed_at', cutoff),
         supabase.from('personal_tasks').select('task_id, profiles!personal_tasks_created_by_fkey!inner(role)').eq('status', 'in_progress').not('task_id', 'is', null).eq('profiles.role', 'admin'),
       ]);
       setTeamPending(pend || []);
       setTeamDone(completed || []);
-      setFlPending((flPendData || []).map((a) => ({ ...a, assignee_id: a.freelancer_id })));
-      setFlDone((flDoneData || []).map((a) => ({ ...a, assignee_id: a.freelancer_id })));
+      setFlPending((flPendData || []).map((a) => ({ ...a, assignee_id: a.contractor_id })));
+      setFlDone((flDoneData || []).map((a) => ({ ...a, assignee_id: a.contractor_id })));
       setSprintActiveTaskIds(new Set((sprintRows || []).map((r) => r.task_id)));
     } catch (e) { setError(e.message); }
     setLoading(false);
@@ -197,7 +197,7 @@ export default function WorkflowsMobile() {
               onClick={() => { setAssignSheetOpen(false); setContractorAssignOpen(true); }}
             >
               <div style={styles.sheetLabel}>Contractor</div>
-              <div style={styles.sheetDesc}>Freelancer — paid assignment</div>
+              <div style={styles.sheetDesc}>Contractor — paid assignment</div>
             </button>
             <button style={styles.sheetCancel} onClick={() => setAssignSheetOpen(false)}>Cancel</button>
           </div>

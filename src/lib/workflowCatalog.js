@@ -8,7 +8,7 @@ export const TRIGGER_ENTITIES = [
   { value: 'sponsor_campaigns', label: 'a sponsor campaign', article: 'campaign' },
   { value: 'sponsor_deliverables', label: 'a deliverable', article: 'deliverable' },
   { value: 'projects', label: 'a project', article: 'project' },
-  { value: 'fl_assignments', label: 'a freelancer assignment', article: 'assignment' },
+  { value: 'fl_assignments', label: 'a contractor assignment', article: 'assignment' },
   { value: 'sprints', label: 'a sprint', article: 'sprint' },
 ];
 
@@ -64,7 +64,7 @@ export const NAVIGATE_TARGETS = [
   { value: 'projects', label: 'Projects' },
   { value: 'analytics', label: 'Analytics' },
   { value: 'dashboard', label: 'Dashboard' },
-  { value: 'freelancers', label: 'Freelancers' },
+  { value: 'freelancers', label: 'Contractors' },
   { value: 'business_dev', label: 'Roadmap' },
 ];
 

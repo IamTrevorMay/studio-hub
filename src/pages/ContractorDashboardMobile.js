@@ -48,7 +48,7 @@ function greet() {
   return 'Good evening';
 }
 
-export default function FreelancerDashboardMobile() {
+export default function ContractorDashboardMobile() {
   const { profile } = useAuth();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -58,9 +58,9 @@ export default function FreelancerDashboardMobile() {
   const fetchAssignments = useCallback(async () => {
     if (!profile?.id) return;
     const { data } = await supabase
-      .from('freelancer_assignments')
-      .select('*, created_by_profile:profiles!freelancer_assignments_created_by_fkey(full_name)')
-      .eq('freelancer_id', profile.id)
+      .from('contractor_assignments')
+      .select('*, created_by_profile:profiles!created_by(full_name)')
+      .eq('contractor_id', profile.id)
       .order('created_at', { ascending: false });
     setAssignments(data || []);
     setLoading(false);
@@ -72,8 +72,8 @@ export default function FreelancerDashboardMobile() {
     if (!profile?.id) return;
     const ch = supabase.channel(`fl-dashboard-mobile-${profile.id}`)
       .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'freelancer_assignments',
-        filter: `freelancer_id=eq.${profile.id}`,
+        event: '*', schema: 'public', table: 'contractor_assignments',
+        filter: `contractor_id=eq.${profile.id}`,
       }, () => fetchAssignments())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -198,8 +198,8 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
 
   const fetchComments = useCallback(async () => {
     const { data } = await supabase
-      .from('freelancer_assignment_comments')
-      .select('*, author:profiles!freelancer_assignment_comments_author_id_fkey(full_name)')
+      .from('contractor_assignment_comments')
+      .select('*, author:profiles!author_id(full_name)')
       .eq('assignment_id', assignmentId)
       .order('created_at', { ascending: true });
     setComments(data || []);
@@ -210,7 +210,7 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
   useEffect(() => {
     const ch = supabase.channel(`fl-assignment-${assignmentId}`)
       .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'freelancer_assignment_comments',
+        event: '*', schema: 'public', table: 'contractor_assignment_comments',
         filter: `assignment_id=eq.${assignmentId}`,
       }, () => fetchComments())
       .subscribe();
@@ -225,7 +225,7 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
     setPosting(true);
     const body = text.trim();
     try {
-      await supabase.from('freelancer_assignment_comments').insert({
+      await supabase.from('contractor_assignment_comments').insert({
         assignment_id: assignmentId,
         author_id: profile.id,
         body,
@@ -254,7 +254,7 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
     try {
       const updates = { status: next, updated_at: new Date().toISOString() };
       if (next === 'completed') updates.completed_at = new Date().toISOString();
-      await supabase.from('freelancer_assignments').update(updates).eq('id', assignmentId);
+      await supabase.from('contractor_assignments').update(updates).eq('id', assignmentId);
       if (next === 'completed' && assignment.created_by) {
         await supabase.from('notifications').insert({
           user_id: assignment.created_by,

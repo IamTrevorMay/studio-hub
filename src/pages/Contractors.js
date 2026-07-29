@@ -20,7 +20,7 @@ const TYPE_LABELS = { edit: 'Edit', design: 'Design', write: 'Write', other: 'Ot
 
 const SPECIALTY_LABELS = { editor: 'Editor', designer: 'Designer', writer: 'Writer', other: 'Other' };
 
-const FREELANCER_TITLES = [
+const CONTRACTOR_TITLES = [
   'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
   'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
 ];
@@ -29,15 +29,15 @@ const FREELANCER_TITLES = [
 /*  Component                                  */
 /* ─────────────────────────────────────────── */
 
-function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
+function Contractors({ initialAssignmentId, onAssignmentOpened } = {}) {
   const { profile, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = usePersistedTab('freelancers-tab', 'Assignments', ['Assignments', 'Hours', 'Documents', 'Team']);
 
   /* ── Team state ── */
-  const [freelancers, setFreelancers] = useState([]);
+  const [freelancers, setContractors] = useState([]);
   const [flProfiles, setFlProfiles] = useState({});
   const [assignmentCounts, setAssignmentCounts] = useState({});
-  const [expandedFreelancer, setExpandedFreelancer] = useState(null);
+  const [expandedContractor, setExpandedContractor] = useState(null);
   const [flAssignments, setFlAssignments] = useState([]);
   const [flHoursSummary, setFlHoursSummary] = useState([]);
   const [payBreakdowns, setPayBreakdowns] = useState({}); // { [hoursEntryId]: compute_freelancer_pay result }
@@ -69,7 +69,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   /* ── Assignments state ── */
   const [assignments, setAssignments] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [freelancerFilter, setFreelancerFilter] = useState('all');
+  const [freelancerFilter, setContractorFilter] = useState('all');
   const [showNewAssignment, setShowNewAssignment] = useState(false);
   const [creatingAssign, setCreatingAssign] = useState(false);
   const [expandedAssignment, setExpandedAssignment] = useState(null);
@@ -82,19 +82,19 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
 
   // New assignment form
   const [newAssign, setNewAssign] = useState({
-    freelancer_id: '', title: '', description: '', asset_url: '',
+    contractor_id: '', title: '', description: '', asset_url: '',
     due_date: '', due_time: '', pay_amount: '', content_type: 'video',
   });
 
   /* ── Hours state ── */
   const [hours, setHours] = useState([]);
-  const [hoursFreelancerFilter, setHoursFreelancerFilter] = useState('all');
+  const [hoursContractorFilter, setHoursContractorFilter] = useState('all');
 
   /* ── Documents state ── */
   const [docs, setDocs] = useState([]);
-  const [docsFreelancerFilter, setDocsFreelancerFilter] = useState('all');
+  const [docsContractorFilter, setDocsContractorFilter] = useState('all');
   const [showUploadForm, setShowUploadForm] = useState(false);
-  const [uploadForm, setUploadForm] = useState({ title: '', description: '', doc_type: 'signing', freelancer_ids: [] });
+  const [uploadForm, setUploadForm] = useState({ title: '', description: '', doc_type: 'signing', contractor_ids: [] });
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadLoading, setUploadLoading] = useState(false);
 
@@ -106,43 +106,43 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
     const { data: profiles } = await supabase
       .from('profiles')
       .select('id, full_name, email, avatar_url, title, assigned_drive_folder_id, assigned_drive_folder_name')
-      .eq('role', 'freelancer')
+      .in('role', ['contractor', 'freelancer'])
       .order('full_name');
-    setFreelancers(profiles || []);
+    setContractors(profiles || []);
 
-    const { data: fpData } = await supabase.from('freelancer_profiles').select('*');
+    const { data: fpData } = await supabase.from('contractor_profiles').select('*');
     const fpMap = {};
     (fpData || []).forEach(fp => { fpMap[fp.id] = fp; });
     setFlProfiles(fpMap);
 
     const acData = await fetchAllRows(
       supabase
-        .from('freelancer_assignments')
-        .select('freelancer_id, status, declined_at')
-        .order('freelancer_id', { ascending: true })
+        .from('contractor_assignments')
+        .select('contractor_id, status, declined_at')
+        .order('contractor_id', { ascending: true })
     );
     const counts = {};
     acData.forEach(a => {
       if (a.status !== 'completed' && !a.declined_at) {
-        counts[a.freelancer_id] = (counts[a.freelancer_id] || 0) + 1;
+        counts[a.contractor_id] = (counts[a.contractor_id] || 0) + 1;
       }
     });
     setAssignmentCounts(counts);
   }, []);
 
-  const fetchFreelancerDetail = useCallback(async (fId) => {
+  const fetchContractorDetail = useCallback(async (fId) => {
     const { data: assigns } = await supabase
-      .from('freelancer_assignments')
+      .from('contractor_assignments')
       .select('*')
-      .eq('freelancer_id', fId)
+      .eq('contractor_id', fId)
       .order('created_at', { ascending: false })
       .limit(10);
     setFlAssignments(assigns || []);
 
     const { data: hrs } = await supabase
-      .from('freelancer_hours')
+      .from('contractor_hours')
       .select('*')
-      .eq('freelancer_id', fId)
+      .eq('contractor_id', fId)
       .order('period_start', { ascending: false })
       .limit(5);
     setFlHoursSummary(hrs || []);
@@ -151,8 +151,8 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const fetchAssignments = useCallback(async () => {
     const data = await fetchAllRows(
       supabase
-        .from('freelancer_assignments')
-        .select('*, freelancer:profiles!freelancer_assignments_freelancer_id_fkey(full_name, avatar_url), created_by_profile:profiles!freelancer_assignments_created_by_fkey(full_name)')
+        .from('contractor_assignments')
+        .select('*, freelancer:profiles!contractor_id(full_name, avatar_url), created_by_profile:profiles!created_by(full_name)')
         .order('created_at', { ascending: false })
     );
     setAssignments(data);
@@ -160,8 +160,8 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
 
   const fetchComments = useCallback(async (assignmentId) => {
     const { data } = await supabase
-      .from('freelancer_assignment_comments')
-      .select('*, author:profiles!freelancer_assignment_comments_author_id_fkey(full_name, avatar_url)')
+      .from('contractor_assignment_comments')
+      .select('*, author:profiles!author_id(full_name, avatar_url)')
       .eq('assignment_id', assignmentId)
       .order('created_at', { ascending: true });
     setAssignmentComments(data || []);
@@ -170,8 +170,8 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const fetchHours = useCallback(async () => {
     const data = await fetchAllRows(
       supabase
-        .from('freelancer_hours')
-        .select('*, freelancer:profiles!freelancer_hours_freelancer_id_fkey(full_name, avatar_url)')
+        .from('contractor_hours')
+        .select('*, freelancer:profiles!contractor_id(full_name, avatar_url)')
         .order('period_start', { ascending: false })
     );
     setHours(data);
@@ -179,8 +179,8 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
 
   const fetchDocs = useCallback(async () => {
     const { data } = await supabase
-      .from('freelancer_documents')
-      .select('*, freelancer:profiles!freelancer_documents_freelancer_id_fkey(full_name)')
+      .from('contractor_documents')
+      .select('*, freelancer:profiles!contractor_id(full_name)')
       .order('created_at', { ascending: false });
     setDocs(data || []);
   }, []);
@@ -202,13 +202,13 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   // money math shown here matches the single source of truth.
   useEffect(() => {
     if (!isAdmin) return;
-    const hourly = (hours || []).filter(h => flProfiles[h.freelancer_id]?.payment_type === 'hourly');
+    const hourly = (hours || []).filter(h => flProfiles[h.contractor_id]?.payment_type === 'hourly');
     if (hourly.length === 0) { setPayBreakdowns({}); return; }
     let cancelled = false;
     (async () => {
       const results = await Promise.all(hourly.map(async (h) => {
         const { data, error } = await supabase.rpc('compute_freelancer_pay', {
-          p_freelancer: h.freelancer_id,
+          p_freelancer: h.contractor_id,
           p_start: h.period_start,
           p_end: h.period_end,
         });
@@ -326,7 +326,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
         },
         body: JSON.stringify({
           email: inviteEmail.trim(),
-          role: 'freelancer',
+          role: 'contractor',
           title: inviteTitle,
           payment_type: invitePaymentType,
           rate: parseFloat(inviteRate),
@@ -369,12 +369,12 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   };
 
   const handleCreateAssignment = async () => {
-    if (!newAssign.freelancer_id || !newAssign.title.trim()) return;
+    if (!newAssign.contractor_id || !newAssign.title.trim()) return;
     if (creatingAssign) return; // guard against double-click → duplicate rows + notifications
     setCreatingAssign(true);
     try {
       const row = {
-        freelancer_id: newAssign.freelancer_id,
+        contractor_id: newAssign.contractor_id,
         title: newAssign.title.trim(),
         description: newAssign.description.trim() || null,
         asset_url: newAssign.asset_url.trim() || null,
@@ -384,12 +384,12 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
         content_type: newAssign.content_type,
         created_by: profile.id,
       };
-      const { error } = await supabase.from('freelancer_assignments').insert(row);
+      const { error } = await supabase.from('contractor_assignments').insert(row);
       if (error) { console.error(error); return; }
 
       // Notify freelancer
       await supabase.from('notifications').insert({
-        user_id: newAssign.freelancer_id,
+        user_id: newAssign.contractor_id,
         type: 'assignment',
         title: 'New Assignment',
         body: `You have been assigned "${newAssign.title.trim()}"`,
@@ -397,7 +397,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
         link_target: null,
       });
 
-      setNewAssign({ freelancer_id: '', title: '', description: '', asset_url: '', due_date: '', due_time: '', pay_amount: '', content_type: 'video' });
+      setNewAssign({ contractor_id: '', title: '', description: '', asset_url: '', due_date: '', due_time: '', pay_amount: '', content_type: 'video' });
       setShowNewAssignment(false);
       fetchAssignments();
     } finally {
@@ -419,13 +419,13 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
       completed_at: status === 'completed' ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     };
-    await supabase.from('freelancer_assignments').update(updates).eq('id', id);
+    await supabase.from('contractor_assignments').update(updates).eq('id', id);
     setEditingAssignment(null);
     fetchAssignments();
   };
 
   const handleArchiveAssignment = async (id) => {
-    await supabase.from('freelancer_assignments').update({
+    await supabase.from('contractor_assignments').update({
       status: 'completed',
       completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -462,7 +462,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
         assigned_drive_folder_name: editForm.assigned_drive_folder_name || null,
       }).eq('id', flId);
 
-      await supabase.from('freelancer_profiles').upsert({
+      await supabase.from('contractor_profiles').upsert({
         id: flId,
         payment_type: editForm.payment_type,
         rate: editForm.rate ? parseFloat(editForm.rate) : null,
@@ -487,7 +487,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const handleDeleteContractor = async (flId) => {
     await supabase.from('profiles').update({ role: 'deactivated' }).eq('id', flId);
     setDeleteConfirming(null);
-    setExpandedFreelancer(null);
+    setExpandedContractor(null);
     fetchTeam();
   };
 
@@ -495,7 +495,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
     if (!assignment) return;
     const who = assignment.freelancer?.full_name || 'this contractor';
     if (!window.confirm(`Delete assignment "${assignment.title}" for ${who}? This cannot be undone.`)) return;
-    const { error } = await supabase.from('freelancer_assignments').delete().eq('id', assignment.id);
+    const { error } = await supabase.from('contractor_assignments').delete().eq('id', assignment.id);
     if (error) { console.error(error); window.alert(`Failed to delete: ${error.message}`); return; }
     setEditingAssignment(null);
     setExpandedAssignment(null);
@@ -505,16 +505,16 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const handlePostComment = async (assignment) => {
     if (!newComment.trim() || commentPosting) return;
     setCommentPosting(true);
-    await supabase.from('freelancer_assignment_comments').insert({
+    await supabase.from('contractor_assignment_comments').insert({
       assignment_id: assignment.id,
       author_id: profile.id,
       body: newComment.trim(),
     });
 
     // Notify freelancer if admin is posting
-    if (assignment.freelancer_id !== profile.id) {
+    if (assignment.contractor_id !== profile.id) {
       await supabase.from('notifications').insert({
-        user_id: assignment.freelancer_id,
+        user_id: assignment.contractor_id,
         type: 'fl_comment',
         title: 'New Comment',
         body: `${profile.full_name} commented on "${assignment.title}"`,
@@ -525,7 +525,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
       supabase.functions.invoke('send-notification-email', {
         body: {
           trigger_key: 'fl_comment_on_mine',
-          recipient_id: assignment.freelancer_id,
+          recipient_id: assignment.contractor_id,
           context: { assignment_title: assignment.title, person_name: profile.full_name },
         },
       }).catch(() => {});
@@ -539,14 +539,14 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const handleReviewHours = async (hourEntry) => {
     // Already reviewed → no-op, so a second click can't re-stamp + send a dup notification.
     if (hourEntry.reviewed_at) return;
-    await supabase.from('freelancer_hours').update({
+    await supabase.from('contractor_hours').update({
       reviewed_by: profile.id,
       reviewed_at: new Date().toISOString(),
     }).eq('id', hourEntry.id).is('reviewed_at', null);
 
     const periodLabel = `${formatDate(hourEntry.period_start)} - ${formatDate(hourEntry.period_end)}`;
     await supabase.from('notifications').insert({
-      user_id: hourEntry.freelancer_id,
+      user_id: hourEntry.contractor_id,
       type: 'fl_hours_reviewed',
       title: 'Hours Reviewed',
       body: `Your hours for ${periodLabel} have been reviewed.`,
@@ -560,18 +560,18 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   /* ── Document handlers ── */
 
   const handleUploadDoc = async () => {
-    if (!uploadFile || !uploadForm.title.trim() || uploadForm.freelancer_ids.length === 0) return;
+    if (!uploadFile || !uploadForm.title.trim() || uploadForm.contractor_ids.length === 0) return;
     setUploadLoading(true);
     try {
-      for (const fId of uploadForm.freelancer_ids) {
+      for (const fId of uploadForm.contractor_ids) {
         const storagePath = `${fId}/${Date.now()}_${uploadFile.name}`;
         const { error: uploadError } = await supabase.storage
           .from('freelancer-documents')
           .upload(storagePath, uploadFile);
         if (uploadError) throw uploadError;
 
-        const { error: insertError } = await supabase.from('freelancer_documents').insert({
-          freelancer_id: fId,
+        const { error: insertError } = await supabase.from('contractor_documents').insert({
+          contractor_id: fId,
           uploaded_by: profile.id,
           title: uploadForm.title.trim(),
           description: uploadForm.description.trim() || null,
@@ -582,7 +582,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
         if (insertError) throw insertError;
       }
       setShowUploadForm(false);
-      setUploadForm({ title: '', description: '', doc_type: 'signing', freelancer_ids: [] });
+      setUploadForm({ title: '', description: '', doc_type: 'signing', contractor_ids: [] });
       setUploadFile(null);
       fetchDocs();
     } catch (err) {
@@ -595,7 +595,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const handleDeleteDoc = async (doc) => {
     if (!window.confirm(`Delete "${doc.title}" for ${doc.freelancer?.full_name}?`)) return;
     await supabase.storage.from('freelancer-documents').remove([doc.storage_path]);
-    await supabase.from('freelancer_documents').delete().eq('id', doc.id);
+    await supabase.from('contractor_documents').delete().eq('id', doc.id);
     fetchDocs();
   };
 
@@ -689,7 +689,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
 
   const filteredAssignments = assignments.filter(a => {
     if (statusFilter !== 'all' && a.status !== statusFilter) return false;
-    if (freelancerFilter !== 'all' && a.freelancer_id !== freelancerFilter) return false;
+    if (freelancerFilter !== 'all' && a.contractor_id !== freelancerFilter) return false;
     const { start, end } = getTimeFilterRange(timeFilter);
     const created = a.created_at ? new Date(a.created_at) : null;
     const completed = a.completed_at ? new Date(a.completed_at) : null;
@@ -699,12 +699,12 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   });
 
   const filteredHours = hours.filter(h => {
-    if (hoursFreelancerFilter !== 'all' && h.freelancer_id !== hoursFreelancerFilter) return false;
+    if (hoursContractorFilter !== 'all' && h.contractor_id !== hoursContractorFilter) return false;
     return true;
   });
 
   const filteredDocs = docs.filter(d => {
-    if (docsFreelancerFilter !== 'all' && d.freelancer_id !== docsFreelancerFilter) return false;
+    if (docsContractorFilter !== 'all' && d.contractor_id !== docsContractorFilter) return false;
     return true;
   });
 
@@ -767,7 +767,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                       style={styles.select}
                     >
                       <option value="">Select title...</option>
-                      {FREELANCER_TITLES.map(t => (
+                      {CONTRACTOR_TITLES.map(t => (
                         <option key={t} value={t}>{t}</option>
                       ))}
                     </select>
@@ -1030,7 +1030,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
             )}
           </div>
 
-          {/* Freelancer list */}
+          {/* Contractor list */}
           {freelancers.length === 0 ? (
             <p style={styles.emptyText}>No contractors yet. Invite one above.</p>
           ) : (
@@ -1038,17 +1038,17 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
               {freelancers.map(fl => {
                 const fp = flProfiles[fl.id] || {};
                 const activeCount = assignmentCounts[fl.id] || 0;
-                const isExpanded = expandedFreelancer === fl.id;
+                const isExpanded = expandedContractor === fl.id;
                 return (
                   <div key={fl.id} style={styles.card}>
                     <div
                       style={{ display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}
                       onClick={() => {
                         if (isExpanded) {
-                          setExpandedFreelancer(null);
+                          setExpandedContractor(null);
                         } else {
-                          setExpandedFreelancer(fl.id);
-                          fetchFreelancerDetail(fl.id);
+                          setExpandedContractor(fl.id);
+                          fetchContractorDetail(fl.id);
                         }
                       }}
                     >
@@ -1168,7 +1168,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                                   style={styles.select}
                                 >
                                   <option value="">Select title...</option>
-                                  {FREELANCER_TITLES.map(t => (
+                                  {CONTRACTOR_TITLES.map(t => (
                                     <option key={t} value={t}>{t}</option>
                                   ))}
                                 </select>
@@ -1438,10 +1438,10 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
               </button>
             ))}
 
-            {/* Freelancer dropdown */}
+            {/* Contractor dropdown */}
             <select
               value={freelancerFilter}
-              onChange={e => setFreelancerFilter(e.target.value)}
+              onChange={e => setContractorFilter(e.target.value)}
               style={styles.select}
             >
               <option value="all">All Contractors</option>
@@ -1484,8 +1484,8 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                 <div style={styles.formField}>
                   <label style={styles.label}>Contractor *</label>
                   <select
-                    value={newAssign.freelancer_id}
-                    onChange={e => setNewAssign(p => ({ ...p, freelancer_id: e.target.value }))}
+                    value={newAssign.contractor_id}
+                    onChange={e => setNewAssign(p => ({ ...p, contractor_id: e.target.value }))}
                     style={styles.select}
                   >
                     <option value="">Select...</option>
@@ -1965,8 +1965,8 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
           {/* Filter */}
           <div style={{ marginBottom: 16 }}>
             <select
-              value={hoursFreelancerFilter}
-              onChange={e => setHoursFreelancerFilter(e.target.value)}
+              value={hoursContractorFilter}
+              onChange={e => setHoursContractorFilter(e.target.value)}
               style={styles.select}
             >
               <option value="all">All Contractors</option>
@@ -2044,8 +2044,8 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
               {showUploadForm ? 'Cancel' : 'Upload Document'}
             </button>
             <select
-              value={docsFreelancerFilter}
-              onChange={e => setDocsFreelancerFilter(e.target.value)}
+              value={docsContractorFilter}
+              onChange={e => setDocsContractorFilter(e.target.value)}
               style={styles.select}
             >
               <option value="all">All Contractors</option>
@@ -2094,16 +2094,16 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                   <label style={styles.label}>Contractor(s)</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {freelancers.map(fl => {
-                      const sel = uploadForm.freelancer_ids.includes(fl.id);
+                      const sel = uploadForm.contractor_ids.includes(fl.id);
                       return (
                         <button
                           key={fl.id}
                           type="button"
                           onClick={() => setUploadForm(p => ({
                             ...p,
-                            freelancer_ids: sel
-                              ? p.freelancer_ids.filter(x => x !== fl.id)
-                              : [...p.freelancer_ids, fl.id],
+                            contractor_ids: sel
+                              ? p.contractor_ids.filter(x => x !== fl.id)
+                              : [...p.contractor_ids, fl.id],
                           }))}
                           style={{
                             ...styles.filterPill,
@@ -2129,7 +2129,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
               <div style={{ marginTop: 14 }}>
                 <button
                   onClick={handleUploadDoc}
-                  disabled={uploadLoading || !uploadFile || !uploadForm.title.trim() || uploadForm.freelancer_ids.length === 0}
+                  disabled={uploadLoading || !uploadFile || !uploadForm.title.trim() || uploadForm.contractor_ids.length === 0}
                   style={{
                     ...styles.primaryBtn,
                     ...(uploadLoading ? { opacity: 0.5 } : {}),
@@ -2496,4 +2496,4 @@ const styles = {
   },
 };
 
-export default Freelancers;
+export default Contractors;

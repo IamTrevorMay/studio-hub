@@ -181,8 +181,8 @@ export function NotificationProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => refreshNotifications())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, (payload) => fireDesktopNotification(payload.new))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ad_read_proposals' }, () => refreshNotifications())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_documents' }, () => refreshNotifications())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_assignments' }, () => refreshNotifications())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contractor_documents' }, () => refreshNotifications())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contractor_assignments' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => refreshNotifications())
       .subscribe();
 

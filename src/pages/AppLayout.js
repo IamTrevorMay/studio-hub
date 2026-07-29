@@ -38,12 +38,12 @@ import Broadcast from './tools/Broadcast';
 import Mailer from './tools/Mailer';
 import Graphics from './tools/Graphics';
 
-import FreelancerDashboard from './FreelancerDashboard';
-import FreelancerHours from './FreelancerHours';
-import FreelancerProfile from './FreelancerProfile';
-import FreelancerNotifications from './FreelancerNotifications';
-import FreelancerDocuments from './FreelancerDocuments';
-import Freelancers from './Freelancers';
+import ContractorDashboard from './ContractorDashboard';
+import ContractorHours from './ContractorHours';
+import ContractorProfile from './ContractorProfile';
+import ContractorNotifications from './ContractorNotifications';
+import ContractorDocuments from './ContractorDocuments';
+import Contractors from './Contractors';
 import Ideas from './Ideas';
 
 import Jobs from './Jobs';
@@ -51,7 +51,7 @@ import Workflows from './Workflows';
 import Ops from './Ops';
 import Morty from '../components/Morty';
 import MortyChat from '../components/MortyChat';
-import FreelancerTour from '../components/FreelancerTour';
+import ContractorTour from '../components/ContractorTour';
 import PageErrorBoundary from '../components/PageErrorBoundary';
 import SuiteLauncher from './SuiteLauncher';
 import SuiteComingSoon from './SuiteComingSoon';
@@ -92,7 +92,7 @@ const NAV_ITEMS = [
   { key: 'business_dev', label: 'Roadmap', icon: BusinessDevIcon, adminOnly: true },
   { key: 'payroll', label: 'Payroll', icon: PayrollIcon, adminOnly: true },
   { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon, adminOnly: true },
-  { key: 'freelancers', label: 'Contractors', icon: FreelancersIcon, adminOnly: true },
+  { key: 'freelancers', label: 'Contractors', icon: ContractorsIcon, adminOnly: true },
   { key: 'workflows', label: 'Workflows', icon: WorkflowsIcon, adminOnly: true },
   { key: 'jobs', label: 'Jobs', icon: JobsIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
@@ -244,7 +244,7 @@ const NAV_ICON_MAP = {
   business_dev: BusinessDevIcon,
   payroll: PayrollIcon,
   invoicing: InvoicingIcon,
-  freelancers: FreelancersIcon,
+  freelancers: ContractorsIcon,
   workflows: WorkflowsIcon,
   ops: AnalyticsIcon,
   jobs: JobsIcon,
@@ -262,7 +262,7 @@ const NAV_ICON_MAP = {
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
+  const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isContractor, restrictedNavKeys } = useAuth();
   // Suite gating: the app launcher + Bridge branding + Harbor are ADMIN-ONLY
   // for now (Trevor's call at merge time, 2026-07-24). This single flag gates
   // the launcher landing, the suite URL deep-links (/launcher, /harbor,
@@ -271,7 +271,7 @@ export default function AppLayout() {
   // keep the classic "Mayday Studio" tab app exactly as it was pre-suite:
   // bare '/' resolves to Bridge (see src/lib/suite.js) so they land on their
   // usual page, never in the launcher. Widen this back to
-  // `!isFreelancer && !isPartner` to reopen the suite to all staff.
+  // `!isContractor && !isPartner` to reopen the suite to all staff.
   const isSuiteUser = isAdmin;
   const { unreadAnnouncementCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, refreshNotifications } = useNotifications();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
@@ -321,7 +321,7 @@ export default function AppLayout() {
   const isBetaOwner = isAdmin && profile?.email === BETA_OWNER_EMAIL;
   // Beta pages never surface through the regular nav (or the nav editor) —
   // they exist only inside the Beta folder appended for the beta owner.
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile, restrictedNavKeys)
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isContractor, profile, restrictedNavKeys)
     .filter(e => !(e.type === 'item' && BETA_PAGE_KEYS.includes(e.key)));
   const adminModeKeys = getAdminModeKeys(resolvedNav, isBetaOwner);
 
@@ -347,10 +347,10 @@ export default function AppLayout() {
       && !(activeTab === 'broadcast' && canAccessBroadcast(profile?.role))
       && !(activeTab === 'business_dev' && isPartner);
     if (restrictedNavKeys?.has(activeTab) || adminOnlyBlocked) {
-      setActiveTab(isFreelancer ? 'fl_dashboard' : 'dashboard');
+      setActiveTab(isContractor ? 'fl_dashboard' : 'dashboard');
     }
     // eslint-disable-next-line
-  }, [activeTab, restrictedNavKeys, isAdmin, isPartner, isFreelancer, profile]);
+  }, [activeTab, restrictedNavKeys, isAdmin, isPartner, isContractor, profile]);
 
   // Mode-filtered nav. Admin-only pages live in Admin Mode and disappear from
   // the default Work View; flipping the bottom button swaps the sidebar.
@@ -441,30 +441,30 @@ export default function AppLayout() {
 
   // Redirect freelancers to their dashboard if landing on a non-freelancer tab
   useEffect(() => {
-    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'pitch_videos' && activeTab !== 'channels' && activeTab !== 'messages' && activeTab !== 'fl_assignments' && activeTab !== 'fl_submit') {
+    if (isContractor && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'pitch_videos' && activeTab !== 'channels' && activeTab !== 'messages' && activeTab !== 'fl_assignments' && activeTab !== 'fl_submit') {
       setActiveTab('fl_dashboard');
     }
     // activeTab in deps so back/forward (popstate) to a disallowed tab re-redirects
-  }, [isFreelancer, activeTab]); // eslint-disable-line
+  }, [isContractor, activeTab]); // eslint-disable-line
 
   // Check whether freelancer has completed the onboarding tour
   useEffect(() => {
-    if (!isFreelancer || !profile?.id) return;
-    supabase.from('freelancer_profiles').select('tour_completed_at').eq('id', profile.id).single()
+    if (!isContractor || !profile?.id) return;
+    supabase.from('contractor_profiles').select('tour_completed_at').eq('id', profile.id).single()
       .then(async ({ data, error }) => {
         if (error || !data) {
           // Row missing — create it so the tour can run
-          await supabase.from('freelancer_profiles').upsert({ id: profile.id });
+          await supabase.from('contractor_profiles').upsert({ id: profile.id });
           setShowTour(true);
         } else if (!data.tour_completed_at) {
           setShowTour(true);
         }
       });
-  }, [isFreelancer, profile?.id]);
+  }, [isContractor, profile?.id]);
 
   async function handleTourComplete() {
     setShowTour(false);
-    await supabase.from('freelancer_profiles')
+    await supabase.from('contractor_profiles')
       .update({ tour_completed_at: new Date().toISOString() })
       .eq('id', profile.id);
   }
@@ -953,7 +953,7 @@ export default function AppLayout() {
           {activeTab === 'screenwriter' && <PageErrorBoundary key="screenwriter"><Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'teleprompter' && <PageErrorBoundary key="teleprompter"><Teleprompter onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'telestration' && <PageErrorBoundary key="telestration"><Telestration onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'pitch_videos' && <PageErrorBoundary key="pitch_videos"><PitchVideos onBack={() => setActiveTab(isFreelancer ? 'fl_dashboard' : 'dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'pitch_videos' && <PageErrorBoundary key="pitch_videos"><PitchVideos onBack={() => setActiveTab(isContractor ? 'fl_dashboard' : 'dashboard')} /></PageErrorBoundary>}
           {activeTab === 'post_show' && <PageErrorBoundary key="post_show"><PostShow onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'timeline' && <PageErrorBoundary key="timeline"><Timeline /></PageErrorBoundary>}
           {activeTab === 'organize' && <PageErrorBoundary key="organize"><Organize onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
@@ -973,21 +973,21 @@ export default function AppLayout() {
           {activeTab === 'channels' && <PageErrorBoundary key="channels"><Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'messages' && <PageErrorBoundary key="messages"><Messages onNavigate={navigateTo} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'admin' && <PageErrorBoundary key="admin"><AdminPanel initialTab={adminInitialTab} /></PageErrorBoundary>}
-          {isAdmin && activeTab === 'freelancers' && <PageErrorBoundary key="freelancers"><Freelancers initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'freelancers' && <PageErrorBoundary key="freelancers"><Contractors initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'workflows' && <PageErrorBoundary key="workflows"><Workflows /></PageErrorBoundary>}
           {isAdmin && activeTab === 'ops' && <PageErrorBoundary key="ops"><Ops /></PageErrorBoundary>}
           {isAdmin && activeTab === 'jobs' && <PageErrorBoundary key="jobs"><Jobs initialApplicationId={navTarget} onApplicationOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
-          {isFreelancer && activeTab === 'fl_dashboard' && <PageErrorBoundary key="fl_dashboard"><FreelancerDashboard onNavigate={navigateTo} /></PageErrorBoundary>}
-          {isFreelancer && activeTab === 'fl_hours' && <PageErrorBoundary key="fl_hours"><FreelancerHours /></PageErrorBoundary>}
-          {isFreelancer && activeTab === 'fl_profile' && <PageErrorBoundary key="fl_profile"><FreelancerProfile /></PageErrorBoundary>}
-          {isFreelancer && activeTab === 'fl_notifications' && <PageErrorBoundary key="fl_notifications"><FreelancerNotifications onNavigate={navigateTo} /></PageErrorBoundary>}
-          {isFreelancer && activeTab === 'fl_documents' && <PageErrorBoundary key="fl_documents"><FreelancerDocuments /></PageErrorBoundary>}
+          {isContractor && activeTab === 'fl_dashboard' && <PageErrorBoundary key="fl_dashboard"><ContractorDashboard onNavigate={navigateTo} /></PageErrorBoundary>}
+          {isContractor && activeTab === 'fl_hours' && <PageErrorBoundary key="fl_hours"><ContractorHours /></PageErrorBoundary>}
+          {isContractor && activeTab === 'fl_profile' && <PageErrorBoundary key="fl_profile"><ContractorProfile /></PageErrorBoundary>}
+          {isContractor && activeTab === 'fl_notifications' && <PageErrorBoundary key="fl_notifications"><ContractorNotifications onNavigate={navigateTo} /></PageErrorBoundary>}
+          {isContractor && activeTab === 'fl_documents' && <PageErrorBoundary key="fl_documents"><ContractorDocuments /></PageErrorBoundary>}
         </div>
       </main>
       {profile?.mascot_enabled !== false && <Morty />}
-      {!isFreelancer && !isPartner && profile?.assistant_enabled !== false && <MortyChat />}
+      {!isContractor && !isPartner && profile?.assistant_enabled !== false && <MortyChat />}
       {showTour && (
-        <FreelancerTour
+        <ContractorTour
           onComplete={handleTourComplete}
           onNavigate={(key) => setActiveTab(key)}
         />
@@ -1342,7 +1342,7 @@ function ExpensesIcon({ active }) {
   );
 }
 
-function FreelancersIcon({ active }) {
+function ContractorsIcon({ active }) {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <circle cx="7" cy="6" r="2.5" />
