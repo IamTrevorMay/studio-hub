@@ -321,10 +321,13 @@ function PinTitleInput({ initial, onSubmit, onCancel }) {
 
 export default function Channels({ initialChannelName, onChannelOpened }) {
   const { profile: realProfile, isAdmin: realIsAdmin, refreshKey } = useAuth();
-  // Under admin "View as…" preview: read as the contractor (scoped client + id),
-  // hide admin-only controls, and disable writes.
-  const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
-  const isAdmin = readOnly ? false : realIsAdmin;
+  // Under admin "View as…" preview this reads as the contractor (scoped client
+  // + contractor id/role); for real contractors it's a no-op passthrough.
+  const { profile, supabase } = useEffectivePortalIdentity(realProfile);
+  // Contractor roles (real contractors, or an admin previewing one) get a
+  // read-only Channels that shows ONLY grouped (foldered) channels.
+  const contractorView = ['contractor', 'freelancer'].includes(profile?.role);
+  const isAdmin = !contractorView && realIsAdmin;
   const { unreadMentionChannelIds, markChannelSeen, refreshNotifications } = useNotifications();
   const confirm = useConfirm();
   const [channels, setChannels] = useState([]);
@@ -371,8 +374,14 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   // Admins manage everything; everyone else only sees channels their role is
   // permitted to access — via the channel's group when it has one, else its own.
   const visibleChannels = useMemo(
-    () => channels.filter(ch => isAdmin || effectiveChannelVisible(ch, ch.group_id ? groupById[ch.group_id] : null, profile?.role)),
-    [channels, groupById, isAdmin, profile?.role],
+    () => channels.filter(ch => {
+      if (isAdmin) return true;
+      if (!effectiveChannelVisible(ch, ch.group_id ? groupById[ch.group_id] : null, profile?.role)) return false;
+      // Contractors only see channels that live inside a folder/group.
+      if (contractorView && !ch.group_id) return false;
+      return true;
+    }),
+    [channels, groupById, isAdmin, profile?.role, contractorView],
   );
 
   const fetchChannels = useCallback(async () => {
@@ -548,6 +557,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   }, [newMessage]);
 
   async function handlePinMessage(messageId, isPinned) {
+    if (contractorView) return; // read-only for contractors
     // When pinning, drop the message at the end of the pinned order.
     const patch = { is_pinned: !isPinned };
     if (!isPinned) {
@@ -559,6 +569,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   }
 
   async function handleRenamePin(messageId, rawTitle) {
+    if (contractorView) return; // read-only for contractors
     setRenamingPinId(null);
     const title = rawTitle.trim();
     const p = pinnedMessages.find(m => m.id === messageId);
@@ -587,6 +598,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   // Edit a message's text and/or its image attachments. `extras` carries
   // { keptAttachments, newFiles, removedUrls } from the editor.
   async function handleEditMessage(messageId, newContent, extras = {}) {
+    if (contractorView) return; // read-only for contractors
     const trimmed = newContent.trim();
     const { keptAttachments = [], newFiles = [], removedUrls = [] } = extras;
     try {
@@ -614,6 +626,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   }
 
   async function handleDeleteMessage(messageId) {
+    if (contractorView) return; // read-only for contractors
     const message = messages.find(m => m.id === messageId) || { id: messageId };
     try {
       await deleteMessageAndAttachments({ table: 'channel_messages', message });
@@ -628,6 +641,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   // Toggle an emoji reaction; patch state from the RPC's returned reactions so
   // the reactor sees it instantly (other viewers get the realtime UPDATE).
   async function handleToggleReaction(messageId, emoji) {
+    if (contractorView) return; // read-only for contractors
     try {
       const reactions = await toggleReaction('channel', messageId, emoji);
       setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, reactions } : m)));
@@ -863,7 +877,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   async function handleSendMessage(e) {
     e.preventDefault();
-    if (readOnly) return; // preview mode — no writes
+    if (contractorView) return; // contractors have read-only Channels
     // A message needs text OR at least one image attachment.
     if ((!newMessage.trim() && pendingImages.length === 0) || !activeChannel || !profile?.id || sendingRef.current) return;
     sendingRef.current = true;
@@ -1613,6 +1627,12 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                   ))}
                 </div>
               )}
+              {contractorView ? (
+                <div style={{ padding: '14px 16px', textAlign: 'center', color: 'rgba(255,255,255,0.45)', fontSize: 13, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  Read-only — you can view this channel but not post.
+                </div>
+              ) : (
+              <>
               <FormatToolbar targetRef={inputRef} value={newMessage} setValue={setNewMessage} />
               {pendingImages.length > 0 && (
                 <div style={styles.attachPreviewRow}>
@@ -1674,6 +1694,8 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                 <span><strong>**bold**</strong>  <em>*italic*</em>  - bullet</span>
                 <span style={{ marginLeft: '12px' }}>Shift+Enter for new line</span>
               </div>
+              </>
+              )}
             </div>
           </>
         ) : (

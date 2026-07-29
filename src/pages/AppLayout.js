@@ -507,7 +507,7 @@ export default function AppLayout() {
 
   // Redirect freelancers to their dashboard if landing on a non-freelancer tab
   useEffect(() => {
-    if (isContractor && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'pitch_videos' && activeTab !== 'channels' && activeTab !== 'messages' && activeTab !== 'fl_assignments' && activeTab !== 'fl_submit') {
+    if (isContractor && !activeTab.startsWith('fl_') && activeTab !== 'pitch_videos' && activeTab !== 'channels' && activeTab !== 'messages' && activeTab !== 'fl_assignments' && activeTab !== 'fl_submit') {
       setActiveTab('fl_dashboard');
     }
     // activeTab in deps so back/forward (popstate) to a disallowed tab re-redirects

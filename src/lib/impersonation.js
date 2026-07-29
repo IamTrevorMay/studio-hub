@@ -103,7 +103,9 @@ export function useEffectivePortalIdentity(realProfile, realUser) {
   return useMemo(() => {
     if (active && contractor) {
       return {
-        profile: { ...(realProfile || {}), id: contractor.id },
+        // role forced to 'contractor' so role-gated UI (e.g. Channels
+        // contractor rules) treats the preview as the contractor, not the admin.
+        profile: { ...(realProfile || {}), id: contractor.id, role: 'contractor' },
         user: { ...(realUser || {}), id: contractor.id },
         supabase: db,
         readOnly: true,

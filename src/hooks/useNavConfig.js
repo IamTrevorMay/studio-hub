@@ -100,7 +100,6 @@ export default function useNavConfig() {
       }
       items.push(
         { type: 'item', key: 'fl_submit', label: 'Submit' },
-        { type: 'item', key: 'resources', label: 'Resources' },
         { type: 'item', key: 'pitch_videos', label: 'Video Assets' },
         { type: 'item', key: 'fl_documents', label: 'Documents' },
         { type: 'item', key: 'channels', label: 'Channels' },
