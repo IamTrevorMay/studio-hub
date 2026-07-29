@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { fetchAllRows } from './analytics/utils';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { colors } from '../lib/styleTokens';
+import ContractorProfileDetail from './ContractorProfileDetail';
 
 const TABS = ['Assignments', 'Hours', 'Documents', 'Team'];
 
@@ -29,9 +30,15 @@ const CONTRACTOR_TITLES = [
 /*  Component                                  */
 /* ─────────────────────────────────────────── */
 
-function Contractors({ initialAssignmentId, onAssignmentOpened } = {}) {
+function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = false, activeTabKey } = {}) {
   const { profile, isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = usePersistedTab('freelancers-tab', 'Assignments', ['Assignments', 'Hours', 'Documents', 'Team']);
+  const [internalTab, setInternalTab] = usePersistedTab('freelancers-tab', 'Assignments', ['Assignments', 'Hours', 'Documents', 'Team']);
+  // In Contractor Mode the sidebar drives the tab (activeTabKey); standalone it
+  // uses its own persisted tab bar.
+  const activeTab = activeTabKey || internalTab;
+  const setActiveTab = setInternalTab;
+  // Full-page profile view (Team tab): the contractor being viewed, or null.
+  const [selectedContractorId, setSelectedContractorId] = useState(null);
 
   /* ── Team state ── */
   const [freelancers, setContractors] = useState([]);
@@ -485,9 +492,34 @@ function Contractors({ initialAssignmentId, onAssignmentOpened } = {}) {
   };
 
   const handleDeleteContractor = async (flId) => {
-    await supabase.from('profiles').update({ role: 'deactivated' }).eq('id', flId);
+    // Hard-delete the auth user via the edge function (cascades to profile +
+    // contractor data). 'deactivated' was never a valid role, so the old
+    // role-flip silently failed the profiles_role_check constraint.
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const res = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/remove-user`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ userId: flId }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to remove contractor');
+    } catch (err) {
+      console.error('Failed to remove contractor:', err);
+      window.alert(`Failed to remove contractor: ${err.message}`);
+      return;
+    }
     setDeleteConfirming(null);
     setExpandedContractor(null);
+    setSelectedContractorId(null);
     fetchTeam();
   };
 
@@ -717,25 +749,35 @@ function Contractors({ initialAssignmentId, onAssignmentOpened } = {}) {
       <h1 style={styles.pageTitle}>Contractors</h1>
 
       {/* Tab bar */}
-      <div style={styles.tabBar}>
-        {TABS.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            style={{
-              ...styles.tabPill,
-              ...(activeTab === tab ? styles.tabPillActive : {}),
-            }}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      {!chromeless && (
+        <div style={styles.tabBar}>
+          {TABS.map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                ...styles.tabPill,
+                ...(activeTab === tab ? styles.tabPillActive : {}),
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ══════════════════════════════════════ */}
       {/*  TAB 1: TEAM                           */}
       {/* ══════════════════════════════════════ */}
-      {activeTab === 'Team' && (
+      {/* Full-page profile view takes over the Team tab when a contractor is selected. */}
+      {activeTab === 'Team' && selectedContractorId && (
+        <ContractorProfileDetail
+          contractorId={selectedContractorId}
+          onBack={() => setSelectedContractorId(null)}
+          onChanged={fetchTeam}
+        />
+      )}
+      {activeTab === 'Team' && !selectedContractorId && (
         <div>
           {/* Invite section */}
           <div style={{ marginBottom: 24 }}>
@@ -1043,14 +1085,8 @@ function Contractors({ initialAssignmentId, onAssignmentOpened } = {}) {
                   <div key={fl.id} style={styles.card}>
                     <div
                       style={{ display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}
-                      onClick={() => {
-                        if (isExpanded) {
-                          setExpandedContractor(null);
-                        } else {
-                          setExpandedContractor(fl.id);
-                          fetchContractorDetail(fl.id);
-                        }
-                      }}
+                      onClick={() => setSelectedContractorId(fl.id)}
+                      title="View full profile"
                     >
                       {/* Avatar */}
                       {fl.avatar_url ? (
@@ -1090,7 +1126,19 @@ function Contractors({ initialAssignmentId, onAssignmentOpened } = {}) {
                         <span style={{ ...styles.badge, background: activeCount > 0 ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.06)', color: activeCount > 0 ? '#fbbf24' : 'rgba(255,255,255,0.4)' }}>
                           {activeCount} active
                         </span>
-                        <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
+                        <span
+                          style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, cursor: 'pointer', padding: '0 4px' }}
+                          title={isExpanded ? 'Collapse quick view' : 'Quick view'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isExpanded) {
+                              setExpandedContractor(null);
+                            } else {
+                              setExpandedContractor(fl.id);
+                              fetchContractorDetail(fl.id);
+                            }
+                          }}
+                        >
                           {isExpanded ? '\u25B2' : '\u25BC'}
                         </span>
                       </div>

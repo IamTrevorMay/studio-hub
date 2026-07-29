@@ -99,7 +99,7 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas', 'ct_assignments', 'ct_hours', 'ct_documents', 'ct_team'));
 
 // ─── Modes ──────────────────────────────────────────────────
 // Beta pages: still under refinement. Grouped in a "Beta" folder at the bottom
@@ -130,9 +130,19 @@ const ADMIN_PAGE_NAV = [
   { type: 'item', key: 'ops', label: 'Ops' },
   { type: 'folder', id: 'admin_tools', label: 'Tools', collapsed: true },
   { type: 'item', key: 'invoicing', label: 'Invoicing', folderId: 'admin_tools' },
-  { type: 'item', key: 'freelancers', label: 'Contractors', folderId: 'admin_tools' },
   { type: 'item', key: 'jobs', label: 'Jobs', folderId: 'admin_tools' },
   { type: 'item', key: 'admin', label: 'Admin Settings' },
+];
+// Contractor Mode: the Contractors management page split into sidebar submenu
+// items (admin-only; contractors keep their own locked portal). Each key
+// renders the Contractors component pinned to the matching tab.
+const CONTRACTOR_MODE_KEYS = ['ct_assignments', 'ct_hours', 'ct_documents', 'ct_team'];
+const CONTRACTOR_TAB_FOR_KEY = { ct_assignments: 'Assignments', ct_hours: 'Hours', ct_documents: 'Documents', ct_team: 'Team' };
+const CONTRACTOR_MODE_NAV = [
+  { type: 'item', key: 'ct_assignments', label: 'Assignments' },
+  { type: 'item', key: 'ct_hours', label: 'Hours' },
+  { type: 'item', key: 'ct_documents', label: 'Documents' },
+  { type: 'item', key: 'ct_team', label: 'Team' },
 ];
 // Build Admin Mode sidebar: essential items/folders from resolved nav, divider,
 // admin pages, then the Beta folder for the beta owner only.
@@ -284,7 +294,10 @@ export default function AppLayout() {
     if (stored && VALID_TAB_KEYS.has(stored)) return stored;
     return 'dashboard';
   });
-  const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
+  const [mode, setMode] = useState(() => {
+    const m = localStorage.getItem('studio-hub-mode');
+    return (m === 'admin' || m === 'contractor') ? m : 'work';
+  });
   // Suite surface: 'launcher' | 'harbor' | null (null = Bridge, the classic
   // tab world). Resolved from the URL before tab resolution; bare '/' goes to
   // the last-used app or the launcher on first login (see src/lib/suite.js).
@@ -329,7 +342,9 @@ export default function AppLayout() {
   useEffect(() => {
     if (mode === 'admin' && isAdmin) {
       if (!adminModeKeys.has(activeTab)) setActiveTab('workflows');
-    } else if (ADMIN_PAGE_KEYS.includes(activeTab)) {
+    } else if (mode === 'contractor' && isAdmin) {
+      if (!CONTRACTOR_MODE_KEYS.includes(activeTab)) setActiveTab('ct_assignments');
+    } else if (ADMIN_PAGE_KEYS.includes(activeTab) || CONTRACTOR_MODE_KEYS.includes(activeTab)) {
       setActiveTab('dashboard');
     }
     // eslint-disable-next-line
@@ -357,17 +372,27 @@ export default function AppLayout() {
   const adminNav = buildAdminNav(resolvedNav, isBetaOwner).filter(
     (e) => e.type !== 'item' || !restrictedNavKeys?.has(e.key),
   );
-  const displayNav = ((mode === 'admin' && isAdmin) ? adminNav : buildWorkNav(resolvedNav))
-    .filter(e => !e.hidden);
+  const displayNav = (
+    (mode === 'admin' && isAdmin) ? adminNav
+      : (mode === 'contractor' && isAdmin) ? CONTRACTOR_MODE_NAV
+        : buildWorkNav(resolvedNav)
+  ).filter(e => !e.hidden);
 
+  // Leaving admin/contractor mode: bounce off any mode-only page.
+  function resetTabToWork() {
+    if (ADMIN_PAGE_KEYS.includes(activeTab) || CONTRACTOR_MODE_KEYS.includes(activeTab)) setActiveTab('dashboard');
+  }
   function toggleMode() {
-    if (mode === 'work') {
-      setMode('admin');
-      if (!adminModeKeys.has(activeTab)) setActiveTab('workflows');
-    } else {
-      setMode('work');
-      if (ADMIN_PAGE_KEYS.includes(activeTab)) setActiveTab('dashboard');
-    }
+    const next = mode === 'admin' ? 'work' : 'admin';
+    setMode(next);
+    if (next === 'admin') { if (!adminModeKeys.has(activeTab)) setActiveTab('workflows'); }
+    else resetTabToWork();
+  }
+  function toggleContractorMode() {
+    const next = mode === 'contractor' ? 'work' : 'contractor';
+    setMode(next);
+    if (next === 'contractor') { if (!CONTRACTOR_MODE_KEYS.includes(activeTab)) setActiveTab('ct_assignments'); }
+    else resetTabToWork();
   }
 
   function toggleFolder(folderId) {
@@ -831,6 +856,23 @@ export default function AppLayout() {
           </button>
         )}
 
+        {/* Contractor Mode toggle - manage contractors (admin-only). */}
+        {isAdmin && (
+          <button
+            onClick={toggleContractorMode}
+            style={{
+              ...styles.navItem,
+              ...(mode === 'contractor' ? styles.navItemActive : {}),
+              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+              marginTop: '8px',
+            }}
+            title={sidebarCollapsed ? (mode === 'contractor' ? 'Exit Contractor Mode' : 'Contractor Mode') : undefined}
+          >
+            <ContractorModeIcon active={mode === 'contractor'} />
+            {!sidebarCollapsed && <span>{mode === 'contractor' ? 'Exit Contractor Mode' : 'Contractor Mode'}</span>}
+          </button>
+        )}
+
         {/* App switcher — Mayday Studio suite launcher (admin-only). Sits just
             above the user area (where Gerald used to be); Gerald now lives as a
             card on the Apps launcher itself. */}
@@ -962,6 +1004,7 @@ export default function AppLayout() {
           {activeTab === 'messages' && <PageErrorBoundary key="messages"><Messages onNavigate={navigateTo} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'admin' && <PageErrorBoundary key="admin"><AdminPanel initialTab={adminInitialTab} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'freelancers' && <PageErrorBoundary key="freelancers"><Contractors initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {isAdmin && CONTRACTOR_MODE_KEYS.includes(activeTab) && <PageErrorBoundary key="contractor-mode"><Contractors chromeless activeTabKey={CONTRACTOR_TAB_FOR_KEY[activeTab]} initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'workflows' && <PageErrorBoundary key="workflows"><Workflows /></PageErrorBoundary>}
           {isAdmin && activeTab === 'ops' && <PageErrorBoundary key="ops"><Ops /></PageErrorBoundary>}
           {isAdmin && activeTab === 'jobs' && <PageErrorBoundary key="jobs"><Jobs initialApplicationId={navTarget} onApplicationOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
@@ -1417,6 +1460,16 @@ function AppsIcon({ active }) {
       <rect x="11" y="3" width="6" height="6" rx="1.5" />
       <rect x="3" y="11" width="6" height="6" rx="1.5" />
       <rect x="11" y="11" width="6" height="6" rx="1.5" />
+    </svg>
+  );
+}
+
+function ContractorModeIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
+      <path d="M3 16v-1a4 4 0 014-4h2a4 4 0 014 4v1" strokeLinecap="round" />
+      <circle cx="8" cy="6" r="2.5" />
+      <path d="M14.5 8.5l1.2 1.2 2.3-2.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
