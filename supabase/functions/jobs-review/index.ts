@@ -220,7 +220,7 @@ Deno.serve(async (req: Request) => {
     // Send the contractor invite (reuses the existing onboarding flow).
     let inviteError: string | null = null;
     const { error: invErr } = await admin.auth.admin.inviteUserByEmail(app.applicant_email, {
-      data: { role: "freelancer", title: app.applicant_name },
+      data: { role: "contractor", title: app.applicant_name },
       redirectTo: Deno.env.get("SITE_URL") || "https://www.mmcreate.io",
     });
     if (invErr) inviteError = invErr.message;
@@ -232,7 +232,7 @@ Deno.serve(async (req: Request) => {
       .insert({
         email: app.applicant_email.toLowerCase().trim(),
         invited_by: user.id,
-        role: "freelancer",
+        role: "contractor",
         title: app.applicant_name,
       })
       .select("id")
