@@ -114,6 +114,14 @@ export const colors = {
     fg:     '#8b5cf6',
     fgSoft: '#c4b5fd',
   },
+  // Pink — added for the suite launcher's Gerald (Mayday Assistant) monogram
+  // tint; the seven existing hues were already claimed by suite apps.
+  pink: {
+    bg:     'rgba(236,72,153,0.15)',
+    border: 'rgba(236,72,153,0.35)',
+    fg:     '#ec4899',
+    fgSoft: '#f9a8d4',
+  },
 };
 
 // ─── Spacing scale ─────────────────────────────────────────────

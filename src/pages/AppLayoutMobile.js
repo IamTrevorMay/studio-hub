@@ -167,7 +167,7 @@ const TAB_LABELS = NAV_ITEMS.reduce((acc, item) => { acc[item.key] = item.label;
 });
 
 export default function AppLayoutMobile() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isContractor, restrictedNavKeys } = useAuth();
+  const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isContractor, restrictedNavKeys } = useAuth();
   const { unreadNotificationCount, markDashboardSeen, refreshNotifications } = useNotifications();
   const { getResolvedNav } = useNavConfig();
   // Suite gating (mirror desktop AppLayout): the launcher + Bridge branding +
@@ -368,6 +368,7 @@ export default function AppLayoutMobile() {
   if (isSuiteUser && suiteView === 'launcher') {
     return (
       <SuiteLauncher
+        isStrictAdmin={isStrictAdmin}
         onOpenApp={(app) => {
           if (app.key === 'bridge') { rememberBridge(); setSuiteView(null); }
           else if (app.segment) setSuiteView(app.segment);

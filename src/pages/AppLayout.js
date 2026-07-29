@@ -565,6 +565,7 @@ export default function AppLayout() {
   if (isSuiteUser && suiteView === 'launcher') {
     return (
       <SuiteLauncher
+        isStrictAdmin={isStrictAdmin}
         onOpenApp={(app) => {
           if (app.key === 'bridge') { rememberBridge(); setSuiteView(null); }
           else if (app.segment) setSuiteView(app.segment);
@@ -813,22 +814,6 @@ export default function AppLayout() {
           </svg>
         </button>
 
-        {/* App switcher — back to the Mayday Studio suite launcher (admin-only) */}
-        {isAdmin && (
-          <button
-            onClick={() => setSuiteView('launcher')}
-            style={{
-              ...styles.navItem,
-              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-              marginTop: '8px',
-            }}
-            title={sidebarCollapsed ? 'Apps — Mayday Studio suite' : 'Open the app launcher'}
-          >
-            <AppsIcon active={false} />
-            {!sidebarCollapsed && <span>Apps</span>}
-          </button>
-        )}
-
         {/* Admin Mode toggle - between collapse toggle and user area */}
         {isAdmin && (
           <button
@@ -846,18 +831,21 @@ export default function AppLayout() {
           </button>
         )}
 
-        {/* Gerald (Mayday Assistant) - strict admin only, opens in new tab */}
-        {isStrictAdmin && (
+        {/* App switcher — Mayday Studio suite launcher (admin-only). Sits just
+            above the user area (where Gerald used to be); Gerald now lives as a
+            card on the Apps launcher itself. */}
+        {isAdmin && (
           <button
-            onClick={() => window.open('https://assist.mmcreate.io', '_blank', 'noopener,noreferrer')}
+            onClick={() => setSuiteView('launcher')}
             style={{
               ...styles.navItem,
               justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+              marginTop: '8px',
             }}
-            title={sidebarCollapsed ? 'Gerald — Mayday Assistant' : 'Opens Gerald in a new tab'}
+            title={sidebarCollapsed ? 'Apps — Mayday Studio suite' : 'Open the app launcher'}
           >
-            <GeraldIcon active={false} />
-            {!sidebarCollapsed && <span>Gerald</span>}
+            <AppsIcon active={false} />
+            {!sidebarCollapsed && <span>Apps</span>}
           </button>
         )}
 
@@ -1418,15 +1406,6 @@ function AdminIcon({ active }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <circle cx="10" cy="10" r="3" />
       <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41" />
-    </svg>
-  );
-}
-
-function GeraldIcon({ active }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
-      <path d="M10 2l1.8 4.5L16.5 8l-4.7 1.5L10 14l-1.8-4.5L3.5 8l4.7-1.5L10 2z" strokeLinejoin="round" />
-      <path d="M16 13l.9 2.1L19 16l-2.1.9L16 19l-.9-2.1L13 16l2.1-.9L16 13z" strokeLinejoin="round" />
     </svg>
   );
 }

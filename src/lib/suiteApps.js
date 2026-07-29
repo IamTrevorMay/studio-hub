@@ -53,6 +53,7 @@ const TINTS = {
   fathom: toneTint(colors.emerald), // teal — cloud storage
   anchor: toneTint(colors.warning), // amber — editor timeline
   radar:  toneTint(colors.success), // scope green — tracking
+  gerald: toneTint(colors.pink),    // pink — Mayday Assistant
 };
 
 const CAST_ENV = process.env.REACT_APP_CAST_URL;
@@ -138,6 +139,20 @@ export const SUITE_APPS = [
     segment: 'radar',
     href: '/radar',
     tint: TINTS.radar,
+  },
+  {
+    // Gerald — the Mayday Assistant (a separate deployment). Strict-admin only;
+    // the launcher hides this card for everyone else (see SuiteLauncher).
+    key: 'gerald',
+    name: 'Gerald',
+    monogram: 'G',
+    tagline: 'Mayday Assistant',
+    description: 'Your admin AI assistant — a read-only snapshot of projects, sprint, deadlines, and events. Opens in a new tab.',
+    kind: 'external',
+    href: 'https://assist.mmcreate.io',
+    newTab: true,
+    strictAdmin: true,
+    tint: TINTS.gerald,
   },
 ];
 

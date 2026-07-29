@@ -19,7 +19,9 @@ import { SUITE_APPS } from '../lib/suiteApps';
 // Only entering Bridge records suite_last_app (the layouts' onOpenApp does
 // it); Harbor and the teasers deliberately never touch it.
 
-export default function SuiteLauncher({ onOpenApp }) {
+export default function SuiteLauncher({ onOpenApp, isStrictAdmin = false }) {
+  // Some cards (Gerald) are strict-admin only — hide them for everyone else.
+  const apps = SUITE_APPS.filter((app) => !app.strictAdmin || isStrictAdmin);
   return (
     <div style={styles.page}>
       <div style={styles.content}>
@@ -30,7 +32,7 @@ export default function SuiteLauncher({ onOpenApp }) {
         </div>
 
         <div style={styles.grid}>
-          {SUITE_APPS.map((app) => (
+          {apps.map((app) => (
             <AppCard key={app.key} app={app} onOpenApp={onOpenApp} />
           ))}
         </div>
