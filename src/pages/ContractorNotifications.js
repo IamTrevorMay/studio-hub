@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useEffectivePortalIdentity } from '../lib/impersonation';
 import { colors } from '../lib/styleTokens';
 
 const TYPE_ICONS = {
@@ -29,7 +29,8 @@ function formatRelativeTime(dateStr) {
 }
 
 export default function ContractorNotifications({ onNavigate }) {
-  const { profile } = useAuth();
+  const { profile: realProfile } = useAuth();
+  const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,7 +52,7 @@ export default function ContractorNotifications({ onNavigate }) {
   }, [fetchNotifications]);
 
   function handleClick(notif) {
-    if (!notif.read) {
+    if (!notif.read && !readOnly) {
       supabase
         .from('notifications')
         .update({ read: true })
@@ -64,6 +65,7 @@ export default function ContractorNotifications({ onNavigate }) {
   }
 
   async function handleMarkAllRead() {
+    if (readOnly) return; // preview mode — no writes
     await supabase
       .from('notifications')
       .update({ read: true })

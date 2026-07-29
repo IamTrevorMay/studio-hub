@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { supabase } from '../supabaseClient';
+import { useEffectivePortalIdentity } from '../lib/impersonation';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
@@ -48,7 +48,8 @@ function applyFormatMarker(textareaRef, text, marker, setter) {
 }
 
 export default function Messages({ onNavigate }) {
-  const { profile, refreshKey } = useAuth();
+  const { profile: realProfile, refreshKey } = useAuth();
+  const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
   const confirm = useConfirm();
   const { fetchUnreadDms } = useNotifications();
   const [conversations, setConversations] = useState([]);
@@ -304,6 +305,7 @@ export default function Messages({ onNavigate }) {
 
   async function handleSendMessage(e) {
     e.preventDefault();
+    if (readOnly) return; // preview mode — no writes
     // A message needs text OR at least one image attachment.
     if ((!newMessage.trim() && pendingImages.length === 0) || !activeConversation || !profile?.id || sendingRef.current) return;
     sendingRef.current = true;

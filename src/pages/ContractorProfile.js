@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useEffectivePortalIdentity } from '../lib/impersonation';
 import { colors } from '../lib/styleTokens';
 
 export default function ContractorProfile() {
-  const { profile, updateProfile } = useAuth();
+  const { profile: realProfile, updateProfile } = useAuth();
+  const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
   const [form, setForm] = useState({
     full_name: '',
     phone: '',
@@ -57,6 +58,7 @@ export default function ContractorProfile() {
   }
 
   async function handleSave() {
+    if (readOnly) return; // preview mode — no writes
     setSaving(true);
     setError(null);
     try {
@@ -86,6 +88,7 @@ export default function ContractorProfile() {
   }
 
   async function handleAvatarUpload(e) {
+    if (readOnly) return; // preview mode — no writes
     const file = e.target.files?.[0];
     if (!file) return;
     setAvatarUploading(true);
@@ -109,6 +112,7 @@ export default function ContractorProfile() {
   }
 
   async function handlePasswordChange() {
+    if (readOnly) return; // preview mode — no writes
     setError(null);
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -190,7 +194,7 @@ export default function ContractorProfile() {
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>Morty</span>
             <button
-              onClick={() => updateProfile({ mascot_enabled: profile?.mascot_enabled === false ? true : false })}
+              onClick={() => { if (!readOnly) updateProfile({ mascot_enabled: profile?.mascot_enabled === false ? true : false }); }}
               style={{
                 position: 'relative',
                 width: 40,

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useEffectivePortalIdentity } from '../lib/impersonation';
 import { useNotifications } from '../contexts/NotificationContext';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 
 export default function ContractorDocuments() {
-  const { user } = useAuth();
+  const { user: realUser } = useAuth();
+  const { user, supabase, readOnly } = useEffectivePortalIdentity(null, realUser);
   const { refreshNotifications } = useNotifications();
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +52,7 @@ export default function ContractorDocuments() {
   }
 
   async function handleSign() {
+    if (readOnly) return; // preview mode — no writes
     if (!signingDoc || !signedName.trim() || !agreed) return;
     setSigning(true);
     const { error } = await supabase

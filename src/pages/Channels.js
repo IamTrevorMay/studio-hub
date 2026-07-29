@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { supabase } from '../supabaseClient';
+import { useEffectivePortalIdentity } from '../lib/impersonation';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -320,7 +320,11 @@ function PinTitleInput({ initial, onSubmit, onCancel }) {
 }
 
 export default function Channels({ initialChannelName, onChannelOpened }) {
-  const { profile, isAdmin, refreshKey } = useAuth();
+  const { profile: realProfile, isAdmin: realIsAdmin, refreshKey } = useAuth();
+  // Under admin "View as…" preview: read as the contractor (scoped client + id),
+  // hide admin-only controls, and disable writes.
+  const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
+  const isAdmin = readOnly ? false : realIsAdmin;
   const { unreadMentionChannelIds, markChannelSeen, refreshNotifications } = useNotifications();
   const confirm = useConfirm();
   const [channels, setChannels] = useState([]);
@@ -859,6 +863,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   async function handleSendMessage(e) {
     e.preventDefault();
+    if (readOnly) return; // preview mode — no writes
     // A message needs text OR at least one image attachment.
     if ((!newMessage.trim() && pendingImages.length === 0) || !activeChannel || !profile?.id || sendingRef.current) return;
     sendingRef.current = true;

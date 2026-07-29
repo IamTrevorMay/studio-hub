@@ -4,7 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import useNavConfig from '../hooks/useNavConfig';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
-import { canAccessBroadcast, CONTRACTOR_SUB_ROLES } from '../lib/rolePermissions';
+import { canAccessBroadcast } from '../lib/rolePermissions';
+import { useImpersonation } from '../lib/impersonation';
 import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
 import SidebarEditMode from '../components/SidebarEditMode';
@@ -316,9 +317,10 @@ export default function AppLayout() {
   );
   const [showTour, setShowTour] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
-  // Admin "View as…" — preview the contractor portal as a given sub-role.
-  const [viewAsSubRole, setViewAsSubRole] = useState(null);
+  // Admin "View as…" — true-impersonation preview of a contractor's portal.
+  const { active: impersonating, contractor: impersonatedContractor, start: startImpersonation, stop: stopImpersonation } = useImpersonation();
   const [viewAsMenuOpen, setViewAsMenuOpen] = useState(false);
+  const [viewAsContractors, setViewAsContractors] = useState([]);
 
   // Persist folder collapse state
   useEffect(() => {
@@ -378,7 +380,7 @@ export default function AppLayout() {
   // "View as…" contractor portal preview (admin only). When active, the layout
   // renders the locked contractor sidebar + fl_* pages as a contractor would
   // see them. Data is the admin's own (empty), so it's a chrome/layout preview.
-  const previewingContractor = isAdmin && !!viewAsSubRole;
+  const previewingContractor = isAdmin && impersonating;
   const asContractor = isContractor || previewingContractor;
   const contractorNav = previewingContractor
     ? getResolvedNav(NAV_ITEMS, false, false, true, profile, new Set())
@@ -391,13 +393,29 @@ export default function AppLayout() {
           : buildWorkNav(resolvedNav)
   ).filter(e => !e.hidden);
 
-  function viewAsContractor(subRole) {
-    setViewAsSubRole(subRole);
+  async function openViewAsMenu() {
+    const next = !viewAsMenuOpen;
+    setViewAsMenuOpen(next);
+    if (next && viewAsContractors.length === 0) {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, sub_role, title')
+        .in('role', ['contractor', 'freelancer'])
+        .order('full_name');
+      setViewAsContractors(data || []);
+    }
+  }
+  async function viewAsContractor(contractorId) {
     setViewAsMenuOpen(false);
-    setActiveTab('fl_dashboard');
+    try {
+      await startImpersonation(contractorId);
+      setActiveTab('fl_dashboard');
+    } catch (e) {
+      window.alert(`Could not start preview: ${e.message}`);
+    }
   }
   function exitViewAs() {
-    setViewAsSubRole(null);
+    stopImpersonation();
     setActiveTab('dashboard');
   }
 
@@ -918,23 +936,25 @@ export default function AppLayout() {
         {isAdmin && !previewingContractor && (
           <div style={{ position: 'relative', marginTop: '8px' }}>
             <button
-              onClick={() => setViewAsMenuOpen(o => !o)}
+              onClick={openViewAsMenu}
               style={{
                 ...styles.navItem,
                 justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                 width: '100%',
               }}
-              title={sidebarCollapsed ? 'View as… (contractor portal preview)' : 'Preview the contractor portal'}
+              title={sidebarCollapsed ? 'View as… (contractor portal preview)' : 'Preview a contractor portal'}
             >
               <ViewAsIcon active={false} />
               {!sidebarCollapsed && <span>View as…</span>}
             </button>
             {viewAsMenuOpen && (
               <div style={styles.viewAsMenu}>
-                <div style={styles.viewAsMenuHeader}>Contractor portal as…</div>
-                {CONTRACTOR_SUB_ROLES.map(sr => (
-                  <button key={sr} style={styles.viewAsMenuItem} onClick={() => viewAsContractor(sr)}>
-                    {sr}
+                <div style={styles.viewAsMenuHeader}>Preview portal as contractor</div>
+                {viewAsContractors.length === 0 ? (
+                  <div style={{ ...styles.viewAsMenuItem, color: 'rgba(255,255,255,0.4)', cursor: 'default' }}>No contractors</div>
+                ) : viewAsContractors.map(c => (
+                  <button key={c.id} style={styles.viewAsMenuItem} onClick={() => viewAsContractor(c.id)}>
+                    {c.full_name || 'Unnamed'}{(c.sub_role || c.title) ? ` · ${c.sub_role || c.title}` : ''}
                   </button>
                 ))}
               </div>
@@ -1025,7 +1045,8 @@ export default function AppLayout() {
           {previewingContractor && (
             <div style={styles.viewAsBanner}>
               <span style={{ fontSize: 13, color: '#f9a8d4', fontWeight: 600 }}>
-                👁 Previewing contractor portal as <strong style={{ color: '#fff' }}>{viewAsSubRole}</strong>
+                👁 Previewing portal as <strong style={{ color: '#fff' }}>{impersonatedContractor?.full_name || 'contractor'}</strong>
+                {impersonatedContractor?.sub_role ? ` · ${impersonatedContractor.sub_role}` : ''} · read-only
               </span>
               <button onClick={exitViewAs} style={styles.viewAsExitBtn}>Exit preview</button>
             </div>

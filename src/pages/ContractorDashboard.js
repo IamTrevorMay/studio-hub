@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useEffectivePortalIdentity } from '../lib/impersonation';
 import useRealtimeTable from '../hooks/useRealtimeTable';
 import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
@@ -66,7 +66,8 @@ function getDueDateStatus(dateString) {
 }
 
 export default function ContractorDashboard({ onNavigate }) {
-  const { profile } = useAuth();
+  const { profile: realProfile } = useAuth();
+  const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
 
   const [assignments, setAssignments] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -229,6 +230,7 @@ export default function ContractorDashboard({ onNavigate }) {
   // ── Handlers ───────────────────────────────────────────────────
 
   async function handleStatusChange(assignment, newStatus) {
+    if (readOnly) return; // preview mode — no writes
     if (statusChangingRef.current.has(assignment.id)) return; // guard double-click
     statusChangingRef.current.add(assignment.id);
     try {
@@ -263,6 +265,7 @@ export default function ContractorDashboard({ onNavigate }) {
   }
 
   async function handleDeclineAssignment(assignment) {
+    if (readOnly) return; // preview mode — no writes
     if (!window.confirm(`Decline "${assignment.title}"? Your admin will be notified.`)) return;
     await supabase
       .from('contractor_assignments')
@@ -291,6 +294,7 @@ export default function ContractorDashboard({ onNavigate }) {
   }
 
   async function handlePostComment() {
+    if (readOnly) return; // preview mode — no writes
     if (!newComment.trim() || postingComment) return; // guard double-submit (Enter + button)
     setPostingComment(true);
     try {
@@ -327,6 +331,7 @@ export default function ContractorDashboard({ onNavigate }) {
   }
 
   async function handleCompleteWithHours() {
+    if (readOnly) return; // preview mode — no writes
     if (!hoursModalAssignment || !hoursInput) return;
     setHoursSubmitting(true);
     try {
@@ -368,6 +373,7 @@ export default function ContractorDashboard({ onNavigate }) {
   }
 
   async function handleStuck(assignment) {
+    if (readOnly) return; // preview mode — no writes
     if (!stuckText.trim() || stuckSending) return;
     setStuckSending(true);
     try {
@@ -405,6 +411,7 @@ export default function ContractorDashboard({ onNavigate }) {
   }
 
   async function handleUploadSuccess(assignment, driveFileUrl) {
+    if (readOnly) return; // preview mode — no writes
     setUploadedFileUrls(prev => ({ ...prev, [assignment.id]: driveFileUrl }));
     await supabase.from('contractor_assignments')
       .update({ asset_url: driveFileUrl, updated_at: new Date().toISOString() })
@@ -1006,6 +1013,7 @@ function AssignmentSubmitModal({ assignment, folderId, onUploadSuccess, onClose 
   const fileInputRef = useRef(null);
 
   async function handleUpload() {
+    if (readOnly) return; // preview mode — no writes
     if (!file) return;
     setUploading(true);
     setProgress(0);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useEffectivePortalIdentity } from '../lib/impersonation';
 import { colors } from '../lib/styleTokens';
 import { ptDayKey } from '../lib/ptDate';
 
@@ -42,7 +42,10 @@ function getPayPeriods(count = 6) {
 }
 
 export default function ContractorHours() {
-  const { profile } = useAuth();
+  const { profile: realProfile } = useAuth();
+  // While an admin is previewing via "View as…", read as the contractor
+  // (scoped client + their id) and disable writes.
+  const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [formState, setFormState] = useState({});
@@ -113,6 +116,7 @@ export default function ContractorHours() {
   }
 
   async function handleSubmit(period) {
+    if (readOnly) return; // preview mode — no writes
     const key = period.start + '_' + period.end;
     const record = getRecord(period);
     // Total is always the PT-bucketed sum of completed-assignment hours for the
