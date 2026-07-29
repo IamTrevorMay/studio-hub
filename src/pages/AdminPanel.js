@@ -5,12 +5,27 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { colors } from '../lib/styleTokens';
+import { isDirectorRole, DIRECTOR_SUB_ROLE_LABELS } from '../lib/rolePermissions';
 
 
+// Contractor sub-roles (formerly "titles").
 const CONTRACTOR_TITLES = [
   'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
   'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
 ];
+
+// Director sub-roles.
+const DIRECTOR_SUB_ROLE_OPTIONS = [
+  { value: 'communications', label: 'Director of Communications' },
+  { value: 'creative', label: 'Director of Creative' },
+];
+
+// Sub-role option list for a given role ({value,label} pairs), or [] if none.
+function subRoleOptionsForRole(role) {
+  if (isDirectorRole(role)) return DIRECTOR_SUB_ROLE_OPTIONS;
+  if (role === 'contractor') return CONTRACTOR_TITLES.map(t => ({ value: t, label: t }));
+  return [];
+}
 
 const EVENT_TYPE_LABELS = {
   deadline: 'Deadline',
@@ -30,7 +45,7 @@ export default function AdminPanel({ initialTab }) {
   const [teamMembers, setTeamMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
-  const [inviteTitle, setInviteTitle] = useState('');
+  const [inviteSubRole, setInviteSubRole] = useState('');
   const [loading, setLoading] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [inviteError, setInviteError] = useState('');
@@ -92,7 +107,7 @@ export default function AdminPanel({ initialTab }) {
             'Authorization': `Bearer ${session.access_token}`,
             'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ email: inviteEmail.toLowerCase().trim(), role: inviteRole, title: inviteRole === 'contractor' ? inviteTitle : null }),
+          body: JSON.stringify({ email: inviteEmail.toLowerCase().trim(), role: inviteRole, sub_role: inviteSubRole || null }),
         }
       );
 
@@ -102,7 +117,7 @@ export default function AdminPanel({ initialTab }) {
       const sentTo = inviteEmail;
       setInviteEmail('');
       setInviteRole('member');
-      setInviteTitle('');
+      setInviteSubRole('');
       fetchInvitations();
       setInviteSuccess(`✉ Invitation email sent to ${sentTo}!`);
       setTimeout(() => setInviteSuccess(''), 8000);
@@ -126,19 +141,22 @@ export default function AdminPanel({ initialTab }) {
   }
 
   async function handleRoleChange(userId, newRole) {
-    const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
+    const takesSubRole = newRole === 'director' || newRole === 'contractor';
+    // Clear any stale sub_role (and legacy title) when moving to a role that
+    // has no sub-role; otherwise open the sub-role picker.
+    const patch = takesSubRole ? { role: newRole } : { role: newRole, sub_role: null, title: null };
+    const { error } = await supabase.from('profiles').update(patch).eq('id', userId);
     if (error) console.error('Role change failed:', error);
-    if (newRole === 'contractor') {
-      setTitlePickerFor(userId);
-    } else {
-      setTitlePickerFor(null);
-    }
+    setTitlePickerFor(takesSubRole ? userId : null);
     fetchTeamMembers();
   }
 
-  async function handleTitleAssign(userId, title) {
-    const { error } = await supabase.from('profiles').update({ title }).eq('id', userId);
-    if (error) console.error('Title assign failed:', error);
+  async function handleSubRoleAssign(userId, subRole, role) {
+    // Keep the deprecated `title` column mirrored for contractors so legacy
+    // title-based display keeps working until title is fully retired.
+    const patch = role === 'contractor' ? { sub_role: subRole, title: subRole } : { sub_role: subRole };
+    const { error } = await supabase.from('profiles').update(patch).eq('id', userId);
+    if (error) console.error('Sub-role assign failed:', error);
     setTitlePickerFor(null);
     fetchTeamMembers();
   }
@@ -444,26 +462,23 @@ export default function AdminPanel({ initialTab }) {
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <select
                   value={inviteRole}
-                  onChange={(e) => { setInviteRole(e.target.value); if (e.target.value !== 'contractor') setInviteTitle(''); }}
+                  onChange={(e) => { setInviteRole(e.target.value); setInviteSubRole(''); }}
                   style={styles.roleSelect}
                 >
                   <option value="member">Member</option>
-                  <option value="assistant">Assistant</option>
-                  <option value="partner">Partner</option>
+                  <option value="director">Director</option>
                   <option value="contractor">Contractor</option>
-                  <option value="director_creative">Director of Creative</option>
-                  <option value="director_comms">Director of Communications</option>
                   <option value="admin">Admin</option>
                 </select>
-                {inviteRole === 'contractor' && (
+                {subRoleOptionsForRole(inviteRole).length > 0 && (
                   <select
-                    value={inviteTitle}
-                    onChange={(e) => setInviteTitle(e.target.value)}
+                    value={inviteSubRole}
+                    onChange={(e) => setInviteSubRole(e.target.value)}
                     style={styles.roleSelect}
                   >
-                    <option value="">Select title...</option>
-                    {CONTRACTOR_TITLES.map(t => (
-                      <option key={t} value={t}>{t}</option>
+                    <option value="">{inviteRole === 'director' ? 'Select director type...' : 'Select sub-role...'}</option>
+                    {subRoleOptionsForRole(inviteRole).map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
                 )}
@@ -542,33 +557,32 @@ export default function AdminPanel({ initialTab }) {
                       onClick={() => setTitlePickerFor(titlePickerFor === member.id ? null : member.id)}
                       style={{ cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '3px' }}
                     >
-                      {member.title || 'No title set'}
+                      {isDirectorRole(member.role)
+                        ? (DIRECTOR_SUB_ROLE_LABELS[member.sub_role] || 'No director type set')
+                        : (member.sub_role || member.title || 'No sub-role set')}
                     </span>
                   </div>
                 </div>
                 <select
-                  value={member.role}
+                  value={isDirectorRole(member.role) ? 'director' : member.role}
                   onChange={(e) => handleRoleChange(member.id, e.target.value)}
                   disabled={member.id === profile.id}
                   style={styles.roleSelect}
                 >
                   <option value="member">Member</option>
-                  <option value="assistant">Assistant</option>
-                  <option value="partner">Partner</option>
+                  <option value="director">Director</option>
                   <option value="contractor">Contractor</option>
-                  <option value="director_creative">Director of Creative</option>
-                  <option value="director_comms">Director of Communications</option>
                   <option value="admin">Admin</option>
                 </select>
-                {titlePickerFor === member.id && (
+                {titlePickerFor === member.id && subRoleOptionsForRole(member.role).length > 0 && (
                   <select
                     value=""
-                    onChange={(e) => handleTitleAssign(member.id, e.target.value)}
+                    onChange={(e) => handleSubRoleAssign(member.id, e.target.value, isDirectorRole(member.role) ? 'director' : member.role)}
                     style={styles.roleSelect}
                   >
-                    <option value="">Assign title...</option>
-                    {CONTRACTOR_TITLES.map(t => (
-                      <option key={t} value={t}>{t}</option>
+                    <option value="">{isDirectorRole(member.role) ? 'Assign director type...' : 'Assign sub-role...'}</option>
+                    {subRoleOptionsForRole(member.role).map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
                 )}

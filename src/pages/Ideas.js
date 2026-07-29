@@ -35,7 +35,7 @@ const IDEA_FIELDS = 'id, text, checked, position, category, context, potential_t
 
 // Ratings: admins + directors only — RLS on idea_ratings enforces the same
 // set server-side, so other roles never receive rating rows at all.
-const RATER_ROLES = ['admin', 'director_creative', 'director_comms'];
+const RATER_ROLES = ['admin', 'director', 'director_creative', 'director_comms'];
 const RATING_COLORS = { 1: '#ef4444', 2: '#f97316', 3: '#facc15', 4: '#86efac', 5: '#22c55e' };
 const MAX_TITLES = 5;
 

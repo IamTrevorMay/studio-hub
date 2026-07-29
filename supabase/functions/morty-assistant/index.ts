@@ -25,9 +25,10 @@ function json(body: unknown, status = 200): Response {
 }
 
 function docsForRole(role: string): typeof FEATURE_DOCS {
-  if (role === "admin") return FEATURE_DOCS;
-  if (role === "assistant") {
-    return FEATURE_DOCS.filter((d) => d.roles.includes("assistant"));
+  // Admins and Directors (admin-tier) see everything. director_creative /
+  // director_comms are legacy values kept until the role restructure contracts.
+  if (["admin", "director", "director_creative", "director_comms"].includes(role)) {
+    return FEATURE_DOCS;
   }
   // Any other staff role gets the member-level docs only.
   return FEATURE_DOCS.filter((d) => d.roles.includes("member"));

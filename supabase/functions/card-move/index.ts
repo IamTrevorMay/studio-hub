@@ -173,7 +173,7 @@ Deno.serve(async (req: Request) => {
 
   const caller = await getCaller(req);
   if (!caller) return jsonResp({ error: "Unauthorized" }, 401);
-  if (!["admin", "assistant", "member"].includes(caller.role)) {
+  if (!["admin", "director", "member", "director_creative", "director_comms"].includes(caller.role)) {
     return jsonResp({ error: "Forbidden" }, 403);
   }
   // Service-role internal calls (auto-advance) have a synthetic "system" userId

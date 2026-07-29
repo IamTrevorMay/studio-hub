@@ -120,7 +120,7 @@ Deno.serve(async (req: Request) => {
       });
     }
     const { data: profile } = await supabase.from("profiles").select("role, assigned_drive_folder_id").eq("id", user.id).single();
-    if (!["admin", "director_creative", "director_comms", "contractor", "freelancer", "member"].includes(profile?.role)) {
+    if (!["admin", "director", "director_creative", "director_comms", "contractor", "freelancer", "member"].includes(profile?.role)) {
       return new Response(JSON.stringify({ error: "Access required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -146,7 +146,7 @@ Deno.serve(async (req: Request) => {
     // (or a descendant of any). Admins are trusted to target any folder. Without
     // this, any authenticated user could initiate an upload into an arbitrary
     // folder by passing its id.
-    const adminTier = ["admin", "director_creative", "director_comms"].includes(profile.role);
+    const adminTier = ["admin", "director", "director_creative", "director_comms"].includes(profile.role);
     if (!adminTier) {
       if (!/^[\w\-]+$/.test(parentFolderId)) {
         return new Response(JSON.stringify({ error: "Invalid parentFolderId" }), {

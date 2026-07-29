@@ -5,7 +5,7 @@ import { PeopleChips } from './MemberAssignmentModal';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 
-const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
+const TEAM_ROLES = ['admin', 'director', 'member', 'director_creative', 'director_comms'];
 
 // Set Research Scope — opened from the "Set Research Scope" task that lands
 // in My Tasks when a project card enters the Research column. Mirrors the

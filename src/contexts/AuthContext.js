@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, reconnectRealtime } from '../supabaseClient';
-import { isAdminTier, getRestrictedNavKeys } from '../lib/rolePermissions';
+import { isAdminTier, isDirectorRole, getRestrictedNavKeys } from '../lib/rolePermissions';
 
 const AuthContext = createContext({});
 
@@ -463,10 +463,15 @@ export function AuthProvider({ children }) {
     ensureSession,
     isAdmin: isAdminTier(profile?.role),
     isStrictAdmin: profile?.role === 'admin',
-    isAssistant: profile?.role === 'assistant',
-    isPartner: profile?.role === 'partner',
+    isDirector: isDirectorRole(profile?.role),
+    subRole: profile?.sub_role || null,
     isContractor: profile?.role === 'contractor' || profile?.role === 'freelancer',
-    isProducer: profile?.role === 'producer',
+    // Roles removed in the 2026-07-29 restructure (assistant→director, partner
+    // portal removed, producer deleted). Retained as always-false so any
+    // lingering legacy branch neutralizes correctly; prune consumers over time.
+    isAssistant: false,
+    isPartner: false,
+    isProducer: false,
     canPost: profile?.role === 'admin' || profile?.posting_allowed === true,
     restrictedNavKeys: getRestrictedNavKeys(profile?.role),
     refreshKey,

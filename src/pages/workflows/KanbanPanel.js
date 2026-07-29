@@ -14,7 +14,7 @@ import { colors } from '../../lib/styleTokens';
 // ─── Constants ───────────────────────────────────────────────
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
-const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
+const TEAM_ROLES = ['admin', 'director', 'member', 'director_creative', 'director_comms'];
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const CARD_STATUS_TONES = {
   active: '#5b8fc7',

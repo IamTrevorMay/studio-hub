@@ -17,7 +17,7 @@ const TYPE_ROOTS: Record<string, string> = {
 };
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
-const STAFF_ROLES = new Set(["admin", "assistant", "member"]);
+const STAFF_ROLES = new Set(["admin", "director", "member", "director_creative", "director_comms"]);
 
 async function getDriveAccessToken(): Promise<string> {
   const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;

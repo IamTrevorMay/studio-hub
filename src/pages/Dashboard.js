@@ -68,7 +68,7 @@ const CHECKIN_LABELS = { 1: 'Red', 2: 'Orange', 3: 'Yellow', 4: 'Light Green', 5
 // Team card subsections, grouped by role. Agencies sit with partners.
 // Roles not listed anywhere fall back to Core Team so new roles never vanish.
 const TEAM_ROLE_SECTIONS = [
-  { label: 'Core Team', roles: ['admin', 'director_creative', 'director_comms', 'producer', 'assistant', 'member'] },
+  { label: 'Core Team', roles: ['admin', 'director', 'director_creative', 'director_comms', 'member'] },
   { label: 'Contractors', roles: ['contractor', 'freelancer'] },
   { label: 'Partners', roles: ['partner'] },
 ];

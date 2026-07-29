@@ -14,8 +14,8 @@ import { colors } from '../lib/styleTokens';
 // is "what is everyone working on right now and can I edit / assign
 // quickly", which ProgressTable + the two modal create flows cover.
 
-const TEAM_ROLES = ['admin', 'assistant', 'member', 'director_creative', 'director_comms'];
-const ROLE_PRIORITY = { admin: 0, director_creative: 1, director_comms: 1, assistant: 2, member: 3 };
+const TEAM_ROLES = ['admin', 'director', 'member', 'director_creative', 'director_comms'];
+const ROLE_PRIORITY = { admin: 0, director: 1, director_creative: 1, director_comms: 1, member: 3 };
 
 export default function WorkflowsMobile() {
   const { isAdmin, profile } = useAuth();

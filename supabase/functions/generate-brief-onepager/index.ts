@@ -81,7 +81,7 @@ Deno.serve(async (req: Request) => {
     }
     const { data: profile } = await userClient
       .from("profiles").select("role").eq("id", user.id).single();
-    if (!profile || !["admin", "assistant"].includes(profile.role)) {
+    if (!profile || !["admin", "director", "director_creative", "director_comms"].includes(profile.role)) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

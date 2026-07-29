@@ -5,11 +5,11 @@
 export interface FeatureDoc {
   key: string;
   title: string;
-  roles: Array<"admin" | "assistant" | "member">;
+  roles: Array<"admin" | "director" | "member">;
   content: string;
 }
 
-const ALL_STAFF: FeatureDoc["roles"] = ["admin", "assistant", "member"];
+const ALL_STAFF: FeatureDoc["roles"] = ["admin", "director", "member"];
 const ADMIN_ONLY: FeatureDoc["roles"] = ["admin"];
 
 export const FEATURE_DOCS: FeatureDoc[] = [

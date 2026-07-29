@@ -18,10 +18,15 @@ Content production & operations hub for creator teams. Manages projects through 
 - Dark theme: `#0f0f1a` base, `rgba(255,255,255,...)` text, accent `#6366f1` (indigo)
 - Font: DM Sans (loaded globally)
 
-### Auth & Roles
-- Three roles: `admin`, `assistant`, `member`
-- Check via `useAuth()` hook: `isAdmin`, `isAssistant`, `canPost`
+### Auth & Roles (restructured 2026-07-29)
+- **Four top-level roles:** `admin`, `director`, `member`, `contractor`
+- **Sub-roles** (`profiles.sub_role`): Director → `communications` | `creative`; Contractor → the former "titles" (Long Form Editor, Short Form Editor, Podcast Editor, Graphic Designer, Developer, Writer, Producer, Production/Camera). Admin/member have none. Sub-roles are display/organizational only for now — no feature gating yet (that's the next phase).
+- **Removed roles:** `assistant` (folded into Director — admin-tier), `producer` (staff role deleted; unrelated to the Harbor/Broadcast session "producer" and the Projects assignment "producer", which remain), `partner` (BizDev roadmap portal + its one external user removed).
+- **Admin-tier** = `admin` + `director` (DB `is_admin()`; client `isAdminTier` in `src/lib/rolePermissions.js`). Directors are UI-restricted from payroll/business_dev/workflows/accounting/admin via `ROLE_RESTRICTED_NAV_KEYS` (restriction is UI-only; RLS still passes `is_admin()`).
+- Check via `useAuth()` hook: `isAdmin`, `isStrictAdmin`, `isDirector`, `isContractor`, `subRole`, `canPost`. (`isAssistant`/`isPartner`/`isProducer` are retained as always-`false` to neutralize legacy branches — prune over time.)
 - Admin-only features gated with `{isAdmin && (...)}`
+- Central role config lives in `src/lib/rolePermissions.js` (DIRECTOR_ROLES, ADMIN_TIER_ROLES, BROADCAST_TIER_ROLES, STAFF_ROLES, DIRECTOR_SUB_ROLES). Legacy `director_creative`/`director_comms` values are kept in accept-lists until the CONTRACT migration flips them to `director`; safe to prune afterward.
+- Migrations: `20260729140000_role_hierarchy_expand.sql` (+ `_invites`) / `20260729150000_role_hierarchy_contract.sql`.
 - Custom session management with token refresh race condition handling
 
 ### State Management

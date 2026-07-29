@@ -8,12 +8,12 @@ import { colors } from '../lib/styleTokens';
 // nav config, freelancer mgmt and other deep admin tools stay desktop-only.
 
 const ROLE_LABELS = {
-  admin: 'Admin', assistant: 'Assistant', member: 'Member',
-  partner: 'Partner', contractor: 'Contractor', freelancer: 'Contractor',
+  admin: 'Admin', director: 'Director', director_creative: 'Director', director_comms: 'Director',
+  member: 'Member', contractor: 'Contractor', freelancer: 'Contractor',
 };
 const ROLE_COLORS = {
-  admin: '#8fb4d8', assistant: '#86efac', member: 'rgba(255,255,255,0.55)',
-  partner: '#fcd34d', contractor: '#f9a8d4', freelancer: '#f9a8d4',
+  admin: '#8fb4d8', director: '#c4b5fd', director_creative: '#c4b5fd', director_comms: '#c4b5fd',
+  member: 'rgba(255,255,255,0.55)', contractor: '#f9a8d4', freelancer: '#f9a8d4',
 };
 
 export default function AdminPanelMobile() {

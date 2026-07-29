@@ -6,7 +6,7 @@ import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
 
-const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
+const TEAM_ROLES = ['admin', 'director', 'member', 'director_creative', 'director_comms'];
 
 const RESEARCH_NOTE = 'Fill out a research brief for an upcoming project.';
 

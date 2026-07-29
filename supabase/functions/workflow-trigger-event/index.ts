@@ -100,7 +100,7 @@ Deno.serve(async (req: Request) => {
           .select("role")
           .eq("id", uid)
           .maybeSingle();
-        adminOk = !!prof && ["admin", "director_creative", "director_comms"].includes(prof.role);
+        adminOk = !!prof && ["admin", "director", "director_creative", "director_comms"].includes(prof.role);
       }
     }
   }

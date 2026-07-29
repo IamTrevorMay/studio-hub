@@ -49,7 +49,7 @@ export default function AshleyRead({ weekStart }) {
     (async () => {
       const { data: profs } = await supabase
         .from('profiles').select('id, full_name, nickname, role')
-        .in('role', ['admin', 'assistant', 'member']).order('full_name');
+        .in('role', ['admin', 'director', 'member', 'director_creative', 'director_comms']).order('full_name');
       const { data: inits } = await supabase
         .from('bd_initiatives').select('id, title, workstream')
         .is('completed_at', null).order('title');

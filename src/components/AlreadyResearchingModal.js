@@ -4,7 +4,7 @@ import { PeopleChips } from './MemberAssignmentModal';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 
-const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
+const TEAM_ROLES = ['admin', 'director', 'member', 'director_creative', 'director_comms'];
 
 // Opened when the scope owner clicks "Skip" on a Set Research Scope task and
 // the researchers are already underway. Instead of setting formal scope, Trevor

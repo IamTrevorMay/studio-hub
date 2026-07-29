@@ -158,7 +158,7 @@ export default function Payroll() {
         .eq('status', 'completed')
         .gte('completed_at', ptDateToUtcISO(selectedPeriod.start))
         .lt('completed_at', ptDateToUtcISO(selectedPeriod.end, true)),
-      supabase.from('profiles').select('id, full_name, role, avatar_url, pay_method, pay_method_detail').in('role', ['admin', 'assistant', 'member', 'director_creative', 'director_comms']),
+      supabase.from('profiles').select('id, full_name, role, avatar_url, pay_method, pay_method_detail').in('role', ['admin', 'director', 'member', 'director_creative', 'director_comms']),
       supabase.from('payroll_salaries').select('*').is('ended_at', null),
       supabase.from('payroll_one_offs').select('*').eq('period_start', selectedPeriod.start).order('created_at'),
       supabase.from('payroll_paid').select('profile_id').eq('period_start', selectedPeriod.start),

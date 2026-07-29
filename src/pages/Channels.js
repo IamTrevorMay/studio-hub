@@ -16,13 +16,10 @@ import useAttachmentEdit from '../lib/useAttachmentEdit';
 import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, dragHasFiles, deleteMessageAndAttachments, removeMessageImagesByUrl } from '../lib/messageImages';
 
 // Roles that can be individually granted channel access via the admin
-// "Set Permissions" menu. Admin-tier roles (admin, director_creative,
-// director_comms) always have access and are intentionally not listed.
+// "Set Permissions" menu. Admin-tier roles (admin, director) always have
+// access and are intentionally not listed.
 const CHANNEL_ROLE_OPTIONS = [
-  { value: 'assistant', label: 'Assistant' },
   { value: 'member', label: 'Member' },
-  { value: 'partner', label: 'Partner' },
-  { value: 'producer', label: 'Producer' },
   { value: 'contractor', label: 'Contractor' },
 ];
 

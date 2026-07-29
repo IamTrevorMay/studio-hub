@@ -52,7 +52,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Parse the request body
-    const { email, role, title, payment_type, rate, contract_storage_path, contract_file_name, contract_needs_signing, blocked_folders, assigned_drive_folder_id, assigned_drive_folder_name, retainer_enabled, retainer_min_hours, overtime_enabled, overtime_max_hours, overtime_multiplier } = await req.json();
+    const { email, role, title, sub_role, payment_type, rate, contract_storage_path, contract_file_name, contract_needs_signing, blocked_folders, assigned_drive_folder_id, assigned_drive_folder_name, retainer_enabled, retainer_min_hours, overtime_enabled, overtime_max_hours, overtime_multiplier } = await req.json();
     if (!email) {
       return new Response(JSON.stringify({ error: "Email is required" }), {
         status: 400,
@@ -61,6 +61,12 @@ Deno.serve(async (req: Request) => {
     }
     const inviteRole = role || "member";
     const normalizedEmail = email.toLowerCase().trim();
+
+    // Sub-role plumbing: the Contractors page carries the contractor sub-role as
+    // `title`; the Admin Panel sends `sub_role`. Keep both columns mirrored so
+    // the deprecated `title` display keeps working for contractors.
+    const effectiveSubRole = sub_role || (inviteRole === "contractor" ? title : null) || null;
+    const effectiveTitle = title || (inviteRole === "contractor" ? sub_role : null) || null;
 
     // Hourly retainer/overtime settings — only meaningful for hourly payment.
     // Sanitize: keep the numeric floor/cap only when its toggle is on.
@@ -84,7 +90,8 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await adminClient.auth.admin.inviteUserByEmail(normalizedEmail, {
       data: {
         role: inviteRole,
-        title: title || null,
+        title: effectiveTitle,
+        sub_role: effectiveSubRole,
         payment_type: payment_type || null,
         rate: rate != null ? Number(rate) : null,
         assigned_drive_folder_id: assigned_drive_folder_id || null,
@@ -106,7 +113,8 @@ Deno.serve(async (req: Request) => {
       invited_by: user.id,
       accepted_at: null,
       role: inviteRole,
-      title: title || null,
+      title: effectiveTitle,
+      sub_role: effectiveSubRole,
       payment_type: payment_type || null,
       rate: rate != null ? Number(rate) : null,
       contract_storage_path: contract_storage_path || null,
@@ -139,7 +147,7 @@ Deno.serve(async (req: Request) => {
           },
           body: JSON.stringify({
             email: email.toLowerCase().trim(),
-            display_name: title || null,
+            display_name: effectiveTitle,
             role: "member",
           }),
         });
