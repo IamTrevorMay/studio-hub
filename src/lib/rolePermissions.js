@@ -33,6 +33,13 @@ export function isDirectorRole(role) {
 // Director sub-roles (profiles.sub_role when role === 'director').
 export const DIRECTOR_SUB_ROLES = ['communications', 'creative'];
 
+// Contractor sub-roles (the former "titles"). Display/organizational for now;
+// used by the AdminPanel picker and the admin "View as…" portal preview.
+export const CONTRACTOR_SUB_ROLES = [
+  'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
+  'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
+];
+
 export const DIRECTOR_SUB_ROLE_LABELS = {
   communications: 'Director of Communications',
   creative: 'Director of Creative',

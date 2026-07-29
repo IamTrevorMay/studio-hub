@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import useNavConfig from '../hooks/useNavConfig';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
-import { canAccessBroadcast } from '../lib/rolePermissions';
+import { canAccessBroadcast, CONTRACTOR_SUB_ROLES } from '../lib/rolePermissions';
 import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
 import SidebarEditMode from '../components/SidebarEditMode';
@@ -316,6 +316,9 @@ export default function AppLayout() {
   );
   const [showTour, setShowTour] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  // Admin "View as…" — preview the contractor portal as a given sub-role.
+  const [viewAsSubRole, setViewAsSubRole] = useState(null);
+  const [viewAsMenuOpen, setViewAsMenuOpen] = useState(false);
 
   // Persist folder collapse state
   useEffect(() => {
@@ -372,11 +375,31 @@ export default function AppLayout() {
   const adminNav = buildAdminNav(resolvedNav, isBetaOwner).filter(
     (e) => e.type !== 'item' || !restrictedNavKeys?.has(e.key),
   );
+  // "View as…" contractor portal preview (admin only). When active, the layout
+  // renders the locked contractor sidebar + fl_* pages as a contractor would
+  // see them. Data is the admin's own (empty), so it's a chrome/layout preview.
+  const previewingContractor = isAdmin && !!viewAsSubRole;
+  const asContractor = isContractor || previewingContractor;
+  const contractorNav = previewingContractor
+    ? getResolvedNav(NAV_ITEMS, false, false, true, profile, new Set())
+    : null;
+
   const displayNav = (
-    (mode === 'admin' && isAdmin) ? adminNav
-      : (mode === 'contractor' && isAdmin) ? CONTRACTOR_MODE_NAV
-        : buildWorkNav(resolvedNav)
+    previewingContractor ? contractorNav
+      : (mode === 'admin' && isAdmin) ? adminNav
+        : (mode === 'contractor' && isAdmin) ? CONTRACTOR_MODE_NAV
+          : buildWorkNav(resolvedNav)
   ).filter(e => !e.hidden);
+
+  function viewAsContractor(subRole) {
+    setViewAsSubRole(subRole);
+    setViewAsMenuOpen(false);
+    setActiveTab('fl_dashboard');
+  }
+  function exitViewAs() {
+    setViewAsSubRole(null);
+    setActiveTab('dashboard');
+  }
 
   // Leaving admin/contractor mode: bounce off any mode-only page.
   function resetTabToWork() {
@@ -840,7 +863,7 @@ export default function AppLayout() {
         </button>
 
         {/* Admin Mode toggle - between collapse toggle and user area */}
-        {isAdmin && (
+        {isAdmin && !previewingContractor && (
           <button
             onClick={toggleMode}
             style={{
@@ -857,7 +880,7 @@ export default function AppLayout() {
         )}
 
         {/* Contractor Mode toggle - manage contractors (admin-only). */}
-        {isAdmin && (
+        {isAdmin && !previewingContractor && (
           <button
             onClick={toggleContractorMode}
             style={{
@@ -876,7 +899,7 @@ export default function AppLayout() {
         {/* App switcher — Mayday Studio suite launcher (admin-only). Sits just
             above the user area (where Gerald used to be); Gerald now lives as a
             card on the Apps launcher itself. */}
-        {isAdmin && (
+        {isAdmin && !previewingContractor && (
           <button
             onClick={() => setSuiteView('launcher')}
             style={{
@@ -889,6 +912,34 @@ export default function AppLayout() {
             <AppsIcon active={false} />
             {!sidebarCollapsed && <span>Apps</span>}
           </button>
+        )}
+
+        {/* "View as…" — preview the contractor portal by sub-role (admin only). */}
+        {isAdmin && !previewingContractor && (
+          <div style={{ position: 'relative', marginTop: '8px' }}>
+            <button
+              onClick={() => setViewAsMenuOpen(o => !o)}
+              style={{
+                ...styles.navItem,
+                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                width: '100%',
+              }}
+              title={sidebarCollapsed ? 'View as… (contractor portal preview)' : 'Preview the contractor portal'}
+            >
+              <ViewAsIcon active={false} />
+              {!sidebarCollapsed && <span>View as…</span>}
+            </button>
+            {viewAsMenuOpen && (
+              <div style={styles.viewAsMenu}>
+                <div style={styles.viewAsMenuHeader}>Contractor portal as…</div>
+                {CONTRACTOR_SUB_ROLES.map(sr => (
+                  <button key={sr} style={styles.viewAsMenuItem} onClick={() => viewAsContractor(sr)}>
+                    {sr}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {/* User area */}
@@ -971,6 +1022,14 @@ export default function AppLayout() {
           </div>
         </div>
         <div ref={mainContentRef} style={styles.mainContent}>
+          {previewingContractor && (
+            <div style={styles.viewAsBanner}>
+              <span style={{ fontSize: 13, color: '#f9a8d4', fontWeight: 600 }}>
+                👁 Previewing contractor portal as <strong style={{ color: '#fff' }}>{viewAsSubRole}</strong>
+              </span>
+              <button onClick={exitViewAs} style={styles.viewAsExitBtn}>Exit preview</button>
+            </div>
+          )}
           {activeTab === 'dashboard' && <PageErrorBoundary key="dashboard"><Dashboard onNavigate={navigateTo} /></PageErrorBoundary>}
 
           {activeTab === 'projects' && <PageErrorBoundary key="projects"><Projects onNavigate={navigateTo} /></PageErrorBoundary>}
@@ -983,7 +1042,7 @@ export default function AppLayout() {
           {activeTab === 'screenwriter' && <PageErrorBoundary key="screenwriter"><Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'teleprompter' && <PageErrorBoundary key="teleprompter"><Teleprompter onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'telestration' && <PageErrorBoundary key="telestration"><Telestration onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'pitch_videos' && <PageErrorBoundary key="pitch_videos"><PitchVideos onBack={() => setActiveTab(isContractor ? 'fl_dashboard' : 'dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'pitch_videos' && <PageErrorBoundary key="pitch_videos"><PitchVideos onBack={() => setActiveTab(asContractor ? 'fl_dashboard' : 'dashboard')} /></PageErrorBoundary>}
           {activeTab === 'post_show' && <PageErrorBoundary key="post_show"><PostShow onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'timeline' && <PageErrorBoundary key="timeline"><Timeline /></PageErrorBoundary>}
           {activeTab === 'organize' && <PageErrorBoundary key="organize"><Organize onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
@@ -1008,15 +1067,15 @@ export default function AppLayout() {
           {isAdmin && activeTab === 'workflows' && <PageErrorBoundary key="workflows"><Workflows /></PageErrorBoundary>}
           {isAdmin && activeTab === 'ops' && <PageErrorBoundary key="ops"><Ops /></PageErrorBoundary>}
           {isAdmin && activeTab === 'jobs' && <PageErrorBoundary key="jobs"><Jobs initialApplicationId={navTarget} onApplicationOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
-          {isContractor && activeTab === 'fl_dashboard' && <PageErrorBoundary key="fl_dashboard"><ContractorDashboard onNavigate={navigateTo} /></PageErrorBoundary>}
-          {isContractor && activeTab === 'fl_hours' && <PageErrorBoundary key="fl_hours"><ContractorHours /></PageErrorBoundary>}
-          {isContractor && activeTab === 'fl_profile' && <PageErrorBoundary key="fl_profile"><ContractorProfile /></PageErrorBoundary>}
-          {isContractor && activeTab === 'fl_notifications' && <PageErrorBoundary key="fl_notifications"><ContractorNotifications onNavigate={navigateTo} /></PageErrorBoundary>}
-          {isContractor && activeTab === 'fl_documents' && <PageErrorBoundary key="fl_documents"><ContractorDocuments /></PageErrorBoundary>}
+          {asContractor && activeTab === 'fl_dashboard' && <PageErrorBoundary key="fl_dashboard"><ContractorDashboard onNavigate={navigateTo} /></PageErrorBoundary>}
+          {asContractor && activeTab === 'fl_hours' && <PageErrorBoundary key="fl_hours"><ContractorHours /></PageErrorBoundary>}
+          {asContractor && activeTab === 'fl_profile' && <PageErrorBoundary key="fl_profile"><ContractorProfile /></PageErrorBoundary>}
+          {asContractor && activeTab === 'fl_notifications' && <PageErrorBoundary key="fl_notifications"><ContractorNotifications onNavigate={navigateTo} /></PageErrorBoundary>}
+          {asContractor && activeTab === 'fl_documents' && <PageErrorBoundary key="fl_documents"><ContractorDocuments /></PageErrorBoundary>}
         </div>
       </main>
       {profile?.mascot_enabled !== false && <Morty />}
-      {!isContractor && !isPartner && profile?.assistant_enabled !== false && <MortyChat />}
+      {!asContractor && !isPartner && profile?.assistant_enabled !== false && <MortyChat />}
       {showTour && (
         <ContractorTour
           onComplete={handleTourComplete}
@@ -1474,6 +1533,15 @@ function ContractorModeIcon({ active }) {
   );
 }
 
+function ViewAsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
+      <path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z" strokeLinejoin="round" />
+      <circle cx="10" cy="10" r="2.5" />
+    </svg>
+  );
+}
+
 function PreProductionIcon({ active }) {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
@@ -1675,6 +1743,62 @@ const styles = {
   navItemActive: {
     background: colors.accentA12,
     color: colors.accentFg,
+  },
+  viewAsMenu: {
+    position: 'absolute',
+    bottom: 'calc(100% + 6px)',
+    left: 0,
+    minWidth: 200,
+    background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.14)',
+    borderRadius: 10,
+    boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
+    padding: 6,
+    zIndex: 50,
+  },
+  viewAsMenuHeader: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.5px',
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.4)',
+    padding: '6px 10px 4px',
+  },
+  viewAsMenuItem: {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    background: 'none',
+    border: 'none',
+    borderRadius: 6,
+    padding: '8px 10px',
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontFamily: 'DM Sans, sans-serif',
+    cursor: 'pointer',
+  },
+  viewAsBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: '10px 16px',
+    marginBottom: 16,
+    background: 'rgba(236,72,153,0.12)',
+    border: '1px solid rgba(236,72,153,0.3)',
+    borderRadius: 8,
+  },
+  viewAsExitBtn: {
+    background: 'rgba(255,255,255,0.1)',
+    border: '1px solid rgba(255,255,255,0.2)',
+    borderRadius: 6,
+    padding: '6px 14px',
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+    flexShrink: 0,
   },
   navDivider: {
     fontSize: '10px',
