@@ -38,7 +38,14 @@
 -- 1. Sweep the role DATA to 'contractor' (must happen BEFORE tightening the
 --    constraint/helpers, and while functions still accept both values).
 -- ---------------------------------------------------------------------------
+-- profiles.role is guarded by the BEFORE UPDATE trigger profiles_lock_admin_fields()
+-- ("role is admin-only"), which fails when run with a null auth.uid() (as here).
+-- Disable it only for this controlled sweep, then re-enable in the same
+-- transaction (a mid-migration failure rolls back the whole thing, so the guard
+-- is never left disabled).
+ALTER TABLE public.profiles DISABLE TRIGGER profiles_lock_admin_fields;
 UPDATE public.profiles    SET role = 'contractor' WHERE role = 'freelancer';
+ALTER TABLE public.profiles ENABLE TRIGGER profiles_lock_admin_fields;
 UPDATE public.invitations SET role = 'contractor' WHERE role = 'freelancer' AND accepted_at IS NULL;
 -- Optional (rolesAllow() already treats the two as equivalent, so not required):
 --   channel allowed_roles arrays created before cutover may still contain
