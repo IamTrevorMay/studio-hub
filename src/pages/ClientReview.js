@@ -22,7 +22,51 @@ function verdictChipFor(review) {
   return { label: 'Awaiting your review', style: 'awaiting' };
 }
 
-export default function ClientReview({ initialReviewId, onOpened }) {
+// Sample cuts for the admin "View as… Client Portal (simulated)" preview.
+// A real client login runs the RLS-scoped queries below; the sim has no client
+// data, so opening the Review tab would otherwise be empty. These use public
+// YouTube ids so the shared ReviewPlayer renders a real video (demo mode skips
+// every DB read/write — see ReviewPlayer's `demo` branch).
+function buildDemoReviews() {
+  const iso = (days) => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString();
+  };
+  const v = (id, n, label, verdict, videoId, comments) => ({
+    id, version_number: n, label, client_verdict: verdict,
+    youtube_video_id: videoId, youtube_url: `https://youtu.be/${videoId}`,
+    created_at: iso(-n), demoComments: comments || [],
+  });
+  return [
+    {
+      id: 'demo-r1', title: 'Podcast Ep. 42 — Edit', created_at: iso(-3),
+      assignment: { title: 'Podcast Ep. 42 — Edit' }, editor: { full_name: 'Jordan Lee' },
+      versionCount: 2, latestVerdict: null, thumbVideoId: 'aqz-KE-bpKQ',
+      demoVersions: [
+        v('demo-r1-v1', 1, 'v1', 'changes_requested', 'aqz-KE-bpKQ'),
+        v('demo-r1-v2', 2, 'v2', null, 'aqz-KE-bpKQ', [
+          { id: 'demo-c1', version_id: 'demo-r1-v2', timestamp_seconds: 42, content: 'Tighten this transition a touch.', commenter: { full_name: 'You' }, is_resolved: false, replies: [] },
+          { id: 'demo-c2', version_id: 'demo-r1-v2', timestamp_seconds: 128, content: 'Love the intro music choice here.', commenter: { full_name: 'You' }, is_resolved: false, replies: [] },
+        ]),
+      ],
+    },
+    {
+      id: 'demo-r2', title: 'YouTube Long-Form Cut', created_at: iso(-1),
+      assignment: { title: 'YouTube Long-Form Cut' }, editor: { full_name: 'Jordan Lee' },
+      versionCount: 1, latestVerdict: null, thumbVideoId: 'ScMzIvxBSi4',
+      demoVersions: [v('demo-r2-v1', 1, 'v1', null, 'ScMzIvxBSi4')],
+    },
+    {
+      id: 'demo-r3', title: 'Instagram Reel Pack', created_at: iso(-6),
+      assignment: { title: 'Instagram Reel Pack' }, editor: { full_name: 'Sam Rivera' },
+      versionCount: 1, latestVerdict: 'approved', thumbVideoId: 'ysz5S6PUM-U',
+      demoVersions: [v('demo-r3-v1', 1, 'v1', 'approved', 'ysz5S6PUM-U')],
+    },
+  ];
+}
+
+export default function ClientReview({ initialReviewId, onOpened, demo = false }) {
   const { profile } = useAuth();
 
   const [reviews, setReviews] = useState([]);
@@ -33,6 +77,11 @@ export default function ClientReview({ initialReviewId, onOpened }) {
   const openedInitialRef = useRef(null);
 
   const fetchReviews = useCallback(async () => {
+    if (demo) {
+      setReviews(buildDemoReviews());
+      setLoading(false);
+      return;
+    }
     if (!profile?.id) return;
     try {
       // 1. Own assignments (RLS: created_by = self)
@@ -89,7 +138,7 @@ export default function ClientReview({ initialReviewId, onOpened }) {
     } finally {
       setLoading(false);
     }
-  }, [profile?.id]);
+  }, [profile?.id, demo]);
 
   useEffect(() => { fetchReviews(); }, [fetchReviews]);
   useVisibilityRefresh(useCallback(() => { fetchReviews(); }, [fetchReviews]));
@@ -116,6 +165,7 @@ export default function ClientReview({ initialReviewId, onOpened }) {
         profile={profile}
         isAdmin={false}
         mode="client"
+        demo={demo}
       />
     );
   }

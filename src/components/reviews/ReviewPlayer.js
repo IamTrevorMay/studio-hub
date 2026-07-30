@@ -152,7 +152,7 @@ function VerdictChip({ verdict }) {
 //  - client:     no add-version form, details read-only (comments still usable),
 //                verdict bar under the player for the active version
 
-function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff' }) {
+function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo = false }) {
   const isClient = mode === 'client';
   const canAddVersion = !isClient;
   const canEditDetails = !isClient;
@@ -233,6 +233,13 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff' }) {
   }, [comments]);
 
   async function fetchVersions() {
+    // Demo/sim preview: use injected sample versions, never touch the DB.
+    if (demo) {
+      const vers = review.demoVersions || [];
+      setVersions(vers);
+      if (vers.length > 0 && !activeVersion) setActiveVersion(vers[vers.length - 1]);
+      return;
+    }
     const { data } = await supabase.from('review_versions')
       .select('*, creator:profiles!review_versions_created_by_fkey(full_name)')
       .eq('review_id', review.id)
@@ -246,6 +253,10 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff' }) {
 
   async function fetchComments() {
     if (!activeVersion) return;
+    if (demo) {
+      setComments((activeVersion.demoComments || []).map(c => ({ ...c, replies: c.replies || [] })));
+      return;
+    }
     const { data } = await supabase.from('review_comments')
       .select('*, commenter:profiles!review_comments_user_id_fkey(full_name)')
       .eq('version_id', activeVersion.id)
@@ -321,6 +332,20 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff' }) {
     e.preventDefault();
     if (!commentText.trim() || !profile?.id || !activeVersion) return;
     const ts = ytPlayerRef.current?.getCurrentTime?.() || 0;
+    if (demo) {
+      // Sim preview: append locally, never write to the DB.
+      setComments(prev => [...prev, {
+        id: `demo-c-${Date.now()}`,
+        version_id: activeVersion.id,
+        user_id: profile.id,
+        timestamp_seconds: Math.floor(ts),
+        content: commentText.trim(),
+        commenter: { full_name: profile.nickname || profile.full_name || 'You' },
+        replies: [],
+      }]);
+      setCommentText('');
+      return;
+    }
     await supabase.from('review_comments').insert({
       review_id: review.id,
       version_id: activeVersion.id,
@@ -398,16 +423,18 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff' }) {
   // client-side notification insert.
   async function handleSubmitVerdict(verdict) {
     if (!activeVersion || verdictSubmitting) return;
-    setVerdictSubmitting(true);
-    const { error } = await supabase.rpc('submit_review_verdict', {
-      p_version_id: activeVersion.id,
-      p_verdict: verdict,
-    });
-    setVerdictSubmitting(false);
-    if (error) {
-      console.error('Verdict submit failed:', error.message);
-      alert('Could not submit your response. Please try again.');
-      return;
+    if (!demo) {
+      setVerdictSubmitting(true);
+      const { error } = await supabase.rpc('submit_review_verdict', {
+        p_version_id: activeVersion.id,
+        p_verdict: verdict,
+      });
+      setVerdictSubmitting(false);
+      if (error) {
+        console.error('Verdict submit failed:', error.message);
+        alert('Could not submit your response. Please try again.');
+        return;
+      }
     }
     const stamped = {
       client_verdict: verdict,
@@ -424,6 +451,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff' }) {
 
   // ─── Details CRUD ──────────────────────────────────────────────────────────
   async function fetchDetails() {
+    if (demo) return; // sim preview has no details rows
     const [thumbRes, titleRes, commentRes] = await Promise.all([
       supabase.from('review_thumbnails')
         .select('*, uploader:profiles!review_thumbnails_uploaded_by_fkey(full_name)')
