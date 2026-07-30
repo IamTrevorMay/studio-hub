@@ -9,6 +9,7 @@ import { ReactionChips, ReactionBar, toggleReaction } from '../components/Messag
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
+import { canManageClients } from '../lib/rolePermissions';
 import MessageAttachments from '../components/MessageAttachments';
 import AttachmentEditRow from '../components/AttachmentEditRow';
 import useAttachmentEdit from '../lib/useAttachmentEdit';
@@ -48,8 +49,13 @@ function applyFormatMarker(textareaRef, text, marker, setter) {
 }
 
 export default function Messages({ onNavigate }) {
-  const { profile: realProfile, refreshKey } = useAuth();
+  const { profile: realProfile, refreshKey, isClient, isContractor } = useAuth();
   const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
+  // While an admin "views as" a contractor, the effective profile's role is
+  // forced to 'contractor' and queries run under the contractor's RLS — so the
+  // picker logic follows the EFFECTIVE role, not just the real auth flags.
+  const effIsClient = isClient || profile?.role === 'client';
+  const effIsContractor = isContractor || profile?.role === 'contractor' || profile?.role === 'freelancer';
   const confirm = useConfirm();
   const { fetchUnreadDms } = useNotifications();
   const [conversations, setConversations] = useState([]);
@@ -146,13 +152,43 @@ export default function Messages({ onNavigate }) {
   const fetchTeamMembers = useCallback(async () => {
     if (!profile?.id) return;
     try {
-      const { data } = await supabase.from('profiles').select('id, full_name, nickname, title, avatar_url')
+      if (effIsClient) {
+        // Clients may only DM their allowed contacts (admins, creative
+        // director, assigned editors). Server-enforced: get_or_create_dm
+        // rejects anyone outside this set.
+        const { data, error } = await supabase.rpc('client_message_recipients');
+        if (error) throw error;
+        setTeamMembers(data || []);
+        return;
+      }
+      let query = supabase.from('profiles').select('id, full_name, nickname, title, avatar_url')
         .neq('id', profile.id);
-      setTeamMembers(data || []);
+      // Only admins + the creative director see clients in the staff picker;
+      // contractors get their own assigned clients merged in below.
+      if (effIsContractor || !canManageClients(profile.role, profile.sub_role)) {
+        query = query.neq('role', 'client');
+      }
+      const { data } = await query;
+      let members = data || [];
+      if (effIsContractor) {
+        // Editors may DM their assigned clients (client_editors rows are
+        // self-readable for contractors).
+        const { data: links } = await supabase.from('client_editors')
+          .select('client_id')
+          .eq('contractor_id', profile.id);
+        const clientIds = [...new Set((links || []).map(l => l.client_id))];
+        if (clientIds.length) {
+          const { data: clients } = await supabase.from('profiles')
+            .select('id, full_name, nickname, title, avatar_url')
+            .in('id', clientIds);
+          members = [...members, ...(clients || [])];
+        }
+      }
+      setTeamMembers(members);
     } catch (err) {
       console.error('Error fetching team:', err);
     }
-  }, [profile?.id]);
+  }, [profile?.id, profile?.role, profile?.sub_role, effIsClient, effIsContractor]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -606,6 +642,12 @@ export default function Messages({ onNavigate }) {
   }
 
   function toggleUserSelection(userId) {
+    if (effIsClient) {
+      // Clients get 1:1 DMs only (v1) — single-select picker, so the group
+      // branch of handleStartConversation is unreachable for them.
+      setSelectedUsers(prev => (prev.includes(userId) ? [] : [userId]));
+      return;
+    }
     setSelectedUsers(prev =>
       prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
     );
@@ -711,7 +753,7 @@ export default function Messages({ onNavigate }) {
               placeholder="Search people..."
               style={styles.searchInput}
             />
-            {selectedUsers.length > 1 && (
+            {!effIsClient && selectedUsers.length > 1 && (
               <input
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}

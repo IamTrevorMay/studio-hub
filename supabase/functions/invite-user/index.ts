@@ -62,15 +62,21 @@ Deno.serve(async (req: Request) => {
     const inviteRole = role || "member";
     const normalizedEmail = email.toLowerCase().trim();
 
+    // Clients are external customers: no sub-role, no payment plumbing, no
+    // Cloud account, no drive-folder assignment.
+    const isClientInvite = inviteRole === "client";
+    const effectivePaymentType = isClientInvite ? null : (payment_type || null);
+    const effectiveRate = isClientInvite || rate == null ? null : Number(rate);
+
     // Sub-role plumbing: the Contractors page carries the contractor sub-role as
     // `title`; the Admin Panel sends `sub_role`. Keep both columns mirrored so
     // the deprecated `title` display keeps working for contractors.
-    const effectiveSubRole = sub_role || (inviteRole === "contractor" ? title : null) || null;
-    const effectiveTitle = title || (inviteRole === "contractor" ? sub_role : null) || null;
+    const effectiveSubRole = isClientInvite ? null : (sub_role || (inviteRole === "contractor" ? title : null) || null);
+    const effectiveTitle = isClientInvite ? (title || null) : (title || (inviteRole === "contractor" ? sub_role : null) || null);
 
     // Hourly retainer/overtime settings — only meaningful for hourly payment.
     // Sanitize: keep the numeric floor/cap only when its toggle is on.
-    const isHourly = payment_type === "hourly";
+    const isHourly = !isClientInvite && payment_type === "hourly";
     const retainerOn = isHourly && retainer_enabled === true;
     const overtimeOn = isHourly && overtime_enabled === true;
     const inviteRetainerEnabled = retainerOn;
@@ -92,10 +98,10 @@ Deno.serve(async (req: Request) => {
         role: inviteRole,
         title: effectiveTitle,
         sub_role: effectiveSubRole,
-        payment_type: payment_type || null,
-        rate: rate != null ? Number(rate) : null,
-        assigned_drive_folder_id: assigned_drive_folder_id || null,
-        assigned_drive_folder_name: assigned_drive_folder_name || null,
+        payment_type: effectivePaymentType,
+        rate: effectiveRate,
+        assigned_drive_folder_id: isClientInvite ? null : (assigned_drive_folder_id || null),
+        assigned_drive_folder_name: isClientInvite ? null : (assigned_drive_folder_name || null),
       },
       redirectTo: Deno.env.get("SITE_URL") || "https://studio-hub-fawn.vercel.app",
     });
@@ -115,13 +121,13 @@ Deno.serve(async (req: Request) => {
       role: inviteRole,
       title: effectiveTitle,
       sub_role: effectiveSubRole,
-      payment_type: payment_type || null,
-      rate: rate != null ? Number(rate) : null,
+      payment_type: effectivePaymentType,
+      rate: effectiveRate,
       contract_storage_path: contract_storage_path || null,
       contract_file_name: contract_file_name || null,
       contract_needs_signing: contract_needs_signing != null ? contract_needs_signing : null,
-      assigned_drive_folder_id: assigned_drive_folder_id || null,
-      assigned_drive_folder_name: assigned_drive_folder_name || null,
+      assigned_drive_folder_id: isClientInvite ? null : (assigned_drive_folder_id || null),
+      assigned_drive_folder_name: isClientInvite ? null : (assigned_drive_folder_name || null),
       retainer_enabled: inviteRetainerEnabled,
       retainer_min_hours: inviteRetainerMin,
       overtime_enabled: inviteOvertimeEnabled,
@@ -133,10 +139,11 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Cloud integration: create Cloud user + set folder restrictions ──
+    // Skipped for clients — they never touch the asset cloud.
     const cloudApiUrl = Deno.env.get("CLOUD_API_URL");
     const cloudApiKey = Deno.env.get("CLOUD_API_KEY");
 
-    if (cloudApiUrl && cloudApiKey) {
+    if (!isClientInvite && cloudApiUrl && cloudApiKey) {
       try {
         // Create Cloud user account
         const createResp = await fetch(`${cloudApiUrl}/api/restrictions/admin/users`, {

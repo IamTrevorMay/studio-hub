@@ -1,9 +1,11 @@
-// Role hierarchy (restructured 2026-07-29).
+// Role hierarchy (restructured 2026-07-29; client added 2026-07-30).
 //
-// Top-level roles:  admin · director · member · contractor
+// Top-level roles:  admin · director · member · contractor · client
 //   - Director sub-roles:   communications | creative   (profiles.sub_role)
 //   - Contractor sub-roles: the former "titles"         (profiles.sub_role)
-//   - admin / member have no sub-role.
+//   - admin / member / client have no sub-role.
+//   - client is an external customer with a locked portal (like contractor) —
+//     NOT admin-tier, NOT in STAFF_ROLES, genuinely RLS-fenced at the DB.
 //
 // Removed roles: assistant (folded into Director), producer (unused),
 // partner (portal removed). LEGACY_DIRECTOR_ROLES are the pre-restructure
@@ -44,6 +46,29 @@ export const DIRECTOR_SUB_ROLE_LABELS = {
   communications: 'Director of Communications',
   creative: 'Director of Creative',
 };
+
+// ── Client role (external customers, locked portal) ──
+
+export const CLIENT_ROLE = 'client';
+
+export function isClientRole(role) {
+  return role === CLIENT_ROLE;
+}
+
+// Contractor sub-roles that act as client-facing editors. Mirrors the DB
+// client_editors_validate() trigger — keep in sync.
+export const EDITOR_SUB_ROLES = ['Long Form Editor', 'Short Form Editor', 'Podcast Editor'];
+
+export function isEditorSubRole(subRole) {
+  return EDITOR_SUB_ROLES.includes(subRole);
+}
+
+// Who can manage clients (invite, assign editors, issue documents): admins and
+// the Creative Director. UI-only gate — the DB layer passes is_admin() for all
+// directors, like the other ROLE_RESTRICTED_NAV_KEYS boundaries.
+export function canManageClients(role, subRole) {
+  return role === 'admin' || (isDirectorRole(role) && subRole === 'creative');
+}
 
 // Internal, non-contractor staff roles (for team pickers / staff queries).
 export const STAFF_ROLES = ['admin', 'director', 'member', ...LEGACY_DIRECTOR_ROLES];

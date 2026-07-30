@@ -17,6 +17,27 @@ const EDIT_STATUSES = [
   { value: 'completed',   label: 'Completed' },
 ];
 
+// Client-facing status labels (read-only chip in client mode edits).
+const CLIENT_STATUS_LABELS = {
+  assigned: 'Waiting to start',
+  in_progress: 'In progress',
+  completed: 'Completed',
+};
+
+const CLIENT_STATUS_COLORS = {
+  assigned: { bg: 'rgba(96,165,250,0.15)', color: '#60a5fa' },
+  in_progress: { bg: 'rgba(251,191,36,0.15)', color: '#fbbf24' },
+  completed: { bg: 'rgba(52,211,153,0.15)', color: '#34d399' },
+};
+
+// Read-only rate display for the client mode pill; data comes from the
+// client_editor_options() RPC rows passed in via `contractorOptions`.
+function formatEditorRate(editor) {
+  if (!editor || editor.rate == null || Number.isNaN(Number(editor.rate))) return 'Rate on file';
+  const amt = Number(editor.rate).toFixed(2);
+  return editor.payment_type === 'hourly' ? `$${amt}/hr` : `$${amt} flat`;
+}
+
 // Accept either a full Google Drive folder URL or a bare folder id and
 // normalize to the bare id we store in submit_folder_id. Returns '' when the
 // input is empty/unparseable so the caller can fall back to null (= default).
@@ -51,8 +72,12 @@ function toTimeInput(v) {
 
 export default function ContractorAssignmentModal({
   open, onClose, onCreated, onSaved, showToast, currentUserId, existing,
+  mode = 'admin', contractorOptions = null,
 }) {
   const isEdit = !!existing;
+  const isClient = mode === 'client';
+  // Completed rows are DB-locked against client edits — show read-only.
+  const isLocked = isClient && isEdit && existing.status === 'completed';
   const [freelancers, setContractors] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
@@ -71,7 +96,9 @@ export default function ContractorAssignmentModal({
 
   useEffect(() => {
     if (!open) return;
-    fetchContractors();
+    // Callers may supply the contractor list (e.g. the client portal's RPC
+    // result) — skip the internal fetch, which clients can't run anyway.
+    if (!contractorOptions) fetchContractors();
     if (isEdit) {
       setForm({
         contractor_id: existing.contractor_id || '',
@@ -90,15 +117,27 @@ export default function ContractorAssignmentModal({
         due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '',
       });
     }
-  }, [open, isEdit, existing, fetchContractors]);
+  }, [open, isEdit, existing, fetchContractors, contractorOptions]);
 
-  const canSubmit = form.contractor_id && form.title.trim() && !submitting;
+  const contractorList = contractorOptions || freelancers;
+  const selectedEditor = isClient
+    ? contractorList.find(c => c.id === form.contractor_id)
+    : null;
+
+  const canSubmit = form.contractor_id && form.title.trim() && !submitting && !isLocked;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      const base = {
+      // Client mode sends only the fields the DB allows clients to write —
+      // pay/submit-folder/asset are server-controlled (sanitize + lock triggers).
+      const base = isClient ? {
+        title: form.title.trim(),
+        description: form.description.trim() || null,
+        due_date: form.due_date || null,
+        due_time: form.due_time || null,
+      } : {
         contractor_id: form.contractor_id,
         title: form.title.trim(),
         description: form.description.trim() || null,
@@ -110,12 +149,15 @@ export default function ContractorAssignmentModal({
       };
 
       if (isEdit) {
-        const updates = { ...base, status: form.status };
-        // Mark/un-mark completion timestamp on status flips.
-        if (form.status === 'completed' && existing.status !== 'completed') {
-          updates.completed_at = new Date().toISOString();
-        } else if (form.status !== 'completed' && existing.status === 'completed') {
-          updates.completed_at = null;
+        const updates = { ...base };
+        if (!isClient) {
+          updates.status = form.status;
+          // Mark/un-mark completion timestamp on status flips.
+          if (form.status === 'completed' && existing.status !== 'completed') {
+            updates.completed_at = new Date().toISOString();
+          } else if (form.status !== 'completed' && existing.status === 'completed') {
+            updates.completed_at = null;
+          }
         }
         updates.updated_at = new Date().toISOString();
         const { error } = await supabase
@@ -126,21 +168,27 @@ export default function ContractorAssignmentModal({
         if (showToast) showToast('Assignment updated');
         if (onSaved) onSaved();
       } else {
-        const row = { ...base, created_by: currentUserId || null };
+        const row = isClient
+          ? { ...base, contractor_id: form.contractor_id, status: 'assigned', created_by: currentUserId || null }
+          : { ...base, created_by: currentUserId || null };
         const { error } = await supabase.from('contractor_assignments').insert(row);
         if (error) throw error;
-        // Best-effort notification — a failure here must not report the (already
-        // created) assignment as failed.
-        try {
-          await supabase.from('notifications').insert({
-            user_id: form.contractor_id,
-            type: 'assignment',
-            title: 'New Assignment',
-            body: `You have been assigned "${form.title.trim()}"`,
-            link_tab: 'fl_dashboard',
-            link_target: null,
-          });
-        } catch (_) { /* ignore */ }
+        // Client-created assignments are notified by DB triggers (and RLS
+        // blocks clients from inserting notifications) — admin path only.
+        if (!isClient) {
+          // Best-effort notification — a failure here must not report the (already
+          // created) assignment as failed.
+          try {
+            await supabase.from('notifications').insert({
+              user_id: form.contractor_id,
+              type: 'assignment',
+              title: 'New Assignment',
+              body: `You have been assigned "${form.title.trim()}"`,
+              link_tab: 'fl_dashboard',
+              link_target: null,
+            });
+          } catch (_) { /* ignore */ }
+        }
         if (showToast) showToast('Assignment created');
         if (onCreated) onCreated();
       }
@@ -177,20 +225,29 @@ export default function ContractorAssignmentModal({
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         <div style={styles.header}>
           <div>
-            <h2 style={styles.h2}>{isEdit ? 'Edit Contractor Assignment' : 'Assign Contractor Work'}</h2>
+            <h2 style={styles.h2}>
+              {isClient
+                ? (isEdit ? 'Edit Assignment' : 'New Assignment')
+                : (isEdit ? 'Edit Contractor Assignment' : 'Assign Contractor Work')}
+            </h2>
             <p style={styles.subtitle}>
               {isEdit
                 ? `Created ${existing.created_at ? new Date(existing.created_at).toLocaleString() : 'recently'}`
-                : 'Create a paid assignment for a contractor.'}
+                : (isClient ? 'Assign work to one of your editors' : 'Create a paid assignment for a contractor.')}
             </p>
           </div>
           <button style={styles.closeBtn} onClick={onClose}>×</button>
         </div>
 
         <div style={styles.body}>
+          {isLocked && (
+            <p style={styles.lockedNote}>
+              This assignment is completed and can no longer be edited.
+            </p>
+          )}
           <div style={styles.formGrid}>
             <div style={styles.formField}>
-              <label style={styles.label}>Contractor *</label>
+              <label style={styles.label}>{isClient ? 'Editor *' : 'Contractor *'}</label>
               <select
                 value={form.contractor_id}
                 onChange={e => setForm(p => ({ ...p, contractor_id: e.target.value }))}
@@ -198,12 +255,16 @@ export default function ContractorAssignmentModal({
                 disabled={isEdit}
               >
                 <option value="">Select...</option>
-                {freelancers.map(fl => (
+                {contractorList.map(fl => (
                   <option key={fl.id} value={fl.id}>
-                    {fl.full_name || fl.email}{fl.title ? ` — ${fl.title}` : ''}
+                    {fl.full_name || fl.nickname || fl.email}
+                    {(fl.sub_role || fl.title) ? ` — ${fl.sub_role || fl.title}` : ''}
                   </option>
                 ))}
               </select>
+              {isClient && selectedEditor && (
+                <span style={styles.ratePill}>{formatEditorRate(selectedEditor)}</span>
+              )}
             </div>
             <div style={styles.formField}>
               <label style={styles.label}>Title *</label>
@@ -212,9 +273,10 @@ export default function ContractorAssignmentModal({
                 onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
                 style={styles.input}
                 placeholder="Assignment title"
+                disabled={isLocked}
               />
             </div>
-            {isEdit && (
+            {isEdit && !isClient && (
               <div style={styles.formField}>
                 <label style={styles.label}>Status</label>
                 <select
@@ -226,6 +288,18 @@ export default function ContractorAssignmentModal({
                 </select>
               </div>
             )}
+            {isEdit && isClient && (
+              <div style={styles.formField}>
+                <label style={styles.label}>Status</label>
+                <span style={{
+                  ...styles.statusChip,
+                  background: (CLIENT_STATUS_COLORS[existing.status] || CLIENT_STATUS_COLORS.assigned).bg,
+                  color: (CLIENT_STATUS_COLORS[existing.status] || CLIENT_STATUS_COLORS.assigned).color,
+                }}>
+                  {CLIENT_STATUS_LABELS[existing.status] || existing.status}
+                </span>
+              </div>
+            )}
             <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
               <label style={styles.label}>Description</label>
               <textarea
@@ -233,33 +307,38 @@ export default function ContractorAssignmentModal({
                 onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
                 style={{ ...styles.input, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
                 placeholder="Optional description"
+                disabled={isLocked}
               />
             </div>
-            <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
-              <label style={styles.label}>Asset Link</label>
-              <input
-                value={form.asset_url}
-                onChange={e => setForm(p => ({ ...p, asset_url: e.target.value }))}
-                style={styles.input}
-                placeholder="Paste an Assets Library, Drive, or other URL"
-              />
-            </div>
-            <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
-              <label style={styles.label}>Submission Folder Override</label>
-              <input
-                value={form.submit_folder}
-                onChange={e => setForm(p => ({ ...p, submit_folder: e.target.value }))}
-                style={styles.input}
-                placeholder="Optional — paste a Drive folder link to override the default submit location"
-              />
-              {form.submit_folder.trim() && (
-                <span style={styles.hint}>
-                  {parseDriveFolderId(form.submit_folder)
-                    ? `Files for this assignment will upload to folder ${parseDriveFolderId(form.submit_folder)}`
-                    : 'Could not read a Drive folder from that link — submissions will use the default location.'}
-                </span>
-              )}
-            </div>
+            {!isClient && (
+              <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+                <label style={styles.label}>Asset Link</label>
+                <input
+                  value={form.asset_url}
+                  onChange={e => setForm(p => ({ ...p, asset_url: e.target.value }))}
+                  style={styles.input}
+                  placeholder="Paste an Assets Library, Drive, or other URL"
+                />
+              </div>
+            )}
+            {!isClient && (
+              <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+                <label style={styles.label}>Submission Folder Override</label>
+                <input
+                  value={form.submit_folder}
+                  onChange={e => setForm(p => ({ ...p, submit_folder: e.target.value }))}
+                  style={styles.input}
+                  placeholder="Optional — paste a Drive folder link to override the default submit location"
+                />
+                {form.submit_folder.trim() && (
+                  <span style={styles.hint}>
+                    {parseDriveFolderId(form.submit_folder)
+                      ? `Files for this assignment will upload to folder ${parseDriveFolderId(form.submit_folder)}`
+                      : 'Could not read a Drive folder from that link — submissions will use the default location.'}
+                  </span>
+                )}
+              </div>
+            )}
             <div style={styles.formField}>
               <label style={styles.label}>Due Date</label>
               <input
@@ -267,6 +346,7 @@ export default function ContractorAssignmentModal({
                 value={form.due_date}
                 onChange={e => setForm(p => ({ ...p, due_date: e.target.value }))}
                 style={styles.input}
+                disabled={isLocked}
               />
             </div>
             <div style={styles.formField}>
@@ -276,25 +356,28 @@ export default function ContractorAssignmentModal({
                 value={form.due_time}
                 onChange={e => setForm(p => ({ ...p, due_time: e.target.value }))}
                 style={styles.input}
+                disabled={isLocked}
               />
             </div>
-            <div style={styles.formField}>
-              <label style={styles.label}>Pay Amount ($)</label>
-              <input
-                type="number"
-                value={form.pay_amount}
-                onChange={e => setForm(p => ({ ...p, pay_amount: e.target.value }))}
-                style={styles.input}
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-              />
-            </div>
+            {!isClient && (
+              <div style={styles.formField}>
+                <label style={styles.label}>Pay Amount ($)</label>
+                <input
+                  type="number"
+                  value={form.pay_amount}
+                  onChange={e => setForm(p => ({ ...p, pay_amount: e.target.value }))}
+                  style={styles.input}
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+            )}
           </div>
         </div>
 
         <div style={styles.footer}>
-          {isEdit && (
+          {isEdit && !isClient && (
             <button style={styles.deleteBtn} onClick={handleDelete} disabled={submitting}>
               Delete
             </button>
@@ -342,6 +425,20 @@ const styles = {
   formField: { display: 'flex', flexDirection: 'column', gap: 4 },
   label: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)' },
   hint: { fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
+  ratePill: {
+    alignSelf: 'flex-start', marginTop: 4, padding: '2px 10px', borderRadius: 999,
+    background: colors.accentSoft, color: colors.accentFg,
+    border: `1px solid ${colors.accentBorder}`, fontSize: 11, fontWeight: 600,
+  },
+  statusChip: {
+    alignSelf: 'flex-start', padding: '4px 12px', borderRadius: 999,
+    fontSize: 12, fontWeight: 600,
+  },
+  lockedNote: {
+    fontSize: 12, color: 'rgba(255,255,255,0.5)', margin: '0 0 12px',
+    padding: '8px 12px', background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8,
+  },
   input: {
     width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 6, padding: '8px 12px', color: '#fff', fontSize: 14, outline: 'none',

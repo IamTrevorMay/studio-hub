@@ -132,6 +132,19 @@ export default function AuthPageMobile() {
               console.error('Failed to move contract:', contractErr);
             }
           }
+        } else if (assignedRole === 'client') {
+          // Create the client_profiles row (RLS lets clients insert their own),
+          // then claim any invite-time contract server-side. Both non-fatal —
+          // ClientProfile upserts the row lazily if this fails.
+          try {
+            const { error: cpErr } = await supabase.from('client_profiles')
+              .upsert({ id: user.id });
+            if (cpErr) console.error('client_profiles upsert failed:', cpErr);
+            const { error: claimErr } = await supabase.rpc('claim_client_contract');
+            if (claimErr) console.error('claim_client_contract failed:', claimErr);
+          } catch (clientErr) {
+            console.error('Client setup step failed:', clientErr);
+          }
         }
 
         await supabase.from('invitations')

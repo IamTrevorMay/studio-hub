@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
-import { canAccessBroadcast } from '../lib/rolePermissions';
+import { canAccessBroadcast, isEditorSubRole } from '../lib/rolePermissions';
 import { useAuth } from '../contexts/AuthContext';
 
 // Some pages are admin-only by default but should also be visible to a
@@ -87,7 +87,7 @@ export default function useNavConfig() {
    * - Items in config but not in code are skipped
    * - Items in code but not in config are appended at the end
    */
-  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isContractor, profile, restrictedNavKeys) => {
+  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isContractor, profile, restrictedNavKeys, isClient) => {
     const restricted = restrictedNavKeys instanceof Set ? restrictedNavKeys : new Set();
     const isRestricted = (key) => restricted.has(key);
     // Contractors get a locked sidebar
@@ -98,8 +98,12 @@ export default function useNavConfig() {
       if (profile?.assigned_drive_folder_id) {
         items.push({ type: 'item', key: 'fl_assignments', label: 'Assignments' });
       }
+      items.push({ type: 'item', key: 'fl_submit', label: 'Submit' });
+      // Editor sub-roles get the client-review feedback tab.
+      if (isEditorSubRole(profile?.sub_role)) {
+        items.push({ type: 'item', key: 'fl_reviews', label: 'Reviews' });
+      }
       items.push(
-        { type: 'item', key: 'fl_submit', label: 'Submit' },
         { type: 'item', key: 'pitch_videos', label: 'Video Assets' },
         { type: 'item', key: 'fl_documents', label: 'Documents' },
         { type: 'item', key: 'channels', label: 'Channels' },
@@ -108,6 +112,19 @@ export default function useNavConfig() {
         { type: 'item', key: 'fl_notifications', label: 'Notifications' },
       );
       return items;
+    }
+
+    // Clients (external customers) get a locked portal sidebar
+    if (isClient) {
+      return [
+        { type: 'item', key: 'cl_dashboard', label: 'Dashboard' },
+        { type: 'item', key: 'cl_calendar', label: 'Calendar' },
+        { type: 'item', key: 'cl_review', label: 'Review' },
+        { type: 'item', key: 'messages', label: 'Messages' },
+        { type: 'item', key: 'cl_documents', label: 'Documents' },
+        { type: 'item', key: 'cl_profile', label: 'Profile' },
+        { type: 'item', key: 'cl_notifications', label: 'Notifications' },
+      ];
     }
 
     // Partners get a locked two-item sidebar

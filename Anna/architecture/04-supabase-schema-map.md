@@ -204,22 +204,33 @@ files).
 
 ## RLS role model
 
-Roles live in the `profiles.role` CHECK constraint:
-`admin`, `assistant`, `member`, `partner`, `freelancer`, `director_creative`,
-`director_comms`, `producer`, `agency`.
+Roles live in the `profiles.role` CHECK constraint (as of 2026-07-30):
+`admin`, `director`, `member`, `contractor`, `client`.
 
-- **Admin tier at the DB layer**: `public.is_admin()` /
-  `public.is_admin_or_assistant()` SECURITY DEFINER helpers. Admin-tier roles
-  (`admin`, `director_creative`, `director_comms`) all pass `is_admin()`.
-  Director restrictions are **UI-only** (`src/lib/rolePermissions.js`) — RLS
-  does not block directors from the underlying tables; the nav hide + route
-  guard is the enforcement boundary. See the header comment in `rolePermissions.js:1-14`.
-- **Freelancer / agency** are genuinely fenced by RLS, not just UI. Agency is
-  excluded from staff-wide policies via `is_agency()` and reads through trimmed
-  DEFINER views.
+- **Admin tier at the DB layer**: `public.is_admin()` SECURITY DEFINER helper —
+  `admin` + `director` pass it. Director restrictions are **UI-only**
+  (`src/lib/rolePermissions.js`) — RLS does not block directors from the
+  underlying tables; the nav hide + route guard is the enforcement boundary.
+- **Contractor / client** are genuinely fenced by RLS, not just UI.
+  Contractor helper is `is_freelancer()` (legacy name kept); client helpers are
+  `is_client(uid)` / `is_client()` and `is_staff(uid)` (= admin/director/member,
+  used by the reviews-family RLS). Clients are excluded from wide-open policies
+  (`calendar_events`, `notifications` INSERT) via `not is_client()` and read
+  scoped data through DEFINER RPCs (`client_calendar_events`,
+  `client_editor_options`, `client_message_recipients`).
+- **Client Portal tables** (migrations `20260730100000`–`20260730160000`):
+  `client_profiles`, `client_editors`, `client_documents` (+ private
+  `client-documents` bucket); `reviews.assignment_id` + per-version
+  `client_verdict` columns; hardened `get_or_create_dm` /
+  `create_group_conversation`.
 - Adding a role means: (1) widen the `profiles.role` CHECK, (2) add it to
-  `is_admin`/`is_admin_or_assistant` if admin-tier, (3) mirror in
-  `ADMIN_TIER_ROLES`/`ROLE_RESTRICTED_NAV_KEYS` in `rolePermissions.js`.
+  `is_admin` if admin-tier, (3) mirror in
+  `ADMIN_TIER_ROLES`/`ROLE_RESTRICTED_NAV_KEYS` in `rolePermissions.js`,
+  (4) AuthContext flag + `getResolvedNav` branch if it gets a locked portal.
+- **Grant gotcha:** `revoke execute ... from anon` on a SECURITY DEFINER
+  function is a no-op — the access flows through the implicit PUBLIC grant.
+  Revoke from `public, anon` and re-grant `authenticated` (see
+  `20260730160000_client_fn_grants.sql`).
 
 ## FK conventions & gotchas
 
@@ -239,3 +250,47 @@ Local migration history has **diverged** from remote. Do **not** use
 `supabase db push`. Apply schema changes via the Supabase MCP `apply_migration`
 tool (or `list_migrations` to inspect). See `07-build-deploy-vercel.md` and the
 `project_supabase_migration_divergence` memory.
+
+## Contractor rename (2026-07-29) — freelancer_* -> contractor_*
+
+The "freelancer" concept was renamed to "contractor" end-to-end via a
+**zero-downtime expand/contract**. Durable facts:
+
+- **Tables** are now `contractor_profiles`, `contractor_assignments`,
+  `contractor_assignment_comments`, `contractor_documents`, `contractor_hours`,
+  `contractor_overtime_approvals`. Column `freelancer_id` -> **`contractor_id`**.
+- **Role value** `'freelancer'` -> `'contractor'`. During the expand window BOTH
+  are accepted everywhere: the `profiles_role_check` constraint lists both,
+  `is_freelancer()` (helper name KEPT) matches `role in ('freelancer','contractor')`,
+  and the frontend reads accept both (`isContractor` = contractor OR freelancer)
+  while writes emit `'contractor'`.
+- **EXPAND** (`20260729120000_contractor_rename_expand.sql`, APPLIED): renamed
+  tables/column, recreated every dependent function (bodies are text, don't
+  auto-follow renames — RLS policies/triggers/FK refs DO auto-follow), and
+  created six auto-updatable **compat views** named `freelancer_*` with
+  `security_invoker=on` and `contractor_id AS freelancer_id`, so the old prod
+  frontend keeps reading/writing until cutover. FK constraint names were KEPT
+  (`freelancer_assignments_freelancer_id_fkey`, …) because the old frontend
+  embeds via those constraint-name hints; the new frontend uses column hints
+  (`profiles!contractor_id`). Storage bucket **`freelancer-documents`**, RPC name
+  **`compute_freelancer_pay`** (+ param `p_freelancer`), the `fl_*` route/page
+  keys, the `'freelancers'` admin page key, and notification `type` strings
+  (`fl_*`) were all intentionally KEPT.
+- **CONTRACT** (`20260729130000_contractor_rename_contract.sql`, **APPLIED
+  2026-07-29** after the new frontend went live): swept role data
+  (`profiles` + `invitations`), dropped the compat views, tightened
+  `is_freelancer()`/`get_notification_summary`/projects policies/role constraint
+  to contractor-only. `role='freelancer'` is now REJECTED by
+  `profiles_role_check`. `jobs-review` was flipped to write `'contractor'`.
+  Gotcha found: the bulk `profiles.role` sweep is blocked by the BEFORE UPDATE
+  guard `profiles_lock_admin_fields()` ("role is admin-only") when run with a
+  null `auth.uid()` — disable that trigger around the UPDATE and re-enable it in
+  the same transaction.
+- **Deferred cosmetic:** 9 PK/unique INDEX names still read `freelancer_*` on the
+  `contractor_*` base tables (functional, rename someday); the `is_freelancer()`
+  helper name, `compute_freelancer_pay` RPC, `fl_*` function/route keys, the
+  `freelancer-documents` bucket, and the "freelancer ..." POLICY names are all
+  intentionally unchanged.
+- **Landmine:** `is_freelancer()` keeping its old name is deliberate (avoids
+  recreating every policy that references it). Don't "fix" the name without
+  recreating all dependent RLS.

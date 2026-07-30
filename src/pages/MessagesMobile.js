@@ -5,6 +5,7 @@ import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
+import { canManageClients } from '../lib/rolePermissions';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
 import { colors } from '../lib/styleTokens';
@@ -38,7 +39,7 @@ function applyFormatMarker(textareaRef, text, marker, setter) {
 }
 
 export default function MessagesMobile({ onNavigate }) {
-  const { profile, refreshKey } = useAuth();
+  const { profile, refreshKey, isClient, isContractor } = useAuth();
   const confirm = useConfirm();
   const [conversations, setConversations] = useState([]);
   const [activeConvo, setActiveConvo] = useState(null);
@@ -100,9 +101,37 @@ export default function MessagesMobile({ onNavigate }) {
 
   const fetchTeamMembers = useCallback(async () => {
     if (!profile?.id) return;
-    const { data } = await supabase.from('profiles').select('id, full_name, nickname, title').neq('id', profile.id);
-    setTeamMembers(data || []);
-  }, [profile?.id]);
+    if (isClient) {
+      // Clients may only DM their allowed contacts (admins, creative director,
+      // assigned editors) — server-enforced by get_or_create_dm.
+      const { data } = await supabase.rpc('client_message_recipients');
+      setTeamMembers(data || []);
+      return;
+    }
+    let query = supabase.from('profiles').select('id, full_name, nickname, title').neq('id', profile.id);
+    // Only admins + the creative director see clients in the staff picker;
+    // contractors get their own assigned clients merged in below.
+    if (isContractor || !canManageClients(profile.role, profile.sub_role)) {
+      query = query.neq('role', 'client');
+    }
+    const { data } = await query;
+    let members = data || [];
+    if (isContractor) {
+      // Editors may DM their assigned clients (client_editors rows are
+      // self-readable for contractors).
+      const { data: links } = await supabase.from('client_editors')
+        .select('client_id')
+        .eq('contractor_id', profile.id);
+      const clientIds = [...new Set((links || []).map((l) => l.client_id))];
+      if (clientIds.length) {
+        const { data: clients } = await supabase.from('profiles')
+          .select('id, full_name, nickname, title')
+          .in('id', clientIds);
+        members = [...members, ...(clients || [])];
+      }
+    }
+    setTeamMembers(members);
+  }, [profile?.id, profile?.role, profile?.sub_role, isClient, isContractor]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -304,7 +333,7 @@ export default function MessagesMobile({ onNavigate }) {
         maxHeight="85vh"
       >
         <div style={styles.newPanel}>
-          {selectedUsers.length > 1 && (
+          {!isClient && selectedUsers.length > 1 && (
             <input
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
@@ -324,7 +353,12 @@ export default function MessagesMobile({ onNavigate }) {
               return (
                 <button
                   key={m.id}
-                  onClick={() => setSelectedUsers((prev) => (checked ? prev.filter((x) => x !== m.id) : [...prev, m.id]))}
+                  onClick={() => setSelectedUsers((prev) => {
+                    // Clients get 1:1 DMs only (v1) — single-select picker, so
+                    // handleStartConversation always takes the DM path for them.
+                    if (isClient) return checked ? [] : [m.id];
+                    return checked ? prev.filter((x) => x !== m.id) : [...prev, m.id];
+                  })}
                   style={{ ...styles.userRow, background: checked ? 'rgba(91, 143, 199,0.12)' : 'transparent' }}
                 >
                   <div style={styles.userAvatar}>{getDisplayInitial(m)}</div>

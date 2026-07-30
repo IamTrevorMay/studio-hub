@@ -5,6 +5,7 @@ import useRealtimeTable from '../hooks/useRealtimeTable';
 import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
+import { extractVideoId } from '../components/reviews/ReviewPlayer';
 
 const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
 
@@ -94,6 +95,11 @@ export default function ContractorDashboard({ onNavigate }) {
   const [completeConfirmAssignment, setCompleteConfirmAssignment] = useState(null);
   const [myDriveFolderId, setMyDriveFolderId] = useState(null);
 
+  // Client-created assignments: delivery folder URLs + review-room links
+  const [clientFolders, setClientFolders] = useState({}); // { [clientId]: url|null }
+  const [assignmentReviews, setAssignmentReviews] = useState({}); // { [assignmentId]: reviewId }
+  const [reviewModalAssignment, setReviewModalAssignment] = useState(null);
+
   // Notifications + announcements
   const [notifications, setNotifications] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
@@ -109,11 +115,28 @@ export default function ContractorDashboard({ onNavigate }) {
     if (!profile?.id) return;
     const { data } = await supabase
       .from('contractor_assignments')
-      .select('*, created_by_profile:profiles!created_by(full_name, avatar_url)')
+      .select('*, created_by_profile:profiles!created_by(full_name, avatar_url, role)')
       .eq('contractor_id', profile.id)
       .order('created_at', { ascending: false });
-    setAssignments(data || []);
+    const rows = data || [];
+    setAssignments(rows);
     setLoading(false);
+
+    // Client-created assignments: map assignment → review id for "Reviews →"
+    const clientAssignmentIds = rows
+      .filter(a => a.created_by_profile?.role === 'client')
+      .map(a => a.id);
+    if (clientAssignmentIds.length === 0) {
+      setAssignmentReviews({});
+    } else {
+      const { data: revs } = await supabase
+        .from('reviews')
+        .select('id, assignment_id')
+        .in('assignment_id', clientAssignmentIds);
+      const map = {};
+      (revs || []).forEach(r => { if (r.assignment_id) map[r.assignment_id] = r.id; });
+      setAssignmentReviews(map);
+    }
   }, [profile?.id]);
 
   const fetchComments = useCallback(async (assignmentId) => {
@@ -184,6 +207,22 @@ export default function ContractorDashboard({ onNavigate }) {
       .then(({ data }) => { if (data) setMyDriveFolderId(data.assigned_drive_folder_id); });
   }, [profile?.id]);
 
+  // Client delivery folders — one RPC per distinct client creator.
+  useEffect(() => {
+    const clientIds = [...new Set(assignments
+      .filter(a => a.created_by_profile?.role === 'client' && a.created_by)
+      .map(a => a.created_by))];
+    if (clientIds.length === 0) { setClientFolders({}); return undefined; }
+    let cancelled = false;
+    Promise.all(clientIds.map(async (id) => {
+      const { data, error } = await supabase.rpc('editor_client_drive_folder', { p_client: id });
+      return [id, error ? null : (data || null)];
+    })).then(entries => {
+      if (!cancelled) setClientFolders(Object.fromEntries(entries));
+    });
+    return () => { cancelled = true; };
+  }, [assignments]);
+
   useEffect(() => {
     if (selectedId) {
       fetchComments(selectedId);
@@ -238,7 +277,11 @@ export default function ContractorDashboard({ onNavigate }) {
       if (newStatus === 'completed') updates.completed_at = new Date().toISOString();
       await supabase.from('contractor_assignments').update(updates).eq('id', assignment.id);
 
-      if (newStatus === 'completed' && assignment.created_by) {
+      // Client-created assignments: DB triggers notify the client on
+      // completion — inserting here too would double-notify (and there are
+      // no client email templates yet). Staff creators keep the manual path.
+      const creatorIsClient = assignment.created_by_profile?.role === 'client';
+      if (newStatus === 'completed' && assignment.created_by && !creatorIsClient) {
         await supabase.from('notifications').insert({
           user_id: assignment.created_by,
           type: 'fl_assignment_completed',
@@ -305,7 +348,10 @@ export default function ContractorDashboard({ onNavigate }) {
       });
 
       const assignment = assignments.find(a => a.id === selectedId);
-      if (assignment && assignment.created_by && profile.id !== assignment.created_by) {
+      // Client creators are notified by a DB trigger on the comment insert —
+      // the manual insert + email below would double-notify them.
+      const commentCreatorIsClient = assignment?.created_by_profile?.role === 'client';
+      if (assignment && assignment.created_by && profile.id !== assignment.created_by && !commentCreatorIsClient) {
         await supabase.from('notifications').insert({
           user_id: assignment.created_by,
           type: 'fl_comment',
@@ -344,7 +390,10 @@ export default function ContractorDashboard({ onNavigate }) {
       };
       await supabase.from('contractor_assignments').update(updates).eq('id', hoursModalAssignment.id);
 
-      if (hoursModalAssignment.created_by) {
+      // Same double-notification guard as handleStatusChange: DB triggers
+      // cover client creators on completion.
+      const hoursCreatorIsClient = hoursModalAssignment.created_by_profile?.role === 'client';
+      if (hoursModalAssignment.created_by && !hoursCreatorIsClient) {
         await supabase.from('notifications').insert({
           user_id: hoursModalAssignment.created_by,
           type: 'fl_assignment_completed',
@@ -383,7 +432,9 @@ export default function ContractorDashboard({ onNavigate }) {
         body: `\u{1F6A7} Stuck: ${stuckText.trim()}`,
       });
 
-      if (assignment.created_by) {
+      // Client creators are notified by the DB comment trigger (cl_comment);
+      // the manual fl_stuck insert + email are staff-recipient only.
+      if (assignment.created_by && assignment.created_by_profile?.role !== 'client') {
         await supabase.from('notifications').insert({
           user_id: assignment.created_by,
           type: 'fl_stuck',
@@ -653,6 +704,7 @@ export default function ContractorDashboard({ onNavigate }) {
           const dueDateStatus = getDueDateStatus(a.due_date);
           const badge = STATUS_BADGE_COLORS[a.status] || STATUS_BADGE_COLORS.assigned;
           const typeIcon = TYPE_ICONS[a.type] || TYPE_ICONS.other;
+          const isClientCreated = a.created_by_profile?.role === 'client';
 
           return (
             <div key={a.id} style={styles.cardWrapper}>
@@ -747,7 +799,30 @@ export default function ContractorDashboard({ onNavigate }) {
                   {a.created_by_profile?.full_name && (
                     <p style={styles.assignedBy}>
                       Assigned by {a.created_by_profile.full_name}
+                      {isClientCreated && (
+                        <span style={styles.clientBadge}>Client project</span>
+                      )}
                     </p>
+                  )}
+
+                  {/* Client delivery folder (manual delivery — link only) */}
+                  {isClientCreated && (
+                    clientFolders[a.created_by] ? (
+                      <p style={{ margin: '8px 0 0' }}>
+                        <a
+                          href={clientFolders[a.created_by]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={styles.deliveryLink}
+                        >
+                          Client delivery folder ↗
+                        </a>
+                      </p>
+                    ) : (
+                      <p style={styles.deliveryMuted}>
+                        Client hasn't linked a delivery folder yet
+                      </p>
+                    )
                   )}
 
                   {/* Status action buttons */}
@@ -845,6 +920,27 @@ export default function ContractorDashboard({ onNavigate }) {
                         </button>
                       </div>
                     )}
+
+                    {/* Client review loop: submit cuts + jump to the review room */}
+                    {isClientCreated && !readOnly && (
+                      <button
+                        style={styles.reviewButton}
+                        onClick={(e) => { e.stopPropagation(); setReviewModalAssignment(a); }}
+                      >
+                        + Review
+                      </button>
+                    )}
+                    {isClientCreated && assignmentReviews[a.id] && (
+                      <button
+                        style={styles.reviewsLinkButton}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onNavigate) onNavigate('fl_reviews', assignmentReviews[a.id]);
+                        }}
+                      >
+                        Reviews &rarr;
+                      </button>
+                    )}
                   </div>
 
                   {/* I'm Stuck text input */}
@@ -926,10 +1022,23 @@ export default function ContractorDashboard({ onNavigate }) {
         })}
       </div>
 
+      {/* Add Review Version Modal (client review loop) */}
+      {reviewModalAssignment && (
+        <AddReviewVersionModal
+          assignment={reviewModalAssignment}
+          supabase={supabase}
+          profile={profile}
+          onClose={() => setReviewModalAssignment(null)}
+          onSubmitted={fetchAssignments}
+        />
+      )}
+
       {/* Submit Modal */}
       {submitModalAssignment && (
         <AssignmentSubmitModal
           assignment={submitModalAssignment}
+          supabase={supabase}
+          readOnly={readOnly}
           folderId={submitModalAssignment.submit_folder_id || SUBMISSIONS_FOLDER_ID}
           onUploadSuccess={(driveFileUrl) => {
             handleUploadSuccess(submitModalAssignment, driveFileUrl);
@@ -1002,9 +1111,187 @@ export default function ContractorDashboard({ onNavigate }) {
   );
 }
 
+// ── Add Review Version Modal (client review loop) ─────────────
+// Submits an unlisted YouTube cut on a client-created assignment. Creates the
+// reviews row on first submit (v1), appends the next version otherwise.
+// NO notification inserts here — a DB trigger on review_versions notifies the
+// client (type cl_review_ready).
+
+function AddReviewVersionModal({ assignment, supabase, profile, onClose, onSubmitted }) {
+  const [url, setUrl] = useState('');
+  const [label, setLabel] = useState('');
+  const [nextNum, setNextNum] = useState(1);
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const closeTimerRef = useRef(null);
+
+  // Peek at the existing review (if any) so the label placeholder reads v{next}.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: existing } = await supabase
+        .from('reviews')
+        .select('id')
+        .eq('assignment_id', assignment.id)
+        .maybeSingle();
+      if (!existing || cancelled) return;
+      const { count } = await supabase
+        .from('review_versions')
+        .select('id', { count: 'exact', head: true })
+        .eq('review_id', existing.id);
+      if (!cancelled) setNextNum((count || 0) + 1);
+    })();
+    return () => {
+      cancelled = true;
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, [assignment.id]);
+
+  async function handleSubmit() {
+    if (submitting || success) return;
+    const videoId = extractVideoId(url);
+    if (!videoId) {
+      setError("That doesn't look like a valid YouTube link.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      // Re-check at submit time (don't trust mount-time state).
+      const { data: existing, error: exErr } = await supabase
+        .from('reviews')
+        .select('id')
+        .eq('assignment_id', assignment.id)
+        .maybeSingle();
+      if (exErr) throw exErr;
+
+      if (!existing) {
+        const { data: review, error: revErr } = await supabase
+          .from('reviews')
+          .insert({
+            title: assignment.title,
+            assignment_id: assignment.id,
+            youtube_url: url.trim(),
+            youtube_video_id: videoId,
+            created_by: profile.id,
+          })
+          .select()
+          .single();
+        if (revErr) throw revErr;
+        const { error: verErr } = await supabase.from('review_versions').insert({
+          review_id: review.id,
+          version_number: 1,
+          label: label.trim() || 'v1',
+          youtube_url: url.trim(),
+          youtube_video_id: videoId,
+          created_by: profile.id,
+        });
+        if (verErr) throw verErr;
+      } else {
+        const { count, error: cntErr } = await supabase
+          .from('review_versions')
+          .select('id', { count: 'exact', head: true })
+          .eq('review_id', existing.id);
+        if (cntErr) throw cntErr;
+        const next = (count || 0) + 1;
+        const { error: verErr } = await supabase.from('review_versions').insert({
+          review_id: existing.id,
+          version_number: next,
+          label: label.trim() || `v${next}`,
+          youtube_url: url.trim(),
+          youtube_video_id: videoId,
+          created_by: profile.id,
+        });
+        if (verErr) throw verErr;
+      }
+      setSuccess(true);
+      onSubmitted();
+      closeTimerRef.current = setTimeout(onClose, 1400);
+    } catch (err) {
+      setError(err.message || 'Failed to submit the cut. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={submitStyles.overlay} {...backdropDismiss(onClose)}>
+      <div style={submitStyles.modal} onClick={e => e.stopPropagation()}>
+        <div style={submitStyles.header}>
+          <span style={submitStyles.title}>Submit cut — {assignment.title}</span>
+          <button onClick={onClose} style={submitStyles.closeBtn}>&times;</button>
+        </div>
+
+        <input
+          value={url}
+          onChange={e => { setUrl(e.target.value); setError(null); }}
+          placeholder="Unlisted YouTube link"
+          style={reviewModalStyles.input}
+          autoFocus
+        />
+        <input
+          value={label}
+          onChange={e => setLabel(e.target.value)}
+          placeholder={`v${nextNum}`}
+          style={{ ...reviewModalStyles.input, marginTop: 10 }}
+        />
+
+        {error && (
+          <p style={reviewModalStyles.errorText}>{error}</p>
+        )}
+        {success && (
+          <p style={reviewModalStyles.successText}>Cut submitted for review</p>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button
+            onClick={handleSubmit}
+            disabled={!url.trim() || submitting || success}
+            style={{
+              ...submitStyles.uploadBtn,
+              opacity: (!url.trim() || submitting || success) ? 0.5 : 1,
+            }}
+          >
+            {submitting ? 'Submitting...' : 'Submit for review'}
+          </button>
+          <button onClick={onClose} style={submitStyles.cancelBtn}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const reviewModalStyles = {
+  input: {
+    width: '100%',
+    padding: '10px 14px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.04)',
+    color: '#fff',
+    fontSize: 13,
+    fontFamily: 'DM Sans, sans-serif',
+    outline: 'none',
+    boxSizing: 'border-box',
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#f87171',
+    margin: '8px 0 0',
+  },
+  successText: {
+    fontSize: 13,
+    color: '#34d399',
+    margin: '8px 0 0',
+  },
+};
+
 // ── Submit Modal ──────────────────────────────────────────────
 
-function AssignmentSubmitModal({ assignment, folderId, onUploadSuccess, onClose }) {
+// supabase/readOnly come in as props — this component sits at module scope,
+// outside the main component's useEffectivePortalIdentity closure.
+function AssignmentSubmitModal({ assignment, supabase, readOnly, folderId, onUploadSuccess, onClose }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -1433,6 +1720,62 @@ const styles = {
     color: 'rgba(255,255,255,0.4)',
     margin: '8px 0 0',
     fontStyle: 'italic',
+  },
+  clientBadge: {
+    display: 'inline-block',
+    marginLeft: 8,
+    padding: '1px 8px',
+    borderRadius: 6,
+    border: `1px solid ${colors.accentBorder}`,
+    background: 'transparent',
+    color: colors.accentFg,
+    fontSize: 10,
+    fontWeight: 700,
+    fontStyle: 'normal',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    verticalAlign: 'middle',
+  },
+  deliveryLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 12px',
+    background: colors.accentA15,
+    color: colors.accentFg,
+    borderRadius: 8,
+    fontSize: 13,
+    fontWeight: 500,
+    textDecoration: 'none',
+    border: `1px solid ${colors.accentA30}`,
+  },
+  deliveryMuted: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.3)',
+    margin: '8px 0 0',
+    fontStyle: 'italic',
+  },
+  reviewButton: {
+    padding: '8px 16px',
+    borderRadius: 8,
+    border: `1px solid ${colors.accentBorder}`,
+    background: colors.accentA12,
+    color: colors.accentFg,
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+  },
+  reviewsLinkButton: {
+    padding: '8px 16px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
   },
 
   // Action buttons

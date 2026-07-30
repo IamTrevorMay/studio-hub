@@ -18,8 +18,9 @@ Content production & operations hub for creator teams. Manages projects through 
 - Dark theme: `#0f0f1a` base, `rgba(255,255,255,...)` text, accent `#6366f1` (indigo)
 - Font: DM Sans (loaded globally)
 
-### Auth & Roles (restructured 2026-07-29)
-- **Four top-level roles:** `admin`, `director`, `member`, `contractor`
+### Auth & Roles (restructured 2026-07-29; client added 2026-07-30)
+- **Five top-level roles:** `admin`, `director`, `member`, `contractor`, `client`
+- **`client`** = external customer with a locked portal (see Client Portal section). NOT admin-tier, NOT in `STAFF_ROLES`, genuinely RLS-fenced (`is_client()` DB helper; `is_staff()` = admin/director/member). Check via `useAuth().isClient`.
 - **Sub-roles** (`profiles.sub_role`): Director → `communications` | `creative`; Contractor → the former "titles" (Long Form Editor, Short Form Editor, Podcast Editor, Graphic Designer, Developer, Writer, Producer, Production/Camera). Admin/member have none. Sub-roles are display/organizational only for now — no feature gating yet (that's the next phase).
 - **Removed roles:** `assistant` (folded into Director — admin-tier), `producer` (staff role deleted; unrelated to the Harbor/Broadcast session "producer" and the Projects assignment "producer", which remain), `partner` (BizDev roadmap portal + its one external user removed).
 - **Admin-tier** = `admin` + `director` (DB `is_admin()`; client `isAdminTier` in `src/lib/rolePermissions.js`). Directors are UI-restricted from payroll/business_dev/workflows/accounting/admin via `ROLE_RESTRICTED_NAV_KEYS` (restriction is UI-only; RLS still passes `is_admin()`).
@@ -200,6 +201,21 @@ Freelancer-facing portal with locked sidebar nav. Accessible when `profile.role 
 - **Cloud folders**: `cloud-folders` edge function → `CLOUD_API_URL` (`https://assets.maydaystudio.net`) + `CLOUD_API_KEY`
 - **Drive folders**: `drive-list-contractor-folders` edge function → lists root + one level of nested subfolders
 - **Mascot toggle**: Morty on/off via `profiles.mascot_enabled`, toggle on FreelancerProfile avatar row
+
+## Client Portal (added 2026-07-30)
+
+External customers (`role = 'client'`) get a locked sidebar portal: Dashboard, Calendar, Review, Messages, Documents, Profile, Notifications (`cl_*` nav keys). Mobile v1 = Dashboard + Messages only.
+
+- **Editor assignment:** admins / Creative Director link editor contractors (sub_role in `EDITOR_SUB_ROLES` = Long/Short Form/Podcast Editor) to clients via `client_editors` (admin page `src/pages/Clients.js`, nav key `clients`, gated by `canManageClients()` — admin or director+creative).
+- **Assignments:** clients create `contractor_assignments` rows for ONLY their assigned editors (reused `ContractorAssignmentModal` with `mode="client"` + `contractorOptions` from `client_editor_options()` RPC — rates shown read-only). DB `client_assignment_sanitize` trigger forces status/nulls pay spoofing (project-rate stamped server-side); `client_assignment_lock_fields` limits client edits to title/description/due/content_type. Comments shared via `contractor_assignment_comments`.
+- **Review loop:** editor submits unlisted YouTube links via "+ Review" on the assignment (ContractorDashboard) → `reviews` row with `assignment_id` + `review_versions` v1/v2/v3 → client's Review tab (`ClientReview.js`, shared `src/components/reviews/ReviewPlayer.js` `mode="client"`) → timestamped comments + verdict buttons ("Submit Changes" / "This looks great!") via `submit_review_verdict()` RPC → editor's Reviews tab (`ContractorReviews.js`, nav `fl_reviews`, editor sub_roles only). Client reviews also appear in staff Reviews page (All | Studio | Client filter). **Reviews-family RLS was rewritten** — was `USING(true)` for all authenticated; now staff-wide via `is_staff()`, client/contractor scoped through the linked assignment.
+- **Notifications:** DB triggers are the single source of truth for client-created assignments (`cl_*` types → 'clients' push category; frontend must NOT insert client-recipient notifications — clients can't insert into `notifications` at all). Types: `fl_assignment_new`, `cl_assignment_status`, `cl_assignment_completed`, `cl_comment`, `cl_review_ready`, `fl_review_feedback`, `cl_assignment_overdue` (daily cron via `fl_emit_due_notifications`).
+- **Calendar:** clients are fenced off `calendar_events` (policies now `NOT is_client()`); `ClientCalendar.js` renders `client_calendar_events()` RPC — own assignments + anonymized busy blocks for their editors' other work.
+- **Messages:** `client_message_recipients()` RPC = admins + Creative Director + assigned editors; enforced server-side in hardened `get_or_create_dm` / `create_group_conversation` + `conversation_participants` INSERT policy. Clients are 1:1-DM only (no groups).
+- **Documents:** `client_documents` table + private `client-documents` bucket (paths `<clientId>/…`, invite contracts under `pending/…`). Admin-issued signing/reference docs (attestation flow) + client self-uploads. `claim_client_contract()` RPC runs at signup (AuthPage client branch).
+- **Drive delivery is LINK-ONLY:** client pastes their folder URL into `client_profiles.drive_folder_url` (ClientProfile); editors read it via `editor_client_drive_folder()` RPC and upload manually, then click Complete.
+- **Gotchas:** `contractor_assignments` FK constraints kept legacy `freelancer_assignments_*` names — PostgREST embed hints must use those (or column-name hints). Client "View as…" impersonation NOT supported (contractor-only).
+- Migrations: `20260730100000`–`20260730160000` (7 files).
 
 ## Agency Portal
 

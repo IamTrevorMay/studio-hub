@@ -40,6 +40,7 @@ function categoryForType(type: string | null): string {
   if (TYPE_TO_CATEGORY[type]) return TYPE_TO_CATEGORY[type];
   if (type.startsWith("bd_")) return "tasks";
   if (type.startsWith("fl_")) return "contractors";
+  if (type.startsWith("cl_")) return "clients";
   return "other";
 }
 

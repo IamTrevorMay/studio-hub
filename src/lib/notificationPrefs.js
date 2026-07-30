@@ -11,6 +11,7 @@ export const NOTIF_CATEGORIES = [
   { key: 'tasks', label: 'Tasks & Assignments', caption: 'Tasks, assignments, Roadmap items, and automation alerts' },
   { key: 'messages', label: 'Messages & Channels', caption: 'New direct messages and channel mentions' },
   { key: 'contractors', label: 'Contractors', caption: 'Contractor comments, submissions, and hours' },
+  { key: 'clients', label: 'Client Portal', caption: 'Client assignment updates, reviews, and comments' },
   { key: 'team', label: 'Out of Office', caption: 'OOO requests and approvals' },
   { key: 'other', label: 'Everything else', caption: 'Any alerts not covered above' },
 ];
@@ -29,6 +30,7 @@ export function categoryForType(type) {
   if (TYPE_TO_CATEGORY[type]) return TYPE_TO_CATEGORY[type];
   if (type.startsWith('bd_')) return 'tasks';
   if (type.startsWith('fl_')) return 'contractors';
+  if (type.startsWith('cl_')) return 'clients';
   return 'other';
 }
 

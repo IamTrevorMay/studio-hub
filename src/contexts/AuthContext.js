@@ -466,6 +466,7 @@ export function AuthProvider({ children }) {
     isDirector: isDirectorRole(profile?.role),
     subRole: profile?.sub_role || null,
     isContractor: profile?.role === 'contractor' || profile?.role === 'freelancer',
+    isClient: profile?.role === 'client',
     // Roles removed in the 2026-07-29 restructure (assistant→director, partner
     // portal removed, producer deleted). Retained as always-false so any
     // lingering legacy branch neutralizes correctly; prune consumers over time.

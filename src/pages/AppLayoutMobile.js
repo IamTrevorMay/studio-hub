@@ -29,6 +29,7 @@ import BusinessDev from './BusinessDevMobile';
 import Invoicing from './InvoicingMobile';
 import Production from './ProductionMobile';
 import ContractorDashboard from './ContractorDashboardMobile';
+import ClientDashboard from './ClientDashboard';
 import Deliverables from './DeliverablesMobile';
 import Ideas from './IdeasMobile';
 import Workflows from './WorkflowsMobile';
@@ -76,7 +77,7 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages' },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map((i) => i.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_assignments', 'fl_submit'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map((i) => i.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_assignments', 'fl_submit', 'cl_dashboard'));
 
 // Admin Mode (mirrors desktop AppLayout pattern). Mode flips the drawer
 // between an everyday "Work View" and an admin-focused list. Mobile
@@ -164,10 +165,11 @@ const TAB_LABELS = NAV_ITEMS.reduce((acc, item) => { acc[item.key] = item.label;
   fl_notifications: 'Notifications',
   fl_assignments: 'Assignments',
   fl_submit: 'Submit',
+  cl_dashboard: 'Dashboard',
 });
 
 export default function AppLayoutMobile() {
-  const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isContractor, restrictedNavKeys } = useAuth();
+  const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isContractor, isClient, restrictedNavKeys } = useAuth();
   const { unreadNotificationCount, markDashboardSeen, refreshNotifications } = useNotifications();
   const { getResolvedNav } = useNavConfig();
   // Suite gating (mirror desktop AppLayout): the launcher + Bridge branding +
@@ -247,6 +249,13 @@ export default function AppLayoutMobile() {
     }
   }, [isContractor]); // eslint-disable-line
 
+  // Client redirect: mobile v1 scope is Dashboard + Messages only.
+  useEffect(() => {
+    if (isClient && activeTab !== 'cl_dashboard' && activeTab !== 'messages') {
+      setActiveTab('cl_dashboard');
+    }
+  }, [isClient, activeTab]); // eslint-disable-line
+
   // Restricted-nav route guard (mirror desktop AppLayout). Without this, a role
   // whose nav keys are restricted (e.g. director_creative/director_comms, who are
   // admin-tier so isAdmin is true) could still open a restricted page directly.
@@ -262,7 +271,7 @@ export default function AppLayoutMobile() {
   useEffect(() => { localStorage.setItem('studio-hub-mode', mode); }, [mode]);
 
   const resolvedNav = stripExcludedFolders(
-    getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isContractor, profile, restrictedNavKeys)
+    getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isContractor, profile, restrictedNavKeys, isClient)
   );
   const adminModeKeySet = getAdminModeKeySet(resolvedNav);
 
@@ -281,9 +290,11 @@ export default function AppLayoutMobile() {
   // Work View strips every desktop-admin key so admin-only pages are
   // siloed into Admin View. Admin View builds its own short list.
   const baseNav = filterNavForMobile(resolvedNav);
-  const mobileNav = (mode === 'admin' && isAdmin)
-    ? buildAdminModeNav(resolvedNav)
-    : baseNav.filter((e) => !(e.type === 'item' && DESKTOP_ADMIN_PAGE_KEYS.has(e.key)));
+  const mobileNav = isClient
+    ? resolvedNav.filter((e) => e.type === 'item' && ['cl_dashboard', 'messages'].includes(e.key))
+    : (mode === 'admin' && isAdmin)
+      ? buildAdminModeNav(resolvedNav)
+      : baseNav.filter((e) => !(e.type === 'item' && DESKTOP_ADMIN_PAGE_KEYS.has(e.key)));
 
   function toggleMode() {
     // Keep the drawer open on mode flip — user is still navigating the nav.
@@ -402,6 +413,7 @@ export default function AppLayoutMobile() {
           isAssistant,
           isPartner,
           isContractor,
+          isClient,
           navTarget,
           setNavTarget,
           navigateTo,
@@ -442,12 +454,12 @@ export default function AppLayoutMobile() {
         <SubmitModalMobile onClose={() => setShowSubmitModal(false)} />
       )}
 
-      {!isContractor && !isPartner && profile?.assistant_enabled !== false && <MortyChat />}
+      {!isContractor && !isPartner && !isClient && profile?.assistant_enabled !== false && <MortyChat />}
     </div>
   );
 }
 
-function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isContractor, navTarget, setNavTarget, navigateTo, setActiveTab }) {
+function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isContractor, isClient, navTarget, setNavTarget, navigateTo, setActiveTab }) {
   // Excluded routes -> friendly screen
   if (isExcludedOnMobile(activeTab)) {
     return (
@@ -491,7 +503,10 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isContrac
     case 'messages': return <Messages onNavigate={navigateTo} />;
     case 'admin': return <AdminPanel />;
     case 'fl_dashboard': return isContractor ? <ContractorDashboard onNavigate={navigateTo} /> : null;
-    default: return <Dashboard onNavigate={navigateTo} />;
+    // Client mobile v1: Dashboard + Messages (desktop component renders fine
+    // as a stacked card list; a ClientDashboardMobile can follow later).
+    case 'cl_dashboard': return isClient ? <ClientDashboard onNavigate={navigateTo} /> : null;
+    default: return isClient ? <ClientDashboard onNavigate={navigateTo} /> : <Dashboard onNavigate={navigateTo} />;
   }
 }
 

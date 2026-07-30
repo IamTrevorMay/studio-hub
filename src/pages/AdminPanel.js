@@ -468,6 +468,7 @@ export default function AdminPanel({ initialTab }) {
                   <option value="member">Member</option>
                   <option value="director">Director</option>
                   <option value="contractor">Contractor</option>
+                  <option value="client">Client</option>
                   <option value="admin">Admin</option>
                 </select>
                 {subRoleOptionsForRole(inviteRole).length > 0 && (
@@ -572,6 +573,7 @@ export default function AdminPanel({ initialTab }) {
                   <option value="member">Member</option>
                   <option value="director">Director</option>
                   <option value="contractor">Contractor</option>
+                  <option value="client">Client</option>
                   <option value="admin">Admin</option>
                 </select>
                 {titlePickerFor === member.id && subRoleOptionsForRole(member.role).length > 0 && (

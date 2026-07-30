@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import useNavConfig from '../hooks/useNavConfig';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
-import { canAccessBroadcast } from '../lib/rolePermissions';
+import { canAccessBroadcast, canManageClients } from '../lib/rolePermissions';
 import { useImpersonation } from '../lib/impersonation';
 import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
@@ -44,7 +44,14 @@ import ContractorHours from './ContractorHours';
 import ContractorProfile from './ContractorProfile';
 import ContractorNotifications from './ContractorNotifications';
 import ContractorDocuments from './ContractorDocuments';
+import ContractorReviews from './ContractorReviews';
 import Contractors from './Contractors';
+import Clients from './Clients';
+import ClientDashboard from './ClientDashboard';
+import ClientCalendar from './ClientCalendar';
+import ClientReview from './ClientReview';
+import ClientDocuments from './ClientDocuments';
+import ClientProfile from './ClientProfile';
 import Ideas from './Ideas';
 
 import Jobs from './Jobs';
@@ -100,7 +107,7 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas', 'ct_assignments', 'ct_hours', 'ct_documents', 'ct_team'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'fl_reviews', 'ideas', 'ct_assignments', 'ct_hours', 'ct_documents', 'ct_team', 'clients', 'cl_dashboard', 'cl_calendar', 'cl_review', 'cl_documents', 'cl_profile', 'cl_notifications'));
 
 // ─── Modes ──────────────────────────────────────────────────
 // Beta pages: still under refinement. Grouped in a "Beta" folder at the bottom
@@ -116,7 +123,7 @@ const BETA_PAGE_NAV = [
   { type: 'item', key: 'mailer', label: 'Mailer', folderId: 'beta' },
 ];
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
-const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops', ...BETA_PAGE_KEYS];
+const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'clients', 'workflows', 'jobs', 'invoicing', 'ops', ...BETA_PAGE_KEYS];
 // Everyday anchors kept at the top of the Admin Mode sidebar (items + folders).
 const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'deliverables', 'channels', 'messages'];
 const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_production']);
@@ -128,6 +135,7 @@ const ADMIN_PAGE_NAV = [
   { type: 'item', key: 'accounting', label: 'Accounting' },
   { type: 'item', key: 'payroll', label: 'Payroll' },
   { type: 'item', key: 'business_dev', label: 'Roadmap' },
+  { type: 'item', key: 'clients', label: 'Clients' },
   { type: 'item', key: 'ops', label: 'Ops' },
   { type: 'folder', id: 'admin_tools', label: 'Tools', collapsed: true },
   { type: 'item', key: 'invoicing', label: 'Invoicing', folderId: 'admin_tools' },
@@ -269,11 +277,19 @@ const NAV_ICON_MAP = {
   fl_documents: DocumentsIcon,
   fl_assignments: ResourcesIcon,
   fl_submit: ResourcesIcon,
+  fl_reviews: ReviewsIcon,
   ideas: IdeationIcon,
+  clients: ContractorsIcon,
+  cl_dashboard: DashboardIcon,
+  cl_calendar: CalendarIcon,
+  cl_review: ReviewsIcon,
+  cl_documents: DocumentsIcon,
+  cl_profile: ProfileIcon,
+  cl_notifications: NotificationsIcon,
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isContractor, restrictedNavKeys } = useAuth();
+  const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isContractor, isClient, restrictedNavKeys } = useAuth();
   // Suite gating: the app launcher + Bridge branding + Harbor are ADMIN-ONLY
   // for now (Trevor's call at merge time, 2026-07-24). This single flag gates
   // the launcher landing, the suite URL deep-links (/launcher, /harbor,
@@ -339,7 +355,7 @@ export default function AppLayout() {
   const isBetaOwner = isAdmin && profile?.email === BETA_OWNER_EMAIL;
   // Beta pages never surface through the regular nav (or the nav editor) —
   // they exist only inside the Beta folder appended for the beta owner.
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isContractor, profile, restrictedNavKeys)
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isContractor, profile, restrictedNavKeys, isClient)
     .filter(e => !(e.type === 'item' && BETA_PAGE_KEYS.includes(e.key)));
   const adminModeKeys = getAdminModeKeys(resolvedNav, isBetaOwner);
 
@@ -367,15 +383,21 @@ export default function AppLayout() {
       && !(activeTab === 'broadcast' && canAccessBroadcast(profile?.role))
       && !(activeTab === 'business_dev' && isPartner);
     if (restrictedNavKeys?.has(activeTab) || adminOnlyBlocked) {
-      setActiveTab(isContractor ? 'fl_dashboard' : 'dashboard');
+      setActiveTab(isContractor ? 'fl_dashboard' : isClient ? 'cl_dashboard' : 'dashboard');
+    }
+    // Clients page is admin + Creative Director only (UI gate; DB passes is_admin).
+    if (activeTab === 'clients' && !canManageClients(profile?.role, profile?.sub_role)) {
+      setActiveTab('dashboard');
     }
     // eslint-disable-next-line
-  }, [activeTab, restrictedNavKeys, isAdmin, isPartner, isContractor, profile]);
+  }, [activeTab, restrictedNavKeys, isAdmin, isPartner, isContractor, isClient, profile]);
 
   // Mode-filtered nav. Admin-only pages live in Admin Mode and disappear from
   // the default Work View; flipping the bottom button swaps the sidebar.
   const adminNav = buildAdminNav(resolvedNav, isBetaOwner).filter(
-    (e) => e.type !== 'item' || !restrictedNavKeys?.has(e.key),
+    (e) => e.type !== 'item'
+      || (!restrictedNavKeys?.has(e.key)
+        && !(e.key === 'clients' && !canManageClients(profile?.role, profile?.sub_role))),
   );
   // "View as…" contractor portal preview (admin only). When active, the layout
   // renders the locked contractor sidebar + fl_* pages as a contractor would
@@ -512,6 +534,13 @@ export default function AppLayout() {
     }
     // activeTab in deps so back/forward (popstate) to a disallowed tab re-redirects
   }, [isContractor, activeTab]); // eslint-disable-line
+
+  // Clients are pinned to their locked portal tabs (+ Messages).
+  useEffect(() => {
+    if (isClient && !activeTab.startsWith('cl_') && activeTab !== 'messages') {
+      setActiveTab('cl_dashboard');
+    }
+  }, [isClient, activeTab]); // eslint-disable-line
 
   // Check whether freelancer has completed the onboarding tour
   useEffect(() => {
@@ -1093,10 +1122,18 @@ export default function AppLayout() {
           {asContractor && activeTab === 'fl_profile' && <PageErrorBoundary key="fl_profile"><ContractorProfile /></PageErrorBoundary>}
           {asContractor && activeTab === 'fl_notifications' && <PageErrorBoundary key="fl_notifications"><ContractorNotifications onNavigate={navigateTo} /></PageErrorBoundary>}
           {asContractor && activeTab === 'fl_documents' && <PageErrorBoundary key="fl_documents"><ContractorDocuments /></PageErrorBoundary>}
+          {asContractor && activeTab === 'fl_reviews' && <PageErrorBoundary key="fl_reviews"><ContractorReviews initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {isAdmin && canManageClients(profile?.role, profile?.sub_role) && activeTab === 'clients' && <PageErrorBoundary key="clients"><Clients /></PageErrorBoundary>}
+          {isClient && activeTab === 'cl_dashboard' && <PageErrorBoundary key="cl_dashboard"><ClientDashboard onNavigate={navigateTo} initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {isClient && activeTab === 'cl_calendar' && <PageErrorBoundary key="cl_calendar"><ClientCalendar onNavigate={navigateTo} /></PageErrorBoundary>}
+          {isClient && activeTab === 'cl_review' && <PageErrorBoundary key="cl_review"><ClientReview initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {isClient && activeTab === 'cl_documents' && <PageErrorBoundary key="cl_documents"><ClientDocuments /></PageErrorBoundary>}
+          {isClient && activeTab === 'cl_profile' && <PageErrorBoundary key="cl_profile"><ClientProfile /></PageErrorBoundary>}
+          {isClient && activeTab === 'cl_notifications' && <PageErrorBoundary key="cl_notifications"><ContractorNotifications onNavigate={navigateTo} /></PageErrorBoundary>}
         </div>
       </main>
       {profile?.mascot_enabled !== false && <Morty />}
-      {!asContractor && !isPartner && profile?.assistant_enabled !== false && <MortyChat />}
+      {!asContractor && !isPartner && !isClient && profile?.assistant_enabled !== false && <MortyChat />}
       {showTour && (
         <ContractorTour
           onComplete={handleTourComplete}
