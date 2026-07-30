@@ -337,6 +337,10 @@ export default function AppLayout() {
   const { active: impersonating, contractor: impersonatedContractor, start: startImpersonation, stop: stopImpersonation } = useImpersonation();
   const [viewAsMenuOpen, setViewAsMenuOpen] = useState(false);
   const [viewAsContractors, setViewAsContractors] = useState([]);
+  // Simulated Client Portal preview (chrome-only): renders the locked client
+  // nav + cl_* pages as the admin's own identity, so every query comes back
+  // empty. No impersonation edge fn — there's no client-side of it yet.
+  const [previewingClientSim, setPreviewingClientSim] = useState(false);
 
   // Persist folder collapse state
   useEffect(() => {
@@ -404,15 +408,21 @@ export default function AppLayout() {
   // see them. Data is the admin's own (empty), so it's a chrome/layout preview.
   const previewingContractor = isAdmin && impersonating;
   const asContractor = isContractor || previewingContractor;
+  const previewingClient = isAdmin && previewingClientSim;
+  const asClient = isClient || previewingClient;
   const contractorNav = previewingContractor
     ? getResolvedNav(NAV_ITEMS, false, false, true, profile, new Set())
+    : null;
+  const clientSimNav = previewingClient
+    ? getResolvedNav(NAV_ITEMS, false, false, false, profile, new Set(), true)
     : null;
 
   const displayNav = (
     previewingContractor ? contractorNav
-      : (mode === 'admin' && isAdmin) ? adminNav
-        : (mode === 'contractor' && isAdmin) ? CONTRACTOR_MODE_NAV
-          : buildWorkNav(resolvedNav)
+      : previewingClient ? clientSimNav
+        : (mode === 'admin' && isAdmin) ? adminNav
+          : (mode === 'contractor' && isAdmin) ? CONTRACTOR_MODE_NAV
+            : buildWorkNav(resolvedNav)
   ).filter(e => !e.hidden);
 
   async function openViewAsMenu() {
@@ -438,6 +448,15 @@ export default function AppLayout() {
   }
   function exitViewAs() {
     stopImpersonation();
+    setActiveTab('dashboard');
+  }
+  function viewAsClientSim() {
+    setViewAsMenuOpen(false);
+    setPreviewingClientSim(true);
+    setActiveTab('cl_dashboard');
+  }
+  function exitClientSim() {
+    setPreviewingClientSim(false);
     setActiveTab('dashboard');
   }
 
@@ -910,7 +929,7 @@ export default function AppLayout() {
         </button>
 
         {/* Admin Mode toggle - between collapse toggle and user area */}
-        {isAdmin && !previewingContractor && (
+        {isAdmin && !previewingContractor && !previewingClient && (
           <button
             onClick={toggleMode}
             style={{
@@ -927,7 +946,7 @@ export default function AppLayout() {
         )}
 
         {/* Contractor Mode toggle - manage contractors (admin-only). */}
-        {isAdmin && !previewingContractor && (
+        {isAdmin && !previewingContractor && !previewingClient && (
           <button
             onClick={toggleContractorMode}
             style={{
@@ -946,7 +965,7 @@ export default function AppLayout() {
         {/* App switcher — Mayday Studio suite launcher (admin-only). Sits just
             above the user area (where Gerald used to be); Gerald now lives as a
             card on the Apps launcher itself. */}
-        {isAdmin && !previewingContractor && (
+        {isAdmin && !previewingContractor && !previewingClient && (
           <button
             onClick={() => setSuiteView('launcher')}
             style={{
@@ -962,7 +981,7 @@ export default function AppLayout() {
         )}
 
         {/* "View as…" — preview the contractor portal by sub-role (admin only). */}
-        {isAdmin && !previewingContractor && (
+        {isAdmin && !previewingContractor && !previewingClient && (
           <div style={{ position: 'relative', marginTop: '8px' }}>
             <button
               onClick={openViewAsMenu}
@@ -978,7 +997,11 @@ export default function AppLayout() {
             </button>
             {viewAsMenuOpen && (
               <div style={styles.viewAsMenu}>
-                <div style={styles.viewAsMenuHeader}>Preview portal as contractor</div>
+                <div style={styles.viewAsMenuHeader}>Preview a portal</div>
+                <button style={{ ...styles.viewAsMenuItem, color: '#a5b4fc' }} onClick={viewAsClientSim}>
+                  Client Portal · simulated
+                </button>
+                <div style={styles.viewAsMenuHeader}>As contractor</div>
                 {viewAsContractors.length === 0 ? (
                   <div style={{ ...styles.viewAsMenuItem, color: 'rgba(255,255,255,0.4)', cursor: 'default' }}>No contractors</div>
                 ) : viewAsContractors.map(c => (
@@ -1080,6 +1103,14 @@ export default function AppLayout() {
               <button onClick={exitViewAs} style={styles.viewAsExitBtn}>Exit preview</button>
             </div>
           )}
+          {previewingClient && (
+            <div style={styles.viewAsBanner}>
+              <span style={{ fontSize: 13, color: '#a5b4fc', fontWeight: 600 }}>
+                👁 Previewing the <strong style={{ color: '#fff' }}>Client Portal</strong> · simulated — no client data, pages show their empty states
+              </span>
+              <button onClick={exitClientSim} style={styles.viewAsExitBtn}>Exit preview</button>
+            </div>
+          )}
           {activeTab === 'dashboard' && <PageErrorBoundary key="dashboard"><Dashboard onNavigate={navigateTo} /></PageErrorBoundary>}
 
           {activeTab === 'projects' && <PageErrorBoundary key="projects"><Projects onNavigate={navigateTo} /></PageErrorBoundary>}
@@ -1124,16 +1155,16 @@ export default function AppLayout() {
           {asContractor && activeTab === 'fl_documents' && <PageErrorBoundary key="fl_documents"><ContractorDocuments /></PageErrorBoundary>}
           {asContractor && activeTab === 'fl_reviews' && <PageErrorBoundary key="fl_reviews"><ContractorReviews initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {isAdmin && canManageClients(profile?.role, profile?.sub_role) && activeTab === 'clients' && <PageErrorBoundary key="clients"><Clients /></PageErrorBoundary>}
-          {isClient && activeTab === 'cl_dashboard' && <PageErrorBoundary key="cl_dashboard"><ClientDashboard onNavigate={navigateTo} initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
-          {isClient && activeTab === 'cl_calendar' && <PageErrorBoundary key="cl_calendar"><ClientCalendar onNavigate={navigateTo} /></PageErrorBoundary>}
-          {isClient && activeTab === 'cl_review' && <PageErrorBoundary key="cl_review"><ClientReview initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
-          {isClient && activeTab === 'cl_documents' && <PageErrorBoundary key="cl_documents"><ClientDocuments /></PageErrorBoundary>}
-          {isClient && activeTab === 'cl_profile' && <PageErrorBoundary key="cl_profile"><ClientProfile /></PageErrorBoundary>}
-          {isClient && activeTab === 'cl_notifications' && <PageErrorBoundary key="cl_notifications"><ContractorNotifications onNavigate={navigateTo} /></PageErrorBoundary>}
+          {asClient && activeTab === 'cl_dashboard' && <PageErrorBoundary key="cl_dashboard"><ClientDashboard onNavigate={navigateTo} initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {asClient && activeTab === 'cl_calendar' && <PageErrorBoundary key="cl_calendar"><ClientCalendar onNavigate={navigateTo} /></PageErrorBoundary>}
+          {asClient && activeTab === 'cl_review' && <PageErrorBoundary key="cl_review"><ClientReview initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {asClient && activeTab === 'cl_documents' && <PageErrorBoundary key="cl_documents"><ClientDocuments /></PageErrorBoundary>}
+          {asClient && activeTab === 'cl_profile' && <PageErrorBoundary key="cl_profile"><ClientProfile /></PageErrorBoundary>}
+          {asClient && activeTab === 'cl_notifications' && <PageErrorBoundary key="cl_notifications"><ContractorNotifications onNavigate={navigateTo} /></PageErrorBoundary>}
         </div>
       </main>
       {profile?.mascot_enabled !== false && <Morty />}
-      {!asContractor && !isPartner && !isClient && profile?.assistant_enabled !== false && <MortyChat />}
+      {!asContractor && !isPartner && !asClient && profile?.assistant_enabled !== false && <MortyChat />}
       {showTour && (
         <ContractorTour
           onComplete={handleTourComplete}
