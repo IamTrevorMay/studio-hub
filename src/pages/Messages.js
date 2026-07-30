@@ -48,13 +48,26 @@ function applyFormatMarker(textareaRef, text, marker, setter) {
   }
 }
 
-export default function Messages({ onNavigate }) {
+// Representative recipient list for the admin "View as… Client Portal
+// (simulated)" preview. A real client login runs client_message_recipients()
+// (which returns empty for an admin caller), so the sim injects this instead to
+// show WHO a client may message: admins + Creative Director + assigned editors.
+const DEMO_CLIENT_RECIPIENTS = [
+  { id: 'demo-admin', full_name: 'Studio Admin', nickname: 'Studio Admin', title: 'Admin', role: 'admin', avatar_url: null },
+  { id: 'demo-cd', full_name: 'Casey Morgan', nickname: 'Casey', title: 'Director of Creative', role: 'director', sub_role: 'creative', avatar_url: null },
+  { id: 'demo-e1', full_name: 'Jordan Lee', nickname: 'Jordan', title: 'Long Form Editor', role: 'contractor', sub_role: 'Long Form Editor', avatar_url: null },
+  { id: 'demo-e2', full_name: 'Sam Rivera', nickname: 'Sam', title: 'Short Form Editor', role: 'contractor', sub_role: 'Short Form Editor', avatar_url: null },
+];
+
+export default function Messages({ onNavigate, simulateClient = false }) {
   const { profile: realProfile, refreshKey, isClient, isContractor } = useAuth();
   const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
   // While an admin "views as" a contractor, the effective profile's role is
   // forced to 'contractor' and queries run under the contractor's RLS — so the
   // picker logic follows the EFFECTIVE role, not just the real auth flags.
-  const effIsClient = isClient || profile?.role === 'client';
+  // `simulateClient` is the chrome-only Client Portal preview (no impersonation,
+  // so the real role stays admin) — treat it as a client for the picker/UI.
+  const effIsClient = isClient || profile?.role === 'client' || simulateClient;
   const effIsContractor = isContractor || profile?.role === 'contractor' || profile?.role === 'freelancer';
   const confirm = useConfirm();
   const { fetchUnreadDms } = useNotifications();
@@ -91,6 +104,9 @@ export default function Messages({ onNavigate }) {
 
   const fetchConversations = useCallback(async () => {
     if (!profile?.id) return;
+    // Sim preview: don't surface the admin's real DMs as if they were the
+    // client's. Show an empty thread list — the point is the restricted picker.
+    if (simulateClient) { setConversations([]); return; }
     try {
       // Get conversations the user is part of
       const { data: participantData, error: pError } = await supabase
@@ -147,11 +163,17 @@ export default function Messages({ onNavigate }) {
     } catch (err) {
       console.error('Error:', err);
     }
-  }, [profile?.id]);
+  }, [profile?.id, simulateClient]);
 
   const fetchTeamMembers = useCallback(async () => {
     if (!profile?.id) return;
     try {
+      if (simulateClient) {
+        // client_message_recipients() returns nothing for an admin caller, so
+        // show the representative allowed set instead.
+        setTeamMembers(DEMO_CLIENT_RECIPIENTS);
+        return;
+      }
       if (effIsClient) {
         // Clients may only DM their allowed contacts (admins, creative
         // director, assigned editors). Server-enforced: get_or_create_dm
@@ -188,7 +210,7 @@ export default function Messages({ onNavigate }) {
     } catch (err) {
       console.error('Error fetching team:', err);
     }
-  }, [profile?.id, profile?.role, profile?.sub_role, effIsClient, effIsContractor]);
+  }, [profile?.id, profile?.role, profile?.sub_role, effIsClient, effIsContractor, simulateClient]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -578,6 +600,14 @@ export default function Messages({ onNavigate }) {
 
   async function handleStartConversation() {
     if (selectedUsers.length === 0) return;
+
+    if (simulateClient) {
+      // Sim recipients aren't real profiles; don't attempt a real DM.
+      alert('Preview only — messaging is disabled in the simulated client view.');
+      setShowNewConvo(false);
+      setSelectedUsers([]);
+      return;
+    }
 
     try {
       if (selectedUsers.length === 1 && !groupName) {
