@@ -39,9 +39,31 @@ function formatDueTime(t) {
 }
 
 const MAX_PILLS_PER_CELL = 3;
-const PILL_ORDER = { due: 0, assigned: 1, busy: 2 };
+const PILL_ORDER = { due: 0, review: 1, assigned: 2, busy: 3 };
 
-export default function ClientCalendar({ onNavigate }) {
+// Sample data for the admin "View as… Client Portal (simulated)" preview.
+// A real client login runs the RPC (which returns their own rows); the sim has
+// no client data, so we synthesise a representative month anchored to today so
+// the layout never shows just empty states. Dates are offset from "now" and
+// keyed via dayKey (never `new Date('YYYY-MM-DD')`) to stay off the UTC edge.
+function buildDemoEvents() {
+  const off = (days) => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return dayKey(d);
+  };
+  return [
+    { kind: 'own', assignment_id: 'demo-1', title: 'Podcast Ep. 42 — Edit', assigned_date: off(-4), due_date: off(3), due_time: '17:00', status: 'in_progress' },
+    { kind: 'own', assignment_id: 'demo-2', title: 'YouTube Long-Form Cut', assigned_date: off(-1), due_date: off(9), due_time: null, status: 'assigned' },
+    { kind: 'own', assignment_id: 'demo-3', title: 'Instagram Reel Pack', assigned_date: off(-13), due_date: off(-3), due_time: null, status: 'completed' },
+    { kind: 'review', title: 'Podcast Ep. 42 — v2 review', due_date: off(2) },
+    { kind: 'review', title: 'YouTube Cut — v1 review', due_date: off(6) },
+    { kind: 'busy', editor_id: 'demo-e1', editor_name: 'Jordan', due_date: off(5) },
+    { kind: 'busy', editor_id: 'demo-e1', editor_name: 'Jordan', due_date: off(8) },
+  ];
+}
+
+export default function ClientCalendar({ onNavigate, demo = false }) {
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -49,8 +71,14 @@ export default function ClientCalendar({ onNavigate }) {
   const [expandedDays, setExpandedDays] = useState(() => new Set()); // dayKeys showing all pills
 
   // Fetch once per mount — the RPC returns every row for this client (volumes
-  // are tiny), and we filter to the visible month client-side.
+  // are tiny), and we filter to the visible month client-side. In the admin
+  // sim preview (`demo`) we skip the RPC and show representative sample data.
   useEffect(() => {
+    if (demo) {
+      setEvents(buildDemoEvents());
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
       const { data, error } = await supabase.rpc('client_calendar_events');
@@ -64,7 +92,7 @@ export default function ClientCalendar({ onNavigate }) {
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [demo]);
 
   // dayKey → sorted pill list. Own rows produce a solid pill on their due date
   // and an outlined "assigned" pill on their assigned date; busy rows produce
@@ -95,6 +123,8 @@ export default function ClientCalendar({ onNavigate }) {
             assignmentId: ev.assignment_id,
           });
         }
+      } else if (ev.kind === 'review' && ev.due_date) {
+        add(ev.due_date, { type: 'review', title: ev.title || 'Review session' });
       } else if (ev.kind === 'busy' && ev.due_date) {
         const dedupKey = `${ev.editor_id}|${ev.due_date}`;
         if (busySeen.has(dedupKey)) continue;
@@ -152,6 +182,19 @@ export default function ClientCalendar({ onNavigate }) {
   }
 
   function renderPill(pill, idx) {
+    if (pill.type === 'review') {
+      return (
+        <button
+          key={idx}
+          type="button"
+          onClick={() => onNavigate && onNavigate('cl_review')}
+          style={styles.pillReview}
+          title={`${pill.title} — review session`}
+        >
+          👁 {pill.title}
+        </button>
+      );
+    }
     if (pill.type === 'busy') {
       return (
         <div key={idx} style={styles.pillBusy} title={`${pill.editorName} is booked on another project`}>
@@ -265,6 +308,10 @@ export default function ClientCalendar({ onNavigate }) {
         <span style={styles.legendItem}>
           <span style={{ ...styles.legendSwatch, background: 'transparent', border: `1px solid ${colors.accentBorder}` }} />
           Assigned
+        </span>
+        <span style={styles.legendItem}>
+          <span style={{ ...styles.legendSwatch, background: 'rgba(139,92,246,0.9)' }} />
+          Review session
         </span>
         <span style={styles.legendItem}>
           <span style={{ ...styles.legendSwatch, background: colors.whiteA06 }} />
@@ -449,6 +496,24 @@ const styles = {
     color: colors.accentFg,
     fontSize: fontSizes.xs,
     fontWeight: fontWeights.medium,
+    textAlign: 'left',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  pillReview: {
+    display: 'block',
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '3px 6px',
+    background: 'rgba(139,92,246,0.9)',
+    border: '1px solid transparent',
+    borderRadius: radii.sm,
+    color: colors.white,
+    fontSize: fontSizes.xs,
+    fontWeight: fontWeights.semibold,
     textAlign: 'left',
     whiteSpace: 'nowrap',
     overflow: 'hidden',

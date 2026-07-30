@@ -123,7 +123,6 @@ export default function useNavConfig() {
         { type: 'item', key: 'messages', label: 'Messages' },
         { type: 'item', key: 'cl_documents', label: 'Documents' },
         { type: 'item', key: 'cl_profile', label: 'Profile' },
-        { type: 'item', key: 'cl_notifications', label: 'Notifications' },
       ];
     }
 

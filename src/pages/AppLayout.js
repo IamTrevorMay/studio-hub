@@ -1156,7 +1156,7 @@ export default function AppLayout() {
           {asContractor && activeTab === 'fl_reviews' && <PageErrorBoundary key="fl_reviews"><ContractorReviews initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {isAdmin && canManageClients(profile?.role, profile?.sub_role) && activeTab === 'clients' && <PageErrorBoundary key="clients"><Clients /></PageErrorBoundary>}
           {asClient && activeTab === 'cl_dashboard' && <PageErrorBoundary key="cl_dashboard"><ClientDashboard onNavigate={navigateTo} initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
-          {asClient && activeTab === 'cl_calendar' && <PageErrorBoundary key="cl_calendar"><ClientCalendar onNavigate={navigateTo} /></PageErrorBoundary>}
+          {asClient && activeTab === 'cl_calendar' && <PageErrorBoundary key="cl_calendar"><ClientCalendar onNavigate={navigateTo} demo={previewingClient} /></PageErrorBoundary>}
           {asClient && activeTab === 'cl_review' && <PageErrorBoundary key="cl_review"><ClientReview initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {asClient && activeTab === 'cl_documents' && <PageErrorBoundary key="cl_documents"><ClientDocuments /></PageErrorBoundary>}
           {asClient && activeTab === 'cl_profile' && <PageErrorBoundary key="cl_profile"><ClientProfile /></PageErrorBoundary>}

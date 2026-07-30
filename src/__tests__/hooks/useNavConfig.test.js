@@ -55,14 +55,14 @@ describe('useNavConfig – getResolvedNav', () => {
     expect(nav.map((i) => i.key)).toContain('fl_assignments');
   });
 
-  it('returns the locked 7-item client nav', async () => {
+  it('returns the locked client nav (no Notifications tab)', async () => {
     const { result } = renderHook(() => useNavConfig());
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 
     const nav = result.current.getResolvedNav(NAV_ITEMS, false, false, false, null, new Set(), true);
     expect(nav.map((i) => i.key)).toEqual([
       'cl_dashboard', 'cl_calendar', 'cl_review', 'messages',
-      'cl_documents', 'cl_profile', 'cl_notifications',
+      'cl_documents', 'cl_profile',
     ]);
   });
 
