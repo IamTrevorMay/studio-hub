@@ -1,8 +1,13 @@
 # Harbor Meeting Mode — Implementation Plan
 
-**Status:** Phase A implemented on branch `claude/harbor-meeting-mode` (build passes;
-migration + edge fn not yet deployed, not committed). Phases B–D pending. ·
+**Status:** on branch `claude/harbor-meeting-mode` (build passes) ·
 **Decided:** 2026-07-31
+- **Phase A** — committed (`ab42c7b6`). Migration + `harbor-join` deploy still needed to run live.
+- **Phase B** — implemented, NOT committed. Frontend-only (present-mode screen share);
+  no migration or edge fn — just an SPA redeploy. Chose replaceTrack "present mode"
+  (your tile becomes your screen) over a separate simultaneous tile: zero renegotiation,
+  zero new signaling; a true second tile pairs with the SFU in Phase D.
+- **Phases C–D** — pending.
 
 ## Deploy checklist for Phase A (before it works live)
 - [ ] Apply migration `20260731120000_harbor_meeting_mode.sql` to the main Supabase project.

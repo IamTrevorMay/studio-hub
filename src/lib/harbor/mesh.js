@@ -48,16 +48,26 @@ export class HarborMesh {
    * @param {number} [opts.maxParticipants]  session seat cap (incl. self);
    *        defaults to HARBOR_MAX_PARTICIPANTS. The mesh holds one fewer
    *        RTCPeerConnection than this.
+   * @param {(active: boolean, screenStream: MediaStream|null) => void} [opts.onScreenShareChange]
+   *        fires when screen share starts/stops, including when the browser's
+   *        native "Stop sharing" ends it out from under us.
    */
-  constructor({ clientId, sendSignal, onRemoteStream, onPeerState, onPeerRemoved, maxParticipants = HARBOR_MAX_PARTICIPANTS }) {
+  constructor({ clientId, sendSignal, onRemoteStream, onPeerState, onPeerRemoved, maxParticipants = HARBOR_MAX_PARTICIPANTS, onScreenShareChange }) {
     this.clientId = clientId;
     this.sendSignal = sendSignal;
     this.onRemoteStream = onRemoteStream;
     this.onPeerState = onPeerState;
     this.onPeerRemoved = onPeerRemoved;
+    this.onScreenShareChange = onScreenShareChange;
     this.maxRemotePeers = Math.max(1, (maxParticipants || HARBOR_MAX_PARTICIPANTS) - 1);
     this.peers = new Map(); // clientId → { pc, makingOffer, ignoreOffer, settingRemoteAnswer, polite }
     this.localStream = null;
+    // Present mode: while sharing, each peer's outgoing VIDEO sender carries the
+    // screen track instead of the camera (replaceTrack — same kind, so no
+    // renegotiation and no glare). localStream keeps the camera track, so the
+    // recorder + mute logic are untouched; only what peers receive changes.
+    this.screenStream = null;
+    this.screenTrack = null;
     this.closed = false;
   }
 
@@ -96,6 +106,8 @@ export class HarborMesh {
     if (this.localStream) {
       for (const track of this.localStream.getTracks()) pc.addTrack(track, this.localStream);
     }
+    // Late joiner while we're presenting: send them the screen, not the camera.
+    if (this.screenTrack) this._applyScreenToPeer(peer);
 
     pc.onnegotiationneeded = async () => {
       try {
@@ -183,6 +195,64 @@ export class HarborMesh {
     this.onPeerRemoved?.(remoteId);
   }
 
+  /** The video RTCRtpSender for one peer (camera or, while presenting, screen). */
+  _videoSender(peer) {
+    return peer.pc.getSenders().find((s) => s.track && s.track.kind === 'video') || null;
+  }
+
+  /** Point one peer's video sender at the current screen track. */
+  _applyScreenToPeer(peer) {
+    const sender = this._videoSender(peer);
+    if (sender && this.screenTrack) sender.replaceTrack(this.screenTrack).catch(() => {});
+  }
+
+  get isScreenSharing() {
+    return !!this.screenStream;
+  }
+
+  /** Start present mode: capture a display surface and swap it in for the
+   *  camera on every peer's video sender. Resolves the screen MediaStream (for
+   *  local preview) or null if the user cancelled the picker. */
+  async startScreenShare() {
+    if (this.closed || this.screenStream) return this.screenStream;
+    let screen;
+    try {
+      screen = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    } catch (err) {
+      // AbortError/NotAllowedError = user dismissed the picker — not fatal.
+      if (err?.name !== 'AbortError' && err?.name !== 'NotAllowedError') {
+        console.warn('harbor mesh: getDisplayMedia failed', err);
+      }
+      return null;
+    }
+    if (this.closed) {
+      screen.getTracks().forEach((t) => t.stop());
+      return null;
+    }
+    this.screenStream = screen;
+    this.screenTrack = screen.getVideoTracks()[0] || null;
+    // The browser's own "Stop sharing" control ends the track directly.
+    this.screenTrack?.addEventListener('ended', () => this.stopScreenShare());
+    for (const peer of this.peers.values()) this._applyScreenToPeer(peer);
+    this.onScreenShareChange?.(true, screen);
+    return screen;
+  }
+
+  /** Stop present mode: restore the camera track on every peer's video sender
+   *  and release the display capture. Safe to call when not sharing. */
+  stopScreenShare() {
+    if (!this.screenStream) return;
+    const camera = this.localStream?.getVideoTracks()[0] || null;
+    for (const peer of this.peers.values()) {
+      const sender = this._videoSender(peer);
+      if (sender) sender.replaceTrack(camera).catch(() => {});
+    }
+    this.screenStream.getTracks().forEach((t) => t.stop());
+    this.screenStream = null;
+    this.screenTrack = null;
+    this.onScreenShareChange?.(false, null);
+  }
+
   setAudioEnabled(on) {
     this.localStream?.getAudioTracks().forEach((t) => {
       t.enabled = on;
@@ -200,6 +270,13 @@ export class HarborMesh {
   close() {
     this.closed = true;
     for (const id of [...this.peers.keys()]) this.removePeer(id);
+    // Release the display capture directly (no onScreenShareChange — the
+    // component is tearing down and must not receive a late setState).
+    if (this.screenStream) {
+      this.screenStream.getTracks().forEach((t) => t.stop());
+      this.screenStream = null;
+      this.screenTrack = null;
+    }
     if (this.localStream) {
       this.localStream.getTracks().forEach((t) => t.stop());
       this.localStream = null;

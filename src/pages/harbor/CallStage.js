@@ -119,6 +119,8 @@ export default function CallStage({
   // Recording-mode sessions pass recordEnabled=true and never show the toggle.
   const [recEnabled, setRecEnabled] = useState(recordEnabled);
   const [togglingRec, setTogglingRec] = useState(false); // meeting host record-enable write in flight
+  const [sharing, setSharing] = useState(false); // presenting our screen
+  const [screenStream, setScreenStream] = useState(null); // local screen preview
   const [toast, setToast] = useState(null); // transient banner ("The producer muted you")
   const [unmuteAsk, setUnmuteAsk] = useState(false); // producer asked us to unmute
   const [busyAdmit, setBusyAdmit] = useState({}); // clientId → true while admitting
@@ -132,6 +134,7 @@ export default function CallStage({
   const presenceMetaRef = useRef({}); // clientId → { role, state } (presence-verified)
   const pStateRef = useRef(initialParticipantState);
   const recEnabledRef = useRef(recordEnabled); // synchronous mirror for signal handlers
+  const sharingRef = useRef(false); // present-mode mirror for the hello-response state seed
   const admitSelfRef = useRef(null); // lobby→admitted transition (set in the mount effect)
   const lastRecBroadcastRef = useRef({ at: 0, status: null });
 
@@ -245,6 +248,14 @@ export default function CallStage({
       onRemoteStream: (id, stream) => upsertRemote(id, { stream }),
       onPeerState: (id, connState) => upsertRemote(id, { connState }),
       onPeerRemoved: (id) => dropRemote(id),
+      // Single source of truth for present-mode state — fires for our own
+      // toggle AND the browser's native "Stop sharing".
+      onScreenShareChange: (active, stream) => {
+        sharingRef.current = active;
+        setSharing(active);
+        setScreenStream(active ? stream : null);
+        signalRef.current?.send('state', { sharing: active });
+      },
     });
     meshRef.current = mesh;
 
@@ -288,7 +299,11 @@ export default function CallStage({
           // a late joiner's UI matches the room without waiting for a toggle.
           signalRef.current?.send(
             'state',
-            { ...selfStateRef.current, ...(role === 'producer' ? { recordEnabled: recEnabledRef.current } : {}) },
+            {
+              ...selfStateRef.current,
+              sharing: sharingRef.current,
+              ...(role === 'producer' ? { recordEnabled: recEnabledRef.current } : {}),
+            },
             payload.from,
           );
           break;
@@ -309,6 +324,9 @@ export default function CallStage({
           if (typeof payload.recordEnabled === 'boolean') {
             recEnabledRef.current = payload.recordEnabled;
             setRecEnabled(payload.recordEnabled);
+          }
+          if (typeof payload.sharing === 'boolean') {
+            upsertRemote(payload.from, { sharing: payload.sharing });
           }
           if (typeof payload.micOn === 'boolean' || typeof payload.camOn === 'boolean') {
             upsertRemote(payload.from, {
@@ -555,6 +573,15 @@ export default function CallStage({
     signalRef.current?.send('state', { camOn: next });
   };
 
+  // Present mode: the mesh swaps screen↔camera on our video senders and drives
+  // state via onScreenShareChange (so this handler stays fire-and-forget).
+  const toggleShare = () => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    if (mesh.isScreenSharing) mesh.stopScreenShare();
+    else mesh.startScreenShare();
+  };
+
   const changeSessionStatus = async (next) => {
     if (!onUpdateSessionStatus) return;
     setSavingStatus(true);
@@ -571,6 +598,11 @@ export default function CallStage({
 
   const remoteEntries = Object.entries(remotes).filter(([, r]) => r.state !== 'lobby');
   const lobbyEntries = Object.entries(remotes).filter(([, r]) => r.state === 'lobby');
+  // getDisplayMedia is desktop-only — no button on mobile / unsupported browsers.
+  const canShareScreen =
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getDisplayMedia === 'function';
 
   // ── Producer controls ────────────────────────────────────────
   const isProducer = role === 'producer';
@@ -845,6 +877,7 @@ export default function CallStage({
       <div style={styles.grid}>
         <LocalTile
           stream={localStream}
+          shareStream={sharing ? screenStream : null}
           name={displayName}
           micOn={micOn}
           camOn={camOn}
@@ -917,6 +950,16 @@ export default function CallStage({
         >
           {camOn ? 'Cam on' : 'Cam off'}
         </button>
+        {canShareScreen && (
+          <button
+            type="button"
+            style={sharing ? styles.ctrlBtnActive : styles.ctrlBtnOn}
+            onClick={toggleShare}
+            title={sharing ? 'Stop sharing your screen' : 'Share your screen'}
+          >
+            {sharing ? 'Stop share' : 'Share screen'}
+          </button>
+        )}
         <button type="button" style={button({ variant: 'danger' })} onClick={() => onLeave?.('left')}>
           Leave
         </button>
@@ -925,11 +968,14 @@ export default function CallStage({
   );
 }
 
-function LocalTile({ stream, name, micOn, camOn, recState, onToggleRecord }) {
+function LocalTile({ stream, name, micOn, camOn, recState, onToggleRecord, shareStream = null }) {
   const videoRef = useRef(null);
+  // While presenting, the tile shows our screen (not mirrored) instead of the
+  // camera; the camera keeps streaming to peers is handled at the sender level.
+  const displayStream = shareStream || stream;
   useEffect(() => {
-    if (videoRef.current && stream) videoRef.current.srcObject = stream;
-  }, [stream]);
+    if (videoRef.current && displayStream) videoRef.current.srcObject = displayStream;
+  }, [displayStream]);
 
   const recording =
     recState?.status === 'starting' ||
@@ -939,9 +985,15 @@ function LocalTile({ stream, name, micOn, camOn, recState, onToggleRecord }) {
 
   return (
     <div style={styles.tile}>
-      {/* Local preview is always muted (no echo) and mirrored. */}
-      <video ref={videoRef} autoPlay playsInline muted style={styles.videoMirrored} />
-      {!camOn && (
+      {/* Local preview is always muted (no echo); mirrored for camera only. */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        style={shareStream ? styles.video : styles.videoMirrored}
+      />
+      {!shareStream && !camOn && (
         <div style={styles.camOffOverlay}>
           <span style={styles.camOffText}>Camera off</span>
         </div>
@@ -967,6 +1019,7 @@ function LocalTile({ stream, name, micOn, camOn, recState, onToggleRecord }) {
       )}
       <div style={styles.nameTag}>
         <span style={styles.nameText}>{name} (you)</span>
+        {shareStream && <span style={styles.presentingTag}>sharing</span>}
         {!micOn && <span style={styles.mutedTag}>muted</span>}
       </div>
     </div>
@@ -1067,6 +1120,7 @@ function RemoteTile({ peer, showRecHealth, onToggleRecord, onMute, onAskUnmute, 
       )}
       <div style={styles.nameTag}>
         <span style={styles.nameText}>{peer.name}</span>
+        {peer.sharing && <span style={styles.presentingTag}>presenting</span>}
         {peer.micOn === false && <span style={styles.mutedTag}>muted</span>}
       </div>
     </div>
@@ -1180,6 +1234,13 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  presentingTag: {
+    fontSize: fontSizes.xxs,
+    fontWeight: fontWeights.bold,
+    color: colors.info.fgSoft,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
   connBadge: {
     position: 'absolute',
     top: spacing.sm,
@@ -1279,6 +1340,14 @@ const styles = {
     background: colors.danger.bg,
     border: `1px solid ${colors.danger.border}`,
     color: colors.danger.fgSoft,
+    transition: transitions.fast,
+  },
+  // Present mode active — sky-tinted so it reads as "on", not "error".
+  ctrlBtnActive: {
+    ...button({ variant: 'secondary' }),
+    background: colors.info.bg,
+    border: `1px solid ${colors.info.border}`,
+    color: colors.info.fgSoft,
     transition: transitions.fast,
   },
   recMuteHint: {
