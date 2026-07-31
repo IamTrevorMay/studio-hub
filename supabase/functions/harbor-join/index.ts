@@ -51,9 +51,11 @@ function jsonResp(body: Record<string, unknown>, status = 200) {
   });
 }
 
-// Producer + 3 guests. Mirrors HARBOR_MAX_PARTICIPANTS in src/lib/harbor/mesh.js.
-// Lobby guests occupy a seat (accepted for v1).
-const MAX_PARTICIPANTS = 4;
+// Seat cap is per-session (harbor_sessions.max_participants): 4 for a
+// recording session, more for a meeting. Fall back to 4 for legacy rows.
+// Lobby guests occupy a seat (accepted for v1). Mirrors the mesh cap in
+// src/lib/harbor/mesh.js.
+const DEFAULT_MAX_PARTICIPANTS = 4;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -82,14 +84,29 @@ Deno.serve(async (req: Request) => {
 
     const { data: session, error: sessionErr } = await admin
       .from("harbor_sessions")
-      .select("id, title, status, channel_secret")
+      .select("id, title, status, channel_secret, mode, max_participants, record_enabled")
       .eq("guest_token", token)
       .maybeSingle();
     if (sessionErr) throw sessionErr;
     if (!session || session.status === "ended") return jsonResp({ error: "Not found" }, 404);
 
+    const isMeeting = session.mode === "meeting";
+    const maxParticipants = session.max_participants && session.max_participants > 0
+      ? session.max_participants
+      : DEFAULT_MAX_PARTICIPANTS;
+    // Recording sessions always record on demand; meetings gate on the host's
+    // opt-in. Guests use this to show/hide recording UI.
+    const recordEnabled = isMeeting ? !!session.record_enabled : true;
+
     const channel = channelName(session.id, session.channel_secret);
-    const sessionOut = { id: session.id, title: session.title, status: session.status };
+    const sessionOut = {
+      id: session.id,
+      title: session.title,
+      status: session.status,
+      mode: session.mode || "recording",
+      max_participants: maxParticipants,
+      record_enabled: recordEnabled,
+    };
 
     // resume_key rides re-join and leave. 64 hex chars; length gate keeps
     // junk out of the queries.
@@ -164,7 +181,7 @@ Deno.serve(async (req: Request) => {
         if (existing.state === "removed") return jsonResp({ error: "Not found" }, 404);
         // Reactivating a left row takes a seat back — recheck capacity.
         // (A row with left_at null is already counted; skip the check.)
-        if (existing.left_at && (await activeCount()) >= MAX_PARTICIPANTS) {
+        if (existing.left_at && (await activeCount()) >= maxParticipants) {
           return jsonResp({ error: "Session is full" }, 409);
         }
         const { error: updateErr } = await admin
@@ -183,18 +200,21 @@ Deno.serve(async (req: Request) => {
       // No such row in this session (stale storage) — fall through to a fresh join.
     }
 
-    // ── fresh join → green room ────────────────────────────────
-    if ((await activeCount()) >= MAX_PARTICIPANTS) {
+    // ── fresh join ─────────────────────────────────────────────
+    // Recording sessions park guests in the green room; meetings admit them
+    // straight in (staff-plus-guest calls skip the producer-admit dance).
+    if ((await activeCount()) >= maxParticipants) {
       return jsonResp({ error: "Session is full" }, 409);
     }
 
+    const initialState = isMeeting ? "admitted" : "lobby";
     const { data: participant, error: insertErr } = await admin
       .from("harbor_participants")
       .insert({
         session_id: session.id,
         display_name: displayName,
         role: "guest",
-        state: "lobby",
+        state: initialState,
         client_id: clientId,
       })
       .select("id, resume_key") // resume_key comes from the column default
@@ -204,7 +224,7 @@ Deno.serve(async (req: Request) => {
     return jsonResp({
       session: sessionOut,
       participant_id: participant.id,
-      state: "lobby",
+      state: initialState,
       resume_key: participant.resume_key,
       channel,
     });

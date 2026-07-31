@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily, transitions, zIndex, shadows } from '../../lib/styleTokens';
 import { pill, button, sectionHeader } from '../../lib/styleRecipes';
-import { HarborMesh } from '../../lib/harbor/mesh';
+import { createHarborRoom } from '../../lib/harbor/transport';
 import { joinSignalingChannel } from '../../lib/harbor/signaling';
 import { HarborRecorder } from '../../lib/harbor/recorder';
 
@@ -87,10 +87,14 @@ export default function CallStage({
   displayName,
   role, // 'producer' | 'guest'
   session, // { id, title, status }
+  mode = 'recording', // 'recording' | 'meeting'
+  maxParticipants = 4, // session seat cap → mesh peer limit
   participantId = null, // own harbor_participants row id (presence meta)
   initialParticipantState = 'admitted', // 'lobby' for green-room guests
   initialStream = null, // reuse a device-check preview stream (guest flow)
   canControlSession = false,
+  recordEnabled = true, // meeting mode gates recording; recording mode passes true
+  onToggleRecordEnabled = null, // async (next) => void — host flips record_enabled (meeting only)
   onUpdateSessionStatus, // async (nextStatus) => void — parent writes the DB
   onAdmitParticipant = null, // async (participantId) => void — staff RLS write
   onRemoveParticipant = null, // async (participantId) => void — staff RLS write
@@ -99,6 +103,7 @@ export default function CallStage({
   onCheckAdmission = null, // async () => 'lobby'|'admitted'|null — lobby poll (guest flow)
   createRecorderTransport = null, // () => transport (see recorderTransports.js)
 }) {
+  const isMeeting = mode === 'meeting';
   const [localStream, setLocalStream] = useState(null);
   const [mediaError, setMediaError] = useState(null);
   const [channelStatus, setChannelStatus] = useState('connecting');
@@ -110,6 +115,12 @@ export default function CallStage({
   const [remotes, setRemotes] = useState({});
   const [savingStatus, setSavingStatus] = useState(false);
   const [recState, setRecState] = useState(null); // own recorder snapshot
+  // Meeting-mode recording opt-in (host-toggled, broadcast over 'state').
+  // Recording-mode sessions pass recordEnabled=true and never show the toggle.
+  const [recEnabled, setRecEnabled] = useState(recordEnabled);
+  const [togglingRec, setTogglingRec] = useState(false); // meeting host record-enable write in flight
+  const [sharing, setSharing] = useState(false); // presenting our screen
+  const [screenStream, setScreenStream] = useState(null); // local screen preview
   const [toast, setToast] = useState(null); // transient banner ("The producer muted you")
   const [unmuteAsk, setUnmuteAsk] = useState(false); // producer asked us to unmute
   const [busyAdmit, setBusyAdmit] = useState({}); // clientId → true while admitting
@@ -122,6 +133,8 @@ export default function CallStage({
   transportFactoryRef.current = createRecorderTransport;
   const presenceMetaRef = useRef({}); // clientId → { role, state } (presence-verified)
   const pStateRef = useRef(initialParticipantState);
+  const recEnabledRef = useRef(recordEnabled); // synchronous mirror for signal handlers
+  const sharingRef = useRef(false); // present-mode mirror for the hello-response state seed
   const admitSelfRef = useRef(null); // lobby→admitted transition (set in the mount effect)
   const lastRecBroadcastRef = useRef({ at: 0, status: null });
 
@@ -228,12 +241,21 @@ export default function CallStage({
   useEffect(() => {
     let cancelled = false;
 
-    const mesh = new HarborMesh({
+    const mesh = createHarborRoom({
       clientId,
+      maxParticipants,
       sendSignal: (to, msg) => signalRef.current?.send(msg.type, msg, to),
       onRemoteStream: (id, stream) => upsertRemote(id, { stream }),
       onPeerState: (id, connState) => upsertRemote(id, { connState }),
       onPeerRemoved: (id) => dropRemote(id),
+      // Single source of truth for present-mode state — fires for our own
+      // toggle AND the browser's native "Stop sharing".
+      onScreenShareChange: (active, stream) => {
+        sharingRef.current = active;
+        setSharing(active);
+        setScreenStream(active ? stream : null);
+        signalRef.current?.send('state', { sharing: active });
+      },
     });
     meshRef.current = mesh;
 
@@ -272,8 +294,18 @@ export default function CallStage({
           };
           upsertRemote(payload.from, { name: payload.name, role: payload.role, state: 'admitted' });
           mesh.connectTo(payload.from);
-          // Tell the newcomer our current mute state (they missed past broadcasts).
-          signalRef.current?.send('state', { ...selfStateRef.current }, payload.from);
+          // Tell the newcomer our current mute state (they missed past
+          // broadcasts). A producer also seeds the live record-enabled flag so
+          // a late joiner's UI matches the room without waiting for a toggle.
+          signalRef.current?.send(
+            'state',
+            {
+              ...selfStateRef.current,
+              sharing: sharingRef.current,
+              ...(role === 'producer' ? { recordEnabled: recEnabledRef.current } : {}),
+            },
+            payload.from,
+          );
           break;
         case 'offer':
         case 'answer':
@@ -289,6 +321,17 @@ export default function CallStage({
           break;
         case 'state':
           if (payload.status) setSessionStatus(payload.status);
+          // recordEnabled is a room-wide authoritative flag — only a
+          // presence-verified producer may change it (same trust model as
+          // 'record'/'mute'). mic/cam/sharing below are self-reported, so a
+          // sender describing its OWN state needs no producer gate.
+          if (typeof payload.recordEnabled === 'boolean' && fromProducer(payload.from)) {
+            recEnabledRef.current = payload.recordEnabled;
+            setRecEnabled(payload.recordEnabled);
+          }
+          if (typeof payload.sharing === 'boolean') {
+            upsertRemote(payload.from, { sharing: payload.sharing });
+          }
           if (typeof payload.micOn === 'boolean' || typeof payload.camOn === 'boolean') {
             upsertRemote(payload.from, {
               ...(typeof payload.micOn === 'boolean' ? { micOn: payload.micOn } : {}),
@@ -303,8 +346,12 @@ export default function CallStage({
           if (!fromProducer(payload.from)) break;
           if (pStateRef.current !== 'admitted') break; // lobby never records
           if (payload.target !== 'all' && payload.target !== clientId) break;
-          if (payload.action === 'start') startRecording();
-          else if (payload.action === 'stop') stopRecording();
+          if (payload.action === 'start') {
+            if (!recEnabledRef.current) break; // recording disabled for this meeting
+            startRecording();
+          } else if (payload.action === 'stop') {
+            stopRecording(); // a stop is ALWAYS honored, even after recording was disabled
+          }
           break;
         case 'record-state':
           upsertRemote(payload.from, {
@@ -533,6 +580,15 @@ export default function CallStage({
     signalRef.current?.send('state', { camOn: next });
   };
 
+  // Present mode: the mesh swaps screen↔camera on our video senders and drives
+  // state via onScreenShareChange (so this handler stays fire-and-forget).
+  const toggleShare = () => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    if (mesh.isScreenSharing) mesh.stopScreenShare();
+    else mesh.startScreenShare();
+  };
+
   const changeSessionStatus = async (next) => {
     if (!onUpdateSessionStatus) return;
     setSavingStatus(true);
@@ -549,10 +605,18 @@ export default function CallStage({
 
   const remoteEntries = Object.entries(remotes).filter(([, r]) => r.state !== 'lobby');
   const lobbyEntries = Object.entries(remotes).filter(([, r]) => r.state === 'lobby');
+  // getDisplayMedia is desktop-only — no button on mobile / unsupported browsers.
+  const canShareScreen =
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getDisplayMedia === 'function';
 
   // ── Producer controls ────────────────────────────────────────
   const isProducer = role === 'producer';
-  const canRecord = !!createRecorderTransport;
+  // Recording mode always allows recording; a meeting only when the host has
+  // opted in. Guards every record control + the incoming 'record' command.
+  const recordingAllowed = !isMeeting || recEnabled;
+  const canRecord = !!createRecorderTransport && recordingAllowed;
   const selfRecording =
     recState?.status === 'starting' ||
     recState?.status === 'recording' ||
@@ -569,6 +633,27 @@ export default function CallStage({
   };
   const toggleRemoteRecord = (id, isRec) => {
     signalRef.current?.send('record', { action: isRec ? 'stop' : 'start', target: id }, id);
+  };
+
+  // Meeting host flips recording on/off for the whole room. The DB write runs
+  // in the parent; on success we broadcast the new flag so every client's UI
+  // (and its 'record' guard) updates live. Disabling mid-record stops everyone.
+  const toggleRecordEnabled = async () => {
+    if (!onToggleRecordEnabled || togglingRec) return;
+    const next = !recEnabled;
+    setTogglingRec(true);
+    try {
+      await onToggleRecordEnabled(next);
+    } catch (err) {
+      console.error('Harbor: record-enable toggle failed:', err);
+      return;
+    } finally {
+      setTogglingRec(false);
+    }
+    if (!next && anyoneRecording) stopRecordAll();
+    recEnabledRef.current = next;
+    setRecEnabled(next);
+    signalRef.current?.send('state', { recordEnabled: next });
   };
 
   const muteRemote = (id) => signalRef.current?.send('mute', {}, id);
@@ -701,6 +786,7 @@ export default function CallStage({
       <div style={styles.header}>
         <div style={styles.headerLeft}>
           <span style={styles.title}>{session?.title || 'Harbor session'}</span>
+          {isMeeting && <span style={pill('default')}>Meeting</span>}
           <span style={pill(STATUS_TONES[sessionStatus] || 'info')}>
             {STATUS_LABELS[sessionStatus] || sessionStatus}
           </span>
@@ -715,6 +801,17 @@ export default function CallStage({
         </div>
         {(canControlSession || (isProducer && canRecord)) && (
           <div style={styles.headerRight}>
+            {isMeeting && canControlSession && (
+              <button
+                type="button"
+                style={button({ variant: recEnabled ? 'ghost' : 'secondary', size: 'sm', disabled: togglingRec })}
+                disabled={togglingRec}
+                onClick={toggleRecordEnabled}
+                title={recEnabled ? 'Turn recording off for this meeting' : 'Turn recording on for this meeting'}
+              >
+                {togglingRec ? 'Saving…' : recEnabled ? 'Disable recording' : 'Enable recording'}
+              </button>
+            )}
             {isProducer && canRecord && (
               anyoneRecording ? (
                 <button
@@ -787,6 +884,7 @@ export default function CallStage({
       <div style={styles.grid}>
         <LocalTile
           stream={localStream}
+          shareStream={sharing ? screenStream : null}
           name={displayName}
           micOn={micOn}
           camOn={camOn}
@@ -859,6 +957,16 @@ export default function CallStage({
         >
           {camOn ? 'Cam on' : 'Cam off'}
         </button>
+        {canShareScreen && (
+          <button
+            type="button"
+            style={sharing ? styles.ctrlBtnActive : styles.ctrlBtnOn}
+            onClick={toggleShare}
+            title={sharing ? 'Stop sharing your screen' : 'Share your screen'}
+          >
+            {sharing ? 'Stop share' : 'Share screen'}
+          </button>
+        )}
         <button type="button" style={button({ variant: 'danger' })} onClick={() => onLeave?.('left')}>
           Leave
         </button>
@@ -867,11 +975,14 @@ export default function CallStage({
   );
 }
 
-function LocalTile({ stream, name, micOn, camOn, recState, onToggleRecord }) {
+function LocalTile({ stream, name, micOn, camOn, recState, onToggleRecord, shareStream = null }) {
   const videoRef = useRef(null);
+  // While presenting, the tile shows our screen (not mirrored) instead of the
+  // camera; the camera keeps streaming to peers is handled at the sender level.
+  const displayStream = shareStream || stream;
   useEffect(() => {
-    if (videoRef.current && stream) videoRef.current.srcObject = stream;
-  }, [stream]);
+    if (videoRef.current && displayStream) videoRef.current.srcObject = displayStream;
+  }, [displayStream]);
 
   const recording =
     recState?.status === 'starting' ||
@@ -881,9 +992,15 @@ function LocalTile({ stream, name, micOn, camOn, recState, onToggleRecord }) {
 
   return (
     <div style={styles.tile}>
-      {/* Local preview is always muted (no echo) and mirrored. */}
-      <video ref={videoRef} autoPlay playsInline muted style={styles.videoMirrored} />
-      {!camOn && (
+      {/* Local preview is always muted (no echo); mirrored for camera only. */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        style={shareStream ? styles.video : styles.videoMirrored}
+      />
+      {!shareStream && !camOn && (
         <div style={styles.camOffOverlay}>
           <span style={styles.camOffText}>Camera off</span>
         </div>
@@ -909,6 +1026,7 @@ function LocalTile({ stream, name, micOn, camOn, recState, onToggleRecord }) {
       )}
       <div style={styles.nameTag}>
         <span style={styles.nameText}>{name} (you)</span>
+        {shareStream && <span style={styles.presentingTag}>sharing</span>}
         {!micOn && <span style={styles.mutedTag}>muted</span>}
       </div>
     </div>
@@ -1009,6 +1127,7 @@ function RemoteTile({ peer, showRecHealth, onToggleRecord, onMute, onAskUnmute, 
       )}
       <div style={styles.nameTag}>
         <span style={styles.nameText}>{peer.name}</span>
+        {peer.sharing && <span style={styles.presentingTag}>presenting</span>}
         {peer.micOn === false && <span style={styles.mutedTag}>muted</span>}
       </div>
     </div>
@@ -1122,6 +1241,13 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  presentingTag: {
+    fontSize: fontSizes.xxs,
+    fontWeight: fontWeights.bold,
+    color: colors.info.fgSoft,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
   connBadge: {
     position: 'absolute',
     top: spacing.sm,
@@ -1221,6 +1347,14 @@ const styles = {
     background: colors.danger.bg,
     border: `1px solid ${colors.danger.border}`,
     color: colors.danger.fgSoft,
+    transition: transitions.fast,
+  },
+  // Present mode active — sky-tinted so it reads as "on", not "error".
+  ctrlBtnActive: {
+    ...button({ variant: 'secondary' }),
+    background: colors.info.bg,
+    border: `1px solid ${colors.info.border}`,
+    color: colors.info.fgSoft,
     transition: transitions.fast,
   },
   recMuteHint: {

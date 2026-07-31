@@ -84,7 +84,9 @@ export default function HarborRoom({ sessionId, onExit }) {
   const fetchSession = useCallback(async () => {
     const { data, error } = await supabase
       .from('harbor_sessions')
-      .select('id, title, status, guest_token, channel_secret, scheduled_at, started_at, ended_at')
+      .select(
+        'id, title, status, mode, record_enabled, max_participants, guest_token, channel_secret, scheduled_at, started_at, ended_at',
+      )
       .eq('id', sessionId)
       .maybeSingle();
     if (error) console.error('Harbor: failed to load session:', error);
@@ -176,6 +178,21 @@ export default function HarborRoom({ sessionId, onExit }) {
     [sessionId],
   );
 
+  // Meeting-mode recording opt-in: host flips harbor_sessions.record_enabled.
+  // CallStage broadcasts the change so every client's UI + 'record' guard
+  // follows; here we only persist and mirror it locally.
+  const setRecordEnabled = useCallback(
+    async (next) => {
+      const { error } = await supabase
+        .from('harbor_sessions')
+        .update({ record_enabled: next })
+        .eq('id', sessionId);
+      if (error) throw error;
+      setSession((prev) => (prev ? { ...prev, record_enabled: next } : prev));
+    },
+    [sessionId],
+  );
+
   // Remove: state → removed + left_at stamped (frees the seat and anchors
   // harbor-track's post-removal upload grace window).
   const removeParticipant = useCallback(
@@ -257,8 +274,12 @@ export default function HarborRoom({ sessionId, onExit }) {
           displayName={displayName}
           role="producer"
           session={session}
+          mode={session.mode || 'recording'}
+          maxParticipants={session.max_participants || 4}
           participantId={callInfo.participantId}
           canControlSession
+          recordEnabled={session.mode === 'meeting' ? !!session.record_enabled : true}
+          onToggleRecordEnabled={session.mode === 'meeting' ? setRecordEnabled : null}
           onUpdateSessionStatus={updateSessionStatus}
           onAdmitParticipant={admitParticipant}
           onRemoveParticipant={removeParticipant}
@@ -282,6 +303,7 @@ export default function HarborRoom({ sessionId, onExit }) {
         <div style={{ ...styles.panel, maxWidth: '100%' }}>
           <div style={styles.titleRow}>
             <h1 style={styles.title}>{session.title}</h1>
+            {session.mode === 'meeting' && <span style={pill('default')}>Meeting</span>}
             <span style={pill(STATUS_TONES[session.status] || 'info')}>
               {STATUS_LABELS[session.status] || session.status}
             </span>
@@ -291,7 +313,11 @@ export default function HarborRoom({ sessionId, onExit }) {
           ) : (
             <>
               <p style={styles.mutedText}>
-                Joining starts your camera and microphone. Up to 4 participants (you + 3 guests).
+                Joining starts your camera and microphone. Up to {session.max_participants || 4}{' '}
+                participants.
+                {session.mode === 'meeting'
+                  ? ' Recording is off unless you enable it in the call.'
+                  : ''}
               </p>
               {joinError && <p style={styles.errorText}>{joinError}</p>}
               <div style={styles.actionRow}>
