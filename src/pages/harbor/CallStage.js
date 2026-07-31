@@ -321,7 +321,11 @@ export default function CallStage({
           break;
         case 'state':
           if (payload.status) setSessionStatus(payload.status);
-          if (typeof payload.recordEnabled === 'boolean') {
+          // recordEnabled is a room-wide authoritative flag — only a
+          // presence-verified producer may change it (same trust model as
+          // 'record'/'mute'). mic/cam/sharing below are self-reported, so a
+          // sender describing its OWN state needs no producer gate.
+          if (typeof payload.recordEnabled === 'boolean' && fromProducer(payload.from)) {
             recEnabledRef.current = payload.recordEnabled;
             setRecEnabled(payload.recordEnabled);
           }
@@ -341,10 +345,13 @@ export default function CallStage({
           // the channel secret is the trust boundary.
           if (!fromProducer(payload.from)) break;
           if (pStateRef.current !== 'admitted') break; // lobby never records
-          if (!recEnabledRef.current) break; // recording disabled for this meeting
           if (payload.target !== 'all' && payload.target !== clientId) break;
-          if (payload.action === 'start') startRecording();
-          else if (payload.action === 'stop') stopRecording();
+          if (payload.action === 'start') {
+            if (!recEnabledRef.current) break; // recording disabled for this meeting
+            startRecording();
+          } else if (payload.action === 'stop') {
+            stopRecording(); // a stop is ALWAYS honored, even after recording was disabled
+          }
           break;
         case 'record-state':
           upsertRemote(payload.from, {

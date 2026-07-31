@@ -22,6 +22,19 @@
   `20260731120000` (it references harbor_sessions.mode/max_participants/record_enabled).
 - No edge function. SPA redeploy ships the Calendar toggle + Join UI.
 
+## ⚠️ DEPLOY ORDER IS LOAD-BEARING — migrations FIRST
+Apply BOTH migrations to the DB **before** deploying the edge function or the SPA.
+The new code selects/writes columns that don't exist until the migrations run, so
+an out-of-order deploy breaks EXISTING (non-meeting) functionality, not just meetings:
+- `harbor-join` selects `mode, max_participants, record_enabled` → deployed early =
+  **every guest join 500s** (including podcast guests).
+- HarborHome/HarborRoom select the mode columns → **session list + every room load fail**.
+- `Calendar.js` writes `is_meeting` on **every** event save → deployed early =
+  **all calendar event creation/editing fails**.
+
+Correct order: (1) apply `20260731120000` then `20260731130000`; (2) `supabase functions
+deploy harbor-join --no-verify-jwt`; (3) redeploy the SPA.
+
 ## Deploy checklist for Phase A (before it works live)
 - [ ] Apply migration `20260731120000_harbor_meeting_mode.sql` to the main Supabase project.
 - [ ] `supabase functions deploy harbor-join --no-verify-jwt` (guest-side mode/cap/skip-lobby).
