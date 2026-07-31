@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily, transitions, zIndex, shadows } from '../../lib/styleTokens';
 import { pill, button, sectionHeader } from '../../lib/styleRecipes';
-import { HarborMesh } from '../../lib/harbor/mesh';
+import { createHarborRoom } from '../../lib/harbor/transport';
 import { joinSignalingChannel } from '../../lib/harbor/signaling';
 import { HarborRecorder } from '../../lib/harbor/recorder';
 
@@ -241,7 +241,7 @@ export default function CallStage({
   useEffect(() => {
     let cancelled = false;
 
-    const mesh = new HarborMesh({
+    const mesh = createHarborRoom({
       clientId,
       maxParticipants,
       sendSignal: (to, msg) => signalRef.current?.send(msg.type, msg, to),

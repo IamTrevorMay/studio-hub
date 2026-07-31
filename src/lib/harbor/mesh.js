@@ -19,16 +19,34 @@
 export const HARBOR_MAX_PARTICIPANTS = 4;
 
 // ── ICE configuration ──────────────────────────────────────────
-// STUN-only for v1: peers behind symmetric NAT / strict firewalls will fail
-// to connect (shows as connectionState 'failed' on the tile).
+// STUN always; TURN when provisioned. Without TURN, peers behind symmetric NAT
+// / strict firewalls fail to connect (shows as connectionState 'failed' on the
+// tile) — fine for occasional podcast guests, painful for frequent meetings.
 //
-// >>> TURN CONFIG POINT <<<
-// When a TURN server is provisioned (Phase 4 / infra), append it here, e.g.:
-//   { urls: 'turn:turn.example.com:3478', username: '...', credential: '...' }
-// Nothing else in the mesh needs to change.
-export const ICE_SERVERS = [
+// TURN is wired from CRA env (build-time inlined), so provisioning a coturn
+// daemon needs ZERO code change — set these and redeploy:
+//   REACT_APP_TURN_URLS        comma-separated, e.g. "turn:turn.mydomain:3478,turns:turn.mydomain:5349"
+//   REACT_APP_TURN_USERNAME    coturn username (or ephemeral-credential user)
+//   REACT_APP_TURN_CREDENTIAL  coturn credential
+const STUN_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
 ];
+
+function buildIceServers() {
+  const servers = [...STUN_SERVERS];
+  const urls = (process.env.REACT_APP_TURN_URLS || '')
+    .split(',')
+    .map((u) => u.trim())
+    .filter(Boolean);
+  const username = process.env.REACT_APP_TURN_USERNAME;
+  const credential = process.env.REACT_APP_TURN_CREDENTIAL;
+  if (urls.length && username && credential) {
+    servers.push({ urls, username, credential });
+  }
+  return servers;
+}
+
+export const ICE_SERVERS = buildIceServers();
 
 // 720p cap for Phase 1 — local recording (Phase 2) will revisit quality.
 export const LOCAL_MEDIA_CONSTRAINTS = {

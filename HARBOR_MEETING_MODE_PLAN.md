@@ -10,7 +10,12 @@
 - **Phase C** — implemented (calendar toggle + auto-generate trigger). Migration
   `20260731130000_harbor_meeting_calendar.sql` + Calendar.js. Desktop only —
   CalendarMobile.js meeting toggle is a deferred parity follow-up. NOT deployed.
-- **Phase D** — pending (SFU + TURN; the big infra lift).
+- **Phase D** — TURN + transport seam implemented; SFU itself is infra-gated
+  (needs a media server provisioned — can't be built/tested from here). TURN is
+  env-wired in `mesh.js` (`REACT_APP_TURN_URLS/USERNAME/CREDENTIAL`); `transport.js`
+  `createHarborRoom()` is the single swap point where a `HarborSfuRoom` slots in
+  behind the mesh's interface. Actual LiveKit/mediasoup client + coturn/LiveKit
+  server = future infra work.
 
 ## Deploy note for Phase C
 - Apply migration `20260731130000_harbor_meeting_calendar.sql` AFTER Phase A's
