@@ -1,6 +1,8 @@
 # Harbor Meeting Mode — Implementation Plan
 
-**Status:** on branch `claude/harbor-meeting-mode` (build passes) ·
+**Status:** on branch `claude/harbor-meeting-mode` (build passes). DB migrations
+APPLIED to the Mayday Studio project + `harbor-join` DEPLOYED (v5) on 2026-07-31.
+**Remaining to go fully live: redeploy the SPA (Vercel).** ·
 **Decided:** 2026-07-31
 - **Phase A** — committed (`ab42c7b6`). Migration + `harbor-join` deploy still needed to run live.
 - **Phase B** — implemented, NOT committed. Frontend-only (present-mode screen share);
@@ -35,12 +37,14 @@ an out-of-order deploy breaks EXISTING (non-meeting) functionality, not just mee
 Correct order: (1) apply `20260731120000` then `20260731130000`; (2) `supabase functions
 deploy harbor-join --no-verify-jwt`; (3) redeploy the SPA.
 
-## Deploy checklist for Phase A (before it works live)
-- [ ] Apply migration `20260731120000_harbor_meeting_mode.sql` to the main Supabase project.
-- [ ] `supabase functions deploy harbor-join --no-verify-jwt` (guest-side mode/cap/skip-lobby).
-- [ ] Rebuild/redeploy the SPA (Vercel) so HarborHome/Room/Join/CallStage ship.
+## Deploy checklist
+- [x] Apply migration `20260731120000_harbor_meeting_mode.sql` (applied 2026-07-31).
+- [x] Apply migration `20260731130000_harbor_meeting_calendar.sql` (applied 2026-07-31, after A).
+- [x] Deploy `harbor-join` with `verify_jwt=false` (v5, ACTIVE, 2026-07-31).
+- [ ] Rebuild/redeploy the SPA (Vercel) so HarborHome/Room/Join/CallStage/Calendar ship. ← ONLY THING LEFT
 - [ ] Smoke test: create a meeting → guest link joins straight in (no green room);
-      host toggles recording on → REC works → NAS archive picks it up.
+      host toggles recording on → REC works → NAS archive picks it up; toggle a
+      calendar event to "Video meeting" → Join button appears.
 
 Add a Google-Meet-lite **meeting mode** to Harbor. A meeting is Harbor with the
 podcast ceremony turned *off* (no green room, no forced recording) and a couple
