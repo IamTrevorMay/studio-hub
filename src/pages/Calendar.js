@@ -5,6 +5,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { colors } from '../lib/styleTokens';
+import { guestJoinLink } from '../lib/harbor/session';
 
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
@@ -82,6 +83,7 @@ const EMPTY_EVENT_FORM = {
   end_time: '09:30',
   all_day: false,
   location: '',
+  is_meeting: false,
   guests: [],
   recurrence: 'none',
   recurrence_interval: 1,
@@ -305,6 +307,7 @@ export default function Calendar({ onNavigate }) {
   const [eventForm, setEventForm] = useState(EMPTY_EVENT_FORM);
   const [savingEvent, setSavingEvent] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [copiedMeetingLinkId, setCopiedMeetingLinkId] = useState(null); // eventId of last-copied guest link
   const [showGuestDropdown, setShowGuestDropdown] = useState(false);
   // Screen coords + width for the guest dropdown. Position: fixed so it
   // escapes the event modal's overflow:auto instead of being clipped.
@@ -806,6 +809,7 @@ export default function Calendar({ onNavigate }) {
         end_date: endDate.toISOString(),
         all_day: eventForm.all_day,
         location: eventForm.location.trim(),
+        is_meeting: eventForm.is_meeting,
         guests: eventForm.guests,
         recurrence_rule: recurrenceRule,
       };
@@ -902,6 +906,9 @@ export default function Calendar({ onNavigate }) {
       end_time: toPTTimeString(endD),
       all_day: parent.all_day || false,
       location: parent.location || '',
+      // A detached one-off doesn't inherit meeting-ness — the series keeps its
+      // room; the user can opt this instance into its own room explicitly.
+      is_meeting: false,
       guests: parent.guests || [],
       recurrence: 'none',
       recurrence_interval: 1,
@@ -985,6 +992,7 @@ export default function Calendar({ onNavigate }) {
       end_time: toPTTimeString(endD),
       all_day: parentEv.all_day || false,
       location: parentEv.location || '',
+      is_meeting: parentEv.is_meeting || false,
       guests: parentEv.guests || [],
       recurrence: rule?.type || 'none',
       recurrence_interval: rule?.interval || 1,
@@ -1000,6 +1008,25 @@ export default function Calendar({ onNavigate }) {
     setSelectedEvent(null);
     setShowGuestDropdown(false);
     setShowCustomRecurrence(false);
+  }
+
+  // Fetch the linked Harbor session's guest_token on demand and copy an
+  // external join link (kept off calendar_events — the token lives on the
+  // session and rotates independently).
+  async function copyMeetingGuestLink(sessionId, eventId) {
+    try {
+      const { data, error } = await supabase
+        .from('harbor_sessions')
+        .select('guest_token')
+        .eq('id', sessionId)
+        .maybeSingle();
+      if (error || !data?.guest_token) throw error || new Error('No guest token');
+      await navigator.clipboard.writeText(guestJoinLink(data.guest_token));
+      setCopiedMeetingLinkId(eventId);
+      setTimeout(() => setCopiedMeetingLinkId((cur) => (cur === eventId ? null : cur)), 2000);
+    } catch (err) {
+      console.error('Calendar: copy meeting guest link failed:', err);
+    }
   }
 
   function toggleGuest(userId) {
@@ -2075,6 +2102,38 @@ export default function Calendar({ onNavigate }) {
                 <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>{selectedEvent.location}</span>
               </div>
             )}
+            {selectedEvent.is_meeting && (
+              <div style={styles.eventDetailRow}>
+                <span style={styles.eventDetailLabel}>Video meeting</span>
+                {selectedEvent.harbor_session_id ? (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <a
+                      href={`/harbor/room/${selectedEvent.harbor_session_id}`}
+                      style={{
+                        display: 'inline-block', padding: '6px 14px', borderRadius: '8px',
+                        background: '#5b8fc7', color: '#fff', fontSize: '13px', fontWeight: 600,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      Join meeting
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => copyMeetingGuestLink(selectedEvent.harbor_session_id, selectedEvent.id)}
+                      style={{
+                        padding: '6px 12px', borderRadius: '8px', cursor: 'pointer',
+                        background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.8)',
+                        border: '1px solid rgba(255,255,255,0.12)', fontSize: '13px',
+                      }}
+                    >
+                      {copiedMeetingLinkId === selectedEvent.id ? 'Copied!' : 'Copy guest link'}
+                    </button>
+                  </div>
+                ) : (
+                  <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: '13px' }}>Preparing room…</span>
+                )}
+              </div>
+            )}
             {selectedEvent.description && (
               <div style={styles.eventDetailRow}>
                 <span style={styles.eventDetailLabel}>Description</span>
@@ -2291,6 +2350,25 @@ export default function Calendar({ onNavigate }) {
                 />
                 All day
               </label>
+            </div>
+
+            {/* Video meeting (Harbor) toggle — saving flips is_meeting, and a DB
+                trigger spins up the linked Harbor room automatically. */}
+            <div style={styles.formGroup}>
+              <label style={{ ...styles.formLabel, display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={eventForm.is_meeting}
+                  onChange={(e) => setEventForm(prev => ({ ...prev, is_meeting: e.target.checked }))}
+                  style={{ accentColor: '#5b8fc7' }}
+                />
+                Video meeting (Harbor)
+              </label>
+              {eventForm.is_meeting && (
+                <span style={{ display: 'block', marginTop: '4px', fontSize: '12px', color: 'rgba(255,255,255,0.45)' }}>
+                  A Harbor room is created on save. Recording is off unless you enable it in the call.
+                </span>
+              )}
             </div>
 
             {/* Date / Time */}

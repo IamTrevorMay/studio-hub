@@ -7,7 +7,15 @@
   no migration or edge fn — just an SPA redeploy. Chose replaceTrack "present mode"
   (your tile becomes your screen) over a separate simultaneous tile: zero renegotiation,
   zero new signaling; a true second tile pairs with the SFU in Phase D.
-- **Phases C–D** — pending.
+- **Phase C** — implemented (calendar toggle + auto-generate trigger). Migration
+  `20260731130000_harbor_meeting_calendar.sql` + Calendar.js. Desktop only —
+  CalendarMobile.js meeting toggle is a deferred parity follow-up. NOT deployed.
+- **Phase D** — pending (SFU + TURN; the big infra lift).
+
+## Deploy note for Phase C
+- Apply migration `20260731130000_harbor_meeting_calendar.sql` AFTER Phase A's
+  `20260731120000` (it references harbor_sessions.mode/max_participants/record_enabled).
+- No edge function. SPA redeploy ships the Calendar toggle + Join UI.
 
 ## Deploy checklist for Phase A (before it works live)
 - [ ] Apply migration `20260731120000_harbor_meeting_mode.sql` to the main Supabase project.
