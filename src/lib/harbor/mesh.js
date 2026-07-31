@@ -12,8 +12,11 @@
 // client_id is the polite peer (rolls back on collision), the smaller one is
 // impolite (ignores colliding offers).
 
-export const HARBOR_MAX_PARTICIPANTS = 4; // producer + 3 guests — mirrors MAX_PARTICIPANTS in supabase/functions/harbor-join/index.ts
-const MAX_REMOTE_PEERS = HARBOR_MAX_PARTICIPANTS - 1;
+// Default cap: producer + 3 guests. Recording sessions use this; meeting-mode
+// sessions raise it (up to ~6 on the mesh) via the constructor's
+// maxParticipants, sourced from harbor_sessions.max_participants. Mirrors the
+// per-session cap enforced in supabase/functions/harbor-join/index.ts.
+export const HARBOR_MAX_PARTICIPANTS = 4;
 
 // ── ICE configuration ──────────────────────────────────────────
 // STUN-only for v1: peers behind symmetric NAT / strict firewalls will fail
@@ -42,13 +45,17 @@ export class HarborMesh {
    * @param {(clientId: string, stream: MediaStream) => void} [opts.onRemoteStream]
    * @param {(clientId: string, state: string) => void} [opts.onPeerState]
    * @param {(clientId: string) => void} [opts.onPeerRemoved]
+   * @param {number} [opts.maxParticipants]  session seat cap (incl. self);
+   *        defaults to HARBOR_MAX_PARTICIPANTS. The mesh holds one fewer
+   *        RTCPeerConnection than this.
    */
-  constructor({ clientId, sendSignal, onRemoteStream, onPeerState, onPeerRemoved }) {
+  constructor({ clientId, sendSignal, onRemoteStream, onPeerState, onPeerRemoved, maxParticipants = HARBOR_MAX_PARTICIPANTS }) {
     this.clientId = clientId;
     this.sendSignal = sendSignal;
     this.onRemoteStream = onRemoteStream;
     this.onPeerState = onPeerState;
     this.onPeerRemoved = onPeerRemoved;
+    this.maxRemotePeers = Math.max(1, (maxParticipants || HARBOR_MAX_PARTICIPANTS) - 1);
     this.peers = new Map(); // clientId → { pc, makingOffer, ignoreOffer, settingRemoteAnswer, polite }
     this.localStream = null;
     this.closed = false;
@@ -74,7 +81,7 @@ export class HarborMesh {
   _ensurePeer(remoteId) {
     let peer = this.peers.get(remoteId);
     if (peer) return peer;
-    if (this.closed || this.peers.size >= MAX_REMOTE_PEERS) return null;
+    if (this.closed || this.peers.size >= this.maxRemotePeers) return null;
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     peer = {

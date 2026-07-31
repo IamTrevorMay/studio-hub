@@ -131,7 +131,7 @@ export default function HarborJoin() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (res.status === 404) setJoinError('This link is invalid, or the session has ended.');
-        else if (res.status === 409) setJoinError('The session is full (4 participants max).');
+        else if (res.status === 409) setJoinError('The session is full.');
         else setJoinError(body.error || 'Could not join the session. Try again.');
         return;
       }
@@ -240,6 +240,9 @@ export default function HarborJoin() {
           displayName={name.trim()}
           role="guest"
           session={joinInfo.session}
+          mode={joinInfo.session?.mode || 'recording'}
+          maxParticipants={joinInfo.session?.max_participants || 4}
+          recordEnabled={joinInfo.session?.record_enabled ?? true}
           participantId={joinInfo.participantId}
           initialParticipantState={joinInfo.state}
           initialStream={previewStream}

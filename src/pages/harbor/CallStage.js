@@ -87,10 +87,14 @@ export default function CallStage({
   displayName,
   role, // 'producer' | 'guest'
   session, // { id, title, status }
+  mode = 'recording', // 'recording' | 'meeting'
+  maxParticipants = 4, // session seat cap → mesh peer limit
   participantId = null, // own harbor_participants row id (presence meta)
   initialParticipantState = 'admitted', // 'lobby' for green-room guests
   initialStream = null, // reuse a device-check preview stream (guest flow)
   canControlSession = false,
+  recordEnabled = true, // meeting mode gates recording; recording mode passes true
+  onToggleRecordEnabled = null, // async (next) => void — host flips record_enabled (meeting only)
   onUpdateSessionStatus, // async (nextStatus) => void — parent writes the DB
   onAdmitParticipant = null, // async (participantId) => void — staff RLS write
   onRemoveParticipant = null, // async (participantId) => void — staff RLS write
@@ -99,6 +103,7 @@ export default function CallStage({
   onCheckAdmission = null, // async () => 'lobby'|'admitted'|null — lobby poll (guest flow)
   createRecorderTransport = null, // () => transport (see recorderTransports.js)
 }) {
+  const isMeeting = mode === 'meeting';
   const [localStream, setLocalStream] = useState(null);
   const [mediaError, setMediaError] = useState(null);
   const [channelStatus, setChannelStatus] = useState('connecting');
@@ -110,6 +115,10 @@ export default function CallStage({
   const [remotes, setRemotes] = useState({});
   const [savingStatus, setSavingStatus] = useState(false);
   const [recState, setRecState] = useState(null); // own recorder snapshot
+  // Meeting-mode recording opt-in (host-toggled, broadcast over 'state').
+  // Recording-mode sessions pass recordEnabled=true and never show the toggle.
+  const [recEnabled, setRecEnabled] = useState(recordEnabled);
+  const [togglingRec, setTogglingRec] = useState(false); // meeting host record-enable write in flight
   const [toast, setToast] = useState(null); // transient banner ("The producer muted you")
   const [unmuteAsk, setUnmuteAsk] = useState(false); // producer asked us to unmute
   const [busyAdmit, setBusyAdmit] = useState({}); // clientId → true while admitting
@@ -122,6 +131,7 @@ export default function CallStage({
   transportFactoryRef.current = createRecorderTransport;
   const presenceMetaRef = useRef({}); // clientId → { role, state } (presence-verified)
   const pStateRef = useRef(initialParticipantState);
+  const recEnabledRef = useRef(recordEnabled); // synchronous mirror for signal handlers
   const admitSelfRef = useRef(null); // lobby→admitted transition (set in the mount effect)
   const lastRecBroadcastRef = useRef({ at: 0, status: null });
 
@@ -230,6 +240,7 @@ export default function CallStage({
 
     const mesh = new HarborMesh({
       clientId,
+      maxParticipants,
       sendSignal: (to, msg) => signalRef.current?.send(msg.type, msg, to),
       onRemoteStream: (id, stream) => upsertRemote(id, { stream }),
       onPeerState: (id, connState) => upsertRemote(id, { connState }),
@@ -272,8 +283,14 @@ export default function CallStage({
           };
           upsertRemote(payload.from, { name: payload.name, role: payload.role, state: 'admitted' });
           mesh.connectTo(payload.from);
-          // Tell the newcomer our current mute state (they missed past broadcasts).
-          signalRef.current?.send('state', { ...selfStateRef.current }, payload.from);
+          // Tell the newcomer our current mute state (they missed past
+          // broadcasts). A producer also seeds the live record-enabled flag so
+          // a late joiner's UI matches the room without waiting for a toggle.
+          signalRef.current?.send(
+            'state',
+            { ...selfStateRef.current, ...(role === 'producer' ? { recordEnabled: recEnabledRef.current } : {}) },
+            payload.from,
+          );
           break;
         case 'offer':
         case 'answer':
@@ -289,6 +306,10 @@ export default function CallStage({
           break;
         case 'state':
           if (payload.status) setSessionStatus(payload.status);
+          if (typeof payload.recordEnabled === 'boolean') {
+            recEnabledRef.current = payload.recordEnabled;
+            setRecEnabled(payload.recordEnabled);
+          }
           if (typeof payload.micOn === 'boolean' || typeof payload.camOn === 'boolean') {
             upsertRemote(payload.from, {
               ...(typeof payload.micOn === 'boolean' ? { micOn: payload.micOn } : {}),
@@ -302,6 +323,7 @@ export default function CallStage({
           // the channel secret is the trust boundary.
           if (!fromProducer(payload.from)) break;
           if (pStateRef.current !== 'admitted') break; // lobby never records
+          if (!recEnabledRef.current) break; // recording disabled for this meeting
           if (payload.target !== 'all' && payload.target !== clientId) break;
           if (payload.action === 'start') startRecording();
           else if (payload.action === 'stop') stopRecording();
@@ -552,7 +574,10 @@ export default function CallStage({
 
   // ── Producer controls ────────────────────────────────────────
   const isProducer = role === 'producer';
-  const canRecord = !!createRecorderTransport;
+  // Recording mode always allows recording; a meeting only when the host has
+  // opted in. Guards every record control + the incoming 'record' command.
+  const recordingAllowed = !isMeeting || recEnabled;
+  const canRecord = !!createRecorderTransport && recordingAllowed;
   const selfRecording =
     recState?.status === 'starting' ||
     recState?.status === 'recording' ||
@@ -569,6 +594,27 @@ export default function CallStage({
   };
   const toggleRemoteRecord = (id, isRec) => {
     signalRef.current?.send('record', { action: isRec ? 'stop' : 'start', target: id }, id);
+  };
+
+  // Meeting host flips recording on/off for the whole room. The DB write runs
+  // in the parent; on success we broadcast the new flag so every client's UI
+  // (and its 'record' guard) updates live. Disabling mid-record stops everyone.
+  const toggleRecordEnabled = async () => {
+    if (!onToggleRecordEnabled || togglingRec) return;
+    const next = !recEnabled;
+    setTogglingRec(true);
+    try {
+      await onToggleRecordEnabled(next);
+    } catch (err) {
+      console.error('Harbor: record-enable toggle failed:', err);
+      return;
+    } finally {
+      setTogglingRec(false);
+    }
+    if (!next && anyoneRecording) stopRecordAll();
+    recEnabledRef.current = next;
+    setRecEnabled(next);
+    signalRef.current?.send('state', { recordEnabled: next });
   };
 
   const muteRemote = (id) => signalRef.current?.send('mute', {}, id);
@@ -701,6 +747,7 @@ export default function CallStage({
       <div style={styles.header}>
         <div style={styles.headerLeft}>
           <span style={styles.title}>{session?.title || 'Harbor session'}</span>
+          {isMeeting && <span style={pill('default')}>Meeting</span>}
           <span style={pill(STATUS_TONES[sessionStatus] || 'info')}>
             {STATUS_LABELS[sessionStatus] || sessionStatus}
           </span>
@@ -715,6 +762,17 @@ export default function CallStage({
         </div>
         {(canControlSession || (isProducer && canRecord)) && (
           <div style={styles.headerRight}>
+            {isMeeting && canControlSession && (
+              <button
+                type="button"
+                style={button({ variant: recEnabled ? 'ghost' : 'secondary', size: 'sm', disabled: togglingRec })}
+                disabled={togglingRec}
+                onClick={toggleRecordEnabled}
+                title={recEnabled ? 'Turn recording off for this meeting' : 'Turn recording on for this meeting'}
+              >
+                {togglingRec ? 'Saving…' : recEnabled ? 'Disable recording' : 'Enable recording'}
+              </button>
+            )}
             {isProducer && canRecord && (
               anyoneRecording ? (
                 <button
