@@ -1,10 +1,12 @@
 import React, { useRef } from 'react';
 import { colors, radii, spacing, fontSizes } from '../lib/styleTokens';
-import { IMAGE_ACCEPT } from '../lib/messageImages';
+import { ATTACHMENT_ACCEPT } from '../lib/messageImages';
+import AttachmentThumb from './AttachmentThumb';
 
-// The row of removable image thumbnails + "add image" button shown while
-// editing a message. Driven by the useAttachmentEdit hook so all four chat page
-// twins share identical add/remove-while-editing behavior and styling.
+// The row of removable attachment thumbnails + "add" button shown while editing
+// a message. Driven by the useAttachmentEdit hook so all four chat page twins
+// share identical add/remove-while-editing behavior and styling. Handles images
+// (thumbnail) and PDFs (card) via AttachmentThumb.
 export default function AttachmentEditRow({ editState }) {
   const { kept, previews, addFiles, removeKept, removePreview } = editState;
   const inputRef = useRef(null);
@@ -13,17 +15,17 @@ export default function AttachmentEditRow({ editState }) {
     <div style={styles.row}>
       {kept.map(a => (
         <div key={a.url} style={styles.thumb}>
-          <img src={a.url} alt={a.name || 'attachment'} style={styles.img} />
-          <button type="button" style={styles.remove} onClick={() => removeKept(a.url)} aria-label="Remove image">✕</button>
+          <AttachmentThumb url={a.url} name={a.name} kind={a.kind} />
+          <button type="button" style={styles.remove} onClick={() => removeKept(a.url)} aria-label="Remove attachment">✕</button>
         </div>
       ))}
       {previews.map(p => (
         <div key={p.key} style={styles.thumb}>
-          <img src={p.url} alt={p.file.name} style={styles.img} />
-          <button type="button" style={styles.remove} onClick={() => removePreview(p.key)} aria-label="Remove image">✕</button>
+          <AttachmentThumb url={p.url} name={p.file.name} kind={p.kind} />
+          <button type="button" style={styles.remove} onClick={() => removePreview(p.key)} aria-label="Remove attachment">✕</button>
         </div>
       ))}
-      <button type="button" style={styles.addBtn} onClick={() => inputRef.current?.click()} title="Add image" aria-label="Add image">
+      <button type="button" style={styles.addBtn} onClick={() => inputRef.current?.click()} title="Add attachment" aria-label="Add attachment">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 5v14M5 12h14" />
         </svg>
@@ -31,7 +33,7 @@ export default function AttachmentEditRow({ editState }) {
       <input
         ref={inputRef}
         type="file"
-        accept={IMAGE_ACCEPT}
+        accept={ATTACHMENT_ACCEPT}
         multiple
         style={{ display: 'none' }}
         onChange={(e) => { addFiles(e.target.files); if (inputRef.current) inputRef.current.value = ''; }}

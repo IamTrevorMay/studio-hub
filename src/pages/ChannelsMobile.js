@@ -8,7 +8,8 @@ import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { ReactionChips, toggleReaction } from '../components/MessageReactions';
 import { colors } from '../lib/styleTokens';
 import MessageAttachments from '../components/MessageAttachments';
-import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages } from '../lib/messageImages';
+import AttachmentThumb from '../components/AttachmentThumb';
+import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, attachmentPreviewLabel } from '../lib/messageImages';
 
 // Note: "Channels" here is the Slack-style team-chat channel list, not platform
 // analytics channels. Mobile mirrors the desktop chat UX, slimmed: grouped channel
@@ -691,7 +692,7 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
           user_id: uid,
           type: 'mention',
           title: `${getDisplayName(me) || 'Someone'} mentioned you in #${channel.name}`,
-          body: content.substring(0, 100) || '📷 Photo',
+          body: content.substring(0, 100) || attachmentPreviewLabel(attachments) || '📎 Attachment',
           link_tab: 'channels',
           link_target: channel.name,
         }));
@@ -869,7 +870,7 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
           <div style={chatStyles.attachPreviewRow}>
             {pendingImages.map(p => (
               <div key={p.key} style={chatStyles.attachPreview}>
-                <img src={p.url} alt={p.file.name} style={chatStyles.attachPreviewImg} />
+                <AttachmentThumb url={p.url} name={p.file.name} kind={p.kind} />
                 <button
                   type="button"
                   onClick={() => removePendingImage(p.key)}
@@ -887,7 +888,7 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
             type="button"
             onClick={() => attachInputRef.current?.click()}
             style={chatStyles.attachBtn}
-            aria-label="Attach images"
+            aria-label="Attach files"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />

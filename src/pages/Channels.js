@@ -11,9 +11,10 @@ import { ReactionChips, ReactionBar, toggleReaction } from '../components/Messag
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 import MessageAttachments from '../components/MessageAttachments';
+import AttachmentThumb from '../components/AttachmentThumb';
 import AttachmentEditRow from '../components/AttachmentEditRow';
 import useAttachmentEdit from '../lib/useAttachmentEdit';
-import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, dragHasFiles, deleteMessageAndAttachments, removeMessageImagesByUrl } from '../lib/messageImages';
+import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, dragHasFiles, deleteMessageAndAttachments, removeMessageImagesByUrl, attachmentPreviewLabel } from '../lib/messageImages';
 
 // Roles that can be individually granted channel access via the admin
 // "Set Permissions" menu. Admin-tier roles (admin, director) always have
@@ -920,7 +921,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
             user_id: uid,
             type: 'mention',
             title: `${getDisplayName(profile)} mentioned you in #${activeChannel.name}`,
-            body: content.substring(0, 100) || '📷 Photo',
+            body: content.substring(0, 100) || attachmentPreviewLabel(attachments) || '📎 Attachment',
             link_tab: 'channels',
             link_target: activeChannel.name,
           }));
@@ -1477,7 +1478,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
               <div style={styles.dropOverlay}>
                 <div style={styles.dropOverlayInner}>
                   <div style={{ fontSize: '32px', marginBottom: '8px' }}>🖼️</div>
-                  Drop images to attach
+                  Drop files to attach
                 </div>
               </div>
             )}
@@ -1638,7 +1639,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                 <div style={styles.attachPreviewRow}>
                   {pendingImages.map(p => (
                     <div key={p.key} style={styles.attachPreview}>
-                      <img src={p.url} alt={p.file.name} style={styles.attachPreviewImg} />
+                      <AttachmentThumb url={p.url} name={p.file.name} kind={p.kind} />
                       <button
                         type="button"
                         onClick={() => removePendingImage(p.key)}
@@ -1656,8 +1657,8 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                   type="button"
                   onClick={() => attachInputRef.current?.click()}
                   style={styles.attachBtn}
-                  title="Attach images"
-                  aria-label="Attach images"
+                  title="Attach files"
+                  aria-label="Attach files"
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />

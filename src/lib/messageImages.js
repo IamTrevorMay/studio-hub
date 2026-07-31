@@ -1,54 +1,106 @@
-// Shared image-attachment helpers for Messages (DMs) + Channels — desktop and
+// Shared attachment helpers for Messages (DMs) + Channels — desktop and
 // mobile. Keeps the four composer implementations consistent: same validation,
 // same bucket, same upload path convention, same attachment JSON shape.
 //
+// Supports PNG/JPG images (compressed + dimensioned) and PDF documents
+// (uploaded as-is, rendered as a downloadable file card).
+//
 // Attachment JSON (stored in the nullable `attachments` jsonb column on
-// direct_messages / channel_messages): [{ url, name, width?, height? }].
+// direct_messages / channel_messages):
+//   images: { url, name, kind:'image', width?, height? }
+//   pdfs:   { url, name, kind:'pdf', size? }
+// Legacy rows predate `kind` — treat a missing kind as an image (see
+// isPdfAttachment), which is what every pre-PDF attachment was.
 
 import { supabase } from '../supabaseClient';
 
-// Dedicated public bucket for message images (created in
+// Dedicated public bucket for message attachments (created in
 // 20260723000000_message_attachments.sql). Public read; per-user write via
-// RLS requiring the first path folder to equal auth.uid().
+// RLS requiring the first path folder to equal auth.uid(). No MIME restriction
+// on the bucket, so PDFs upload without any bucket change.
 export const MESSAGE_IMAGE_BUCKET = 'message-attachments';
 
 // For the hidden <input type="file"> accept attribute.
-export const IMAGE_ACCEPT = 'image/png,image/jpeg';
+export const ATTACHMENT_ACCEPT = 'image/png,image/jpeg,application/pdf';
+// Back-compat alias — existing importers used IMAGE_ACCEPT; PDFs are now allowed.
+export const IMAGE_ACCEPT = ATTACHMENT_ACCEPT;
 
-// 10MB cap per image — friendly rejection above this.
-export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+// Per-file size caps — friendly rejection above these.
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB
+export const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25MB (PDFs aren't recompressed)
 
-const ALLOWED_MIME = ['image/png', 'image/jpeg'];
-const ALLOWED_EXT = ['png', 'jpg', 'jpeg'];
+const IMAGE_MIME = ['image/png', 'image/jpeg'];
+const IMAGE_EXT = ['png', 'jpg', 'jpeg'];
+const PDF_MIME = 'application/pdf';
 
 function extOf(name = '') {
   return (name.split('.').pop() || '').toLowerCase();
 }
 
-// Validate + partition a FileList/array into accepted images and a single
-// human-friendly error string (null when everything passed). Rejects on both
-// extension AND mime type, and enforces the size cap.
-export function pickImageFiles(files) {
+// True for a PDF File (by mime OR extension — some browsers omit the mime).
+export function isPdfFile(file) {
+  return file?.type === PDF_MIME || extOf(file?.name) === 'pdf';
+}
+
+// True for a stored attachment that's a PDF. Missing kind = legacy image.
+export function isPdfAttachment(a) {
+  return a?.kind === 'pdf' || (!a?.kind && extOf(a?.name) === 'pdf');
+}
+
+// One-line label for a message whose body is empty but that carries
+// attachments (conversation-list previews, mention notifications). Returns ''
+// for no attachments so callers can fall back.
+export function attachmentPreviewLabel(attachments) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  if (list.length === 0) return '';
+  const anyPdf = list.some(isPdfAttachment);
+  const anyImage = list.some((a) => !isPdfAttachment(a));
+  if (anyImage && !anyPdf) return '📷 Photo';
+  if (anyPdf && !anyImage) return '📄 PDF';
+  return '📎 Attachment';
+}
+
+// Validate + partition a FileList/array into accepted files and a single
+// human-friendly error string (null when everything passed). Accepts PNG/JPG
+// images and PDFs; rejects on type and per-type size cap.
+export function pickAttachmentFiles(files) {
   const accepted = [];
   const rejected = [];
   for (const file of Array.from(files || [])) {
-    const okType = ALLOWED_MIME.includes(file.type) && ALLOWED_EXT.includes(extOf(file.name));
-    if (!okType) { rejected.push(`${file.name || 'file'} — only PNG or JPG images are allowed`); continue; }
-    if (file.size > MAX_IMAGE_BYTES) { rejected.push(`${file.name} — over 10MB`); continue; }
+    const isImage = IMAGE_MIME.includes(file.type) && IMAGE_EXT.includes(extOf(file.name));
+    const isPdf = isPdfFile(file);
+    if (!isImage && !isPdf) {
+      rejected.push(`${file.name || 'file'} — only PNG, JPG, or PDF files are allowed`);
+      continue;
+    }
+    const cap = isPdf ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
+    if (file.size > cap) {
+      rejected.push(`${file.name} — over ${Math.round(cap / (1024 * 1024))}MB`);
+      continue;
+    }
     accepted.push(file);
   }
   return { accepted, error: rejected.length ? rejected.join('\n') : null };
 }
 
-// Wrap a File in a preview object with an object URL for thumbnail display.
-// Caller must revokePreview() when removing/sending to avoid leaking URLs.
-export function makeImagePreview(file) {
+// Back-compat alias (now PDF-aware).
+export const pickImageFiles = pickAttachmentFiles;
+
+// Wrap a File in a preview object for the composer. Images get an object URL
+// for a thumbnail; PDFs get kind:'pdf' and no URL (rendered as a card). Caller
+// must revokePreview() when removing/sending to avoid leaking image URLs.
+export function makeAttachmentPreview(file) {
+  const pdf = isPdfFile(file);
   return {
     key: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 7)}`,
     file,
-    url: URL.createObjectURL(file),
+    kind: pdf ? 'pdf' : 'image',
+    url: pdf ? null : URL.createObjectURL(file),
   };
 }
+
+// Back-compat alias.
+export const makeImagePreview = makeAttachmentPreview;
 
 export function revokePreview(preview) {
   if (preview?.url) { try { URL.revokeObjectURL(preview.url); } catch { /* noop */ } }
@@ -75,7 +127,7 @@ function readDimensions(file) {
 // PNG lossless to preserve alpha). Returns the original File untouched when it's
 // already small enough or if anything fails — never throws.
 export async function compressImage(file, { maxEdge = 2048, jpegQuality = 0.85 } = {}) {
-  if (!ALLOWED_MIME.includes(file.type)) return file;
+  if (!IMAGE_MIME.includes(file.type)) return file;
   if (typeof document === 'undefined' || typeof createImageBitmap === 'undefined') return file;
   let bitmap;
   try {
@@ -110,33 +162,64 @@ export async function compressImage(file, { maxEdge = 2048, jpegQuality = 0.85 }
   }
 }
 
-// Upload accepted image Files to the message-attachments bucket. Path:
+// Upload accepted Files to the message-attachments bucket. Path:
 //   `${userId}/${scopeId}/${timestamp}-${rand}-${name}.${ext}`
 // The leading userId folder satisfies the bucket's INSERT RLS
-// ((storage.foldername(name))[1] = auth.uid()::text). Each image is compressed
-// client-side first. Returns the attachment JSON array to store on the message
-// row. Throws on the first upload error.
-export async function uploadMessageImages(files, { userId, scopeId }) {
+// ((storage.foldername(name))[1] = auth.uid()::text). Images are compressed
+// client-side first and get width/height; PDFs upload as-is. Returns the
+// attachment JSON array to store on the message row. Throws on first error.
+export async function uploadMessageAttachments(files, { userId, scopeId }) {
   const out = [];
   for (const original of Array.from(files || [])) {
-    const file = await compressImage(original);
-    const ext = extOf(original.name) || 'png';
+    const pdf = isPdfFile(original);
+    const file = pdf ? original : await compressImage(original);
+    const ext = extOf(original.name) || (pdf ? 'pdf' : 'png');
+    const contentType = pdf ? PDF_MIME : file.type;
     const path = `${userId}/${scopeId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${sanitizeBase(original.name)}.${ext}`;
     const { error } = await supabase.storage
       .from(MESSAGE_IMAGE_BUCKET)
-      .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type });
+      .upload(path, file, { cacheControl: '3600', upsert: false, contentType });
     if (error) throw error;
     const { data: { publicUrl } } = supabase.storage.from(MESSAGE_IMAGE_BUCKET).getPublicUrl(path);
-    const dims = await readDimensions(file);
-    out.push({ url: publicUrl, name: original.name, ...dims });
+    if (pdf) {
+      out.push({ url: publicUrl, name: original.name, kind: 'pdf', size: original.size });
+    } else {
+      const dims = await readDimensions(file);
+      out.push({ url: publicUrl, name: original.name, kind: 'image', ...dims });
+    }
   }
   return out;
 }
+
+// Back-compat alias.
+export const uploadMessageImages = uploadMessageAttachments;
 
 // True when a drag event is carrying files. Uses Array.from so it also works on
 // legacy Safari where DataTransfer.types is a DOMStringList (no .includes).
 export function dragHasFiles(e) {
   return Array.from(e?.dataTransfer?.types || []).includes('Files');
+}
+
+// Force a download of a linked file. The <a download> attribute is ignored for
+// cross-origin URLs (our public storage lives on a different origin), so fetch
+// the bytes and save a same-origin object URL. Falls back to opening the URL in
+// a new tab (where the user can still save it) if the fetch is blocked.
+export async function downloadUrl(url, filename) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename || 'download';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+  } catch {
+    window.open(url, '_blank', 'noopener');
+  }
 }
 
 // Extract the in-bucket object path from a public storage URL.

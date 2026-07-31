@@ -10,8 +10,9 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
 import { colors } from '../lib/styleTokens';
 import MessageAttachments from '../components/MessageAttachments';
+import AttachmentThumb from '../components/AttachmentThumb';
 import AttachmentEditRow from '../components/AttachmentEditRow';
-import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, deleteMessageAndAttachments, removeMessageImagesByUrl } from '../lib/messageImages';
+import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, deleteMessageAndAttachments, removeMessageImagesByUrl, attachmentPreviewLabel } from '../lib/messageImages';
 
 function applyFormatMarker(textareaRef, text, marker, setter) {
   const el = textareaRef.current;
@@ -301,7 +302,7 @@ export default function MessagesMobile({ onNavigate }) {
                   {convo.lastMessage?.content?.trim()
                     ? convo.lastMessage.content
                     : convo.lastMessage
-                      ? '📷 Photo'
+                      ? (attachmentPreviewLabel(convo.lastMessage.attachments) || '📷 Photo')
                       : <span style={{ color: 'rgba(255,255,255,0.3)' }}>No messages yet</span>}
                 </div>
               </div>
@@ -892,7 +893,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
           <div style={convoStyles.attachPreviewRow}>
             {pendingImages.map(p => (
               <div key={p.key} style={convoStyles.attachPreview}>
-                <img src={p.url} alt={p.file.name} style={convoStyles.attachPreviewImg} />
+                <AttachmentThumb url={p.url} name={p.file.name} kind={p.kind} />
                 <button
                   type="button"
                   onClick={() => removePendingImage(p.key)}
@@ -910,7 +911,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
             type="button"
             onClick={() => attachInputRef.current?.click()}
             style={convoStyles.attachBtn}
-            aria-label="Attach images"
+            aria-label="Attach files"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />

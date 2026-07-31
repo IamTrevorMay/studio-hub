@@ -11,9 +11,10 @@ import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
 import { canManageClients } from '../lib/rolePermissions';
 import MessageAttachments from '../components/MessageAttachments';
+import AttachmentThumb from '../components/AttachmentThumb';
 import AttachmentEditRow from '../components/AttachmentEditRow';
 import useAttachmentEdit from '../lib/useAttachmentEdit';
-import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, dragHasFiles, deleteMessageAndAttachments, removeMessageImagesByUrl } from '../lib/messageImages';
+import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, dragHasFiles, deleteMessageAndAttachments, removeMessageImagesByUrl, attachmentPreviewLabel } from '../lib/messageImages';
 
 
 // A conversation is unread when its latest message came from someone else and
@@ -852,7 +853,7 @@ export default function Messages({ onNavigate, simulateClient = false }) {
                   <div style={{ ...styles.convoLastMsg, ...(convo.unread ? styles.convoLastMsgUnread : {}) }}>
                     {convo.lastMessage.content?.trim()
                       ? `${convo.lastMessage.content.substring(0, 40)}${convo.lastMessage.content.length > 40 ? '...' : ''}`
-                      : '📷 Photo'}
+                      : (attachmentPreviewLabel(convo.lastMessage.attachments) || '📷 Photo')}
                   </div>
                 )}
               </div>
@@ -890,7 +891,7 @@ export default function Messages({ onNavigate, simulateClient = false }) {
               <div style={styles.dropOverlay}>
                 <div style={styles.dropOverlayInner}>
                   <div style={{ fontSize: '32px', marginBottom: '8px' }}>🖼️</div>
-                  Drop images to attach
+                  Drop files to attach
                 </div>
               </div>
             )}
@@ -953,12 +954,12 @@ export default function Messages({ onNavigate, simulateClient = false }) {
                 <div style={styles.attachPreviewRow}>
                   {pendingImages.map(p => (
                     <div key={p.key} style={styles.attachPreview}>
-                      <img src={p.url} alt={p.file.name} style={styles.attachPreviewImg} />
+                      <AttachmentThumb url={p.url} name={p.file.name} kind={p.kind} />
                       <button
                         type="button"
                         onClick={() => removePendingImage(p.key)}
                         style={styles.attachPreviewRemove}
-                        title="Remove image"
+                        title="Remove attachment"
                       >
                         ✕
                       </button>
@@ -971,8 +972,8 @@ export default function Messages({ onNavigate, simulateClient = false }) {
                   type="button"
                   onClick={() => attachInputRef.current?.click()}
                   style={styles.attachBtn}
-                  title="Attach images"
-                  aria-label="Attach images"
+                  title="Attach files"
+                  aria-label="Attach files"
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
