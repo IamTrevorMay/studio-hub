@@ -128,6 +128,8 @@ export default function Payroll() {
   const [salaries, setSalaries] = useState([]);
   const [oneOffs, setOneOffs] = useState([]);
   const [paidMap, setPaidMap] = useState({});
+  const [unbilledUploads, setUnbilledUploads] = useState([]);
+  const [billingIds, setBillingIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -150,7 +152,7 @@ export default function Payroll() {
 
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
-    const [contractorsRes, fpRes, assignmentsRes, membersRes, salariesRes, oneOffsRes, paidRes] = await Promise.all([
+    const [contractorsRes, fpRes, assignmentsRes, membersRes, salariesRes, oneOffsRes, paidRes, unbilledRes] = await Promise.all([
       supabase.from('profiles').select('id, full_name, avatar_url, title, pay_method, pay_method_detail').in('role', ['contractor', 'freelancer']),
       supabase.from('contractor_profiles').select('id, payment_type, rate'),
       supabase.from('contractor_assignments')
@@ -162,6 +164,9 @@ export default function Payroll() {
       supabase.from('payroll_salaries').select('*').is('ended_at', null),
       supabase.from('payroll_one_offs').select('*').eq('period_start', selectedPeriod.start).order('created_at'),
       supabase.from('payroll_paid').select('profile_id').eq('period_start', selectedPeriod.start),
+      // Drive uploads with attribution but no assignment row this period — the
+      // safety net for the "batch never entered" gap (see drive-watch-poll).
+      supabase.rpc('unbilled_drive_uploads', { p_start: selectedPeriod.start, p_end: selectedPeriod.end }),
     ]);
     const HIDDEN = ['Test1', 'Test2'];
     const notHidden = p => !HIDDEN.includes(p.full_name);
@@ -175,6 +180,7 @@ export default function Payroll() {
     const pm = {};
     (paidRes.data || []).forEach(r => { pm[r.profile_id] = true; });
     setPaidMap(pm);
+    setUnbilledUploads(unbilledRes.error ? [] : (unbilledRes.data || []));
     setLoading(false);
     setRefreshing(false);
   }, [selectedPeriod]);
@@ -331,6 +337,27 @@ export default function Payroll() {
 
   async function handleRemoveOneOff(id) {
     await supabase.from('payroll_one_offs').delete().eq('id', id);
+    fetchData(true);
+  }
+
+  // ── Bill an unattributed Drive upload into an assignment ─────────
+  const billingUploads = useRef(new Set());
+  async function handleBillUpload(u) {
+    if (billingUploads.current.has(u.drive_event_id)) return;
+    billingUploads.current.add(u.drive_event_id);
+    setBillingIds(prev => new Set(prev).add(u.drive_event_id));
+    const { error } = await supabase.rpc('bill_drive_upload', {
+      p_drive_event_id: u.drive_event_id,
+      p_pay: u.suggested_pay,
+    });
+    billingUploads.current.delete(u.drive_event_id);
+    if (error) {
+      setBillingIds(prev => { const next = new Set(prev); next.delete(u.drive_event_id); return next; });
+      alert('Could not bill this upload: ' + error.message);
+      return;
+    }
+    // Refetch: the upload drops out of the panel and rolls into the
+    // contractor's period total automatically.
     fetchData(true);
   }
 
@@ -505,6 +532,41 @@ export default function Payroll() {
 
       {!loading && (
         <>
+          {/* Unbilled Drive uploads — attribution exists in drive_events but no
+              assignment row was entered for this period. */}
+          {unbilledUploads.length > 0 && (
+            <div style={styles.unbilledPanel}>
+              <div style={styles.unbilledHeader}>
+                <span style={styles.unbilledTitle}>
+                  ⚠ {unbilledUploads.length} unbilled upload{unbilledUploads.length !== 1 ? 's' : ''} this period
+                </span>
+                <span style={styles.unbilledSub}>Drive activity with no assignment row — verify and bill</span>
+              </div>
+              {unbilledUploads.map(u => (
+                <div key={u.drive_event_id} style={styles.unbilledRow}>
+                  <div style={styles.unbilledInfo}>
+                    <span style={styles.unbilledFile}>
+                      {u.web_view_link
+                        ? <a href={u.web_view_link} target="_blank" rel="noopener noreferrer" style={styles.unbilledLink}>{u.file_name}</a>
+                        : u.file_name}
+                    </span>
+                    <span style={styles.unbilledMeta}>
+                      {u.contractor_name} · uploaded {new Date(u.uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    style={{ ...styles.billBtn, ...(billingIds.has(u.drive_event_id) ? styles.billBtnDisabled : {}) }}
+                    disabled={billingIds.has(u.drive_event_id)}
+                    onClick={() => handleBillUpload(u)}
+                  >
+                    {billingIds.has(u.drive_event_id) ? 'Billing…' : `Bill $${Number(u.suggested_pay).toFixed(0)}`}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* CONTRACTORS */}
           <div style={styles.sectionHeader}>
             <span style={styles.sectionTitle}>CONTRACTORS</span>
@@ -912,6 +974,76 @@ const styles = {
     fontSize: 14,
     fontWeight: 600,
     color: 'rgba(255,255,255,0.7)',
+  },
+
+  // Unbilled Drive uploads alert
+  unbilledPanel: {
+    background: 'rgba(245,158,11,0.07)',
+    border: '1px solid rgba(245,158,11,0.3)',
+    borderRadius: 12,
+    padding: '14px 18px',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  unbilledHeader: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    marginBottom: 10,
+  },
+  unbilledTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: '#fbbf24',
+  },
+  unbilledSub: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  unbilledRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: '8px 0',
+    borderTop: '1px solid rgba(245,158,11,0.15)',
+  },
+  unbilledInfo: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    minWidth: 0,
+  },
+  unbilledFile: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.85)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  unbilledLink: {
+    color: 'rgba(255,255,255,0.85)',
+    textDecoration: 'none',
+  },
+  unbilledMeta: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  billBtn: {
+    flexShrink: 0,
+    background: 'rgba(245,158,11,0.9)',
+    color: '#0f0f1a',
+    border: 'none',
+    borderRadius: 8,
+    padding: '7px 14px',
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  billBtnDisabled: {
+    opacity: 0.5,
+    cursor: 'default',
   },
 
   // Card
