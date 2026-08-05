@@ -613,6 +613,16 @@ export default function AppLayout() {
     setActiveTab(resolved);
   }
 
+  // Toast notifications (DMs / mentions) ask us to switch tabs on click.
+  React.useEffect(() => {
+    function onNavigate(e) {
+      const { tab, target } = e.detail || {};
+      if (tab) navigateTo(tab, target);
+    }
+    window.addEventListener('mayday:navigate', onNavigate);
+    return () => window.removeEventListener('mayday:navigate', onNavigate);
+  }, []);
+
   const fetchNotifications = useCallback(async () => {
     if (!profile?.id) return;
     setNotificationsLoading(true);

@@ -306,6 +306,16 @@ export default function AppLayoutMobile() {
     setActiveTab(tab);
   }
 
+  // Toast notifications (DMs / mentions) ask us to switch tabs on click.
+  useEffect(() => {
+    function onNavigate(e) {
+      const { tab, target } = e.detail || {};
+      if (tab) navigateTo(tab, target);
+    }
+    window.addEventListener('mayday:navigate', onNavigate);
+    return () => window.removeEventListener('mayday:navigate', onNavigate);
+  }, []);
+
   function handleSelectTab(key) {
     if (key === 'fl_assignments' && profile?.assigned_drive_folder_id) {
       window.open(`https://drive.google.com/drive/folders/${profile.assigned_drive_folder_id}`, '_blank', 'noopener');
