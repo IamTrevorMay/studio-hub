@@ -15,6 +15,20 @@ const MAX_RESUME_MB = 5;
 const TURNSTILE_SITE_KEY = process.env.REACT_APP_TURNSTILE_SITE_KEY || '';
 const PRIVACY_EMAIL = 'privacy@mmcreate.io';
 
+// supabase-js reports every non-2xx from an edge function as the opaque
+// "Edge Function returned a non-2xx status code" and doesn't read the body.
+// jobs-apply explains itself in `{ error }` (role closed, rate limited, bad
+// résumé, captcha unavailable) — pull that out so applicants see it.
+async function edgeFnMessage(fnErr, fallback = 'Submission failed') {
+  try {
+    const body = await fnErr?.context?.json?.();
+    if (body?.error) return body.error;
+  } catch {
+    // Body already consumed or not JSON — fall through to the generic message.
+  }
+  return fnErr?.message || fallback;
+}
+
 function isPrivacyPath() {
   return window.location.pathname.replace(/\/+$/, '') === '/careers/privacy';
 }
@@ -299,7 +313,8 @@ function ApplyForm({ listing }) {
           resume_base64, resume_filename, resume_content_type,
         },
       });
-      if (fnErr || data?.error) throw new Error(data?.error || fnErr?.message || 'Submission failed');
+      if (fnErr) throw new Error(await edgeFnMessage(fnErr));
+      if (data?.error) throw new Error(data.error);
       setDone(true);
     } catch (err) {
       setError(err.message);
