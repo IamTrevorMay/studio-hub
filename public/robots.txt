@@ -2,4 +2,4 @@ User-agent: *
 Allow: /careers
 Disallow: /api/
 
-Sitemap: https://www.mmcreate.io/sitemap.xml
+Sitemap: https://www.maydaystudio.app/sitemap.xml

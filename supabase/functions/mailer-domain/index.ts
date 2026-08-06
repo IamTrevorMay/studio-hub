@@ -94,11 +94,28 @@ Deno.serve(async (req) => {
       if (!row) return jsonResp({ error: "Not found" }, 404);
       if (!row.resend_domain_id) return jsonResp({ error: "No Resend id on file" }, 400);
 
-      // Resend: POST /domains/:id/verify  — triggers a re-check, returns
-      // the domain object including current `status` + `records`.
-      const result = await resend(`/domains/${row.resend_domain_id}/verify`, {
-        method: "POST",
-      }) as { status?: string; records?: unknown[] };
+      // Resend: POST /domains/:id/verify only *triggers* a re-check — it returns
+      // the pre-check status, which is "pending" even when the DNS is correct.
+      // Reading that response made a healthy domain look unverified until the
+      // user happened to click Verify a second time. Kick off the check, then
+      // poll GET /domains/:id for a few seconds to catch it settling.
+      await resend(`/domains/${row.resend_domain_id}/verify`, { method: "POST" });
+
+      let result = { status: "pending" } as { status?: string; records?: unknown[] };
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await new Promise((r) => setTimeout(r, attempt === 0 ? 1500 : 2500));
+        result = await resend(`/domains/${row.resend_domain_id}`) as typeof result;
+        if (result.status === "verified" || result.status === "failed") break;
+      }
+
+      // Resend reports per-record status; log it so a stuck "pending" says which
+      // record it is unhappy with instead of just failing silently in the UI.
+      console.log("verify result", row.domain, JSON.stringify({
+        status: result.status,
+        records: (result.records as Array<Record<string, unknown>> | undefined)?.map((r) => ({
+          record: r.record, type: r.type, name: r.name, status: r.status,
+        })),
+      }));
 
       const verifiedAt = result.status === "verified" ? new Date().toISOString() : null;
       await admin.from("mailer_sender_domains").update({

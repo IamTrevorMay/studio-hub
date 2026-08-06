@@ -142,7 +142,7 @@ Deno.serve(async (req: Request) => {
     const fromEmail = Deno.env.get("RESEND_FROM_EMAIL");
     if (!fromEmail) return json({ error: "RESEND_FROM_EMAIL not set" }, 500);
 
-    const siteUrl = Deno.env.get("SITE_URL") || "https://www.mmcreate.io";
+    const siteUrl = Deno.env.get("SITE_URL") || "https://www.maydaystudio.app";
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,

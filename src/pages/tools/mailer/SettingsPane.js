@@ -44,7 +44,7 @@ function DomainsSection() {
 
   async function addDomain() {
     const d = domain.trim().toLowerCase();
-    if (!d.includes('.')) { setError('Enter a valid domain (e.g. maydaystudio.net)'); return; }
+    if (!d.includes('.')) { setError('Enter a valid domain (e.g. maydaystudio.app)'); return; }
     setWorking(true); setError(null);
     const { data, error } = await supabase.functions.invoke('mailer-domain', {
       body: { op: 'add', domain: d },
@@ -151,15 +151,24 @@ function DomainsSection() {
             <table style={styles.table}>
               <thead>
                 <tr>
-                  {['Type', 'Name', 'Value', 'TTL'].map((h) => <th key={h} style={styles.th}>{h}</th>)}
+                  {['Type', 'Name', 'Value', 'Priority', 'TTL'].map((h) => <th key={h} style={styles.th}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {records.dns.map((r, i) => (
                   <tr key={i}>
-                    <td style={styles.td}>{r.record || r.type}</td>
+                    {/* r.type is the real DNS type (TXT/MX); r.record is Resend's
+                        semantic label (DKIM/SPF). Showing the label alone made the
+                        MX row look like a TXT record and fail verification. */}
+                    <td style={styles.td}>
+                      {r.type || r.record}
+                      {r.record && r.type && r.record !== r.type && (
+                        <span style={{ opacity: 0.5, marginLeft: 6, fontSize: 11 }}>{r.record}</span>
+                      )}
+                    </td>
                     <td style={{ ...styles.td, fontFamily: 'monospace', fontSize: 11 }}>{r.name}</td>
                     <td style={{ ...styles.td, fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{r.value}</td>
+                    <td style={styles.td}>{r.priority ?? '—'}</td>
                     <td style={styles.td}>{r.ttl || 'auto'}</td>
                   </tr>
                 ))}

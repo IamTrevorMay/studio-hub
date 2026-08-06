@@ -75,7 +75,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const siteUrl = Deno.env.get("SITE_URL") || "https://www.mmcreate.io";
+    const siteUrl = Deno.env.get("SITE_URL") || "https://www.maydaystudio.app";
     const deepLink = `${siteUrl}/fl_dashboard?assignment=${encodeURIComponent(
       assignment.id,
     )}`;

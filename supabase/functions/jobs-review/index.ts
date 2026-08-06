@@ -49,7 +49,7 @@ async function sendEmail(to: string, subject: string, html: string) {
   }
 }
 
-const SITE = Deno.env.get("SITE_URL") || "https://www.mmcreate.io";
+const SITE = Deno.env.get("SITE_URL") || "https://www.maydaystudio.app";
 
 function renderTemplate(tpl: string, vars: Record<string, string>): string {
   return tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
@@ -221,7 +221,7 @@ Deno.serve(async (req: Request) => {
     let inviteError: string | null = null;
     const { error: invErr } = await admin.auth.admin.inviteUserByEmail(app.applicant_email, {
       data: { role: "contractor", title: app.applicant_name },
-      redirectTo: Deno.env.get("SITE_URL") || "https://www.mmcreate.io",
+      redirectTo: Deno.env.get("SITE_URL") || "https://www.maydaystudio.app",
     });
     if (invErr) inviteError = invErr.message;
 

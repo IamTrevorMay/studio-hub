@@ -8,7 +8,7 @@ Deno.serve(async (req: Request) => {
   const stateParam = url.searchParams.get("state");
   const error = url.searchParams.get("error");
 
-  const siteUrl = Deno.env.get("SITE_URL") || "https://www.mmcreate.io";
+  const siteUrl = Deno.env.get("SITE_URL") || "https://www.maydaystudio.app";
 
   if (error) {
     return new Response(null, {

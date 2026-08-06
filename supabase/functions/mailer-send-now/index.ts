@@ -49,7 +49,7 @@ interface Subscriber {
   custom_fields?: Record<string, unknown> | null;
 }
 
-const DEFAULT_FROM = Deno.env.get("MAILER_DEFAULT_FROM") || "noreply@maydaystudio.net";
+const DEFAULT_FROM = Deno.env.get("MAILER_DEFAULT_FROM") || "noreply@maydaystudio.app";
 const CRON_SECRET = Deno.env.get("CRON_SECRET");
 
 Deno.serve(async (req) => {

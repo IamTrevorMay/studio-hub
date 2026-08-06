@@ -13,7 +13,7 @@ const TYPE_LABEL = {
 const MODE_LABEL = { remote: 'Remote', hybrid: 'Hybrid', onsite: 'On-site' };
 const MAX_RESUME_MB = 5;
 const TURNSTILE_SITE_KEY = process.env.REACT_APP_TURNSTILE_SITE_KEY || '';
-const PRIVACY_EMAIL = 'privacy@mmcreate.io';
+const PRIVACY_EMAIL = 'privacy@maydaystudio.app';
 
 // supabase-js reports every non-2xx from an edge function as the opaque
 // "Edge Function returned a non-2xx status code" and doesn't read the body.

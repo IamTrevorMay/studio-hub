@@ -9,6 +9,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ALLOWED_ORIGINS = [
+  "https://maydaystudio.app",
+  "https://www.maydaystudio.app",
+  // Legacy domain — still 301s to maydaystudio.app, kept until the redirect retires.
   "https://mmcreate.io",
   "https://www.mmcreate.io",
   "http://localhost:3000",

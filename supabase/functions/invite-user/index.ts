@@ -103,7 +103,7 @@ Deno.serve(async (req: Request) => {
         assigned_drive_folder_id: isClientInvite ? null : (assigned_drive_folder_id || null),
         assigned_drive_folder_name: isClientInvite ? null : (assigned_drive_folder_name || null),
       },
-      redirectTo: Deno.env.get("SITE_URL") || "https://studio-hub-fawn.vercel.app",
+      redirectTo: Deno.env.get("SITE_URL") || "https://www.maydaystudio.app",
     });
 
     if (error) {

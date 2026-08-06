@@ -284,7 +284,7 @@ function CampaignEditor({ campaign, audiences, onClose, onSaved }) {
               <Field label="Preheader"><Text value={form.preheader} onChange={(v) => patch({ preheader: v })} /></Field>
               <Row>
                 <Field label="From name"><Text value={form.from_name} onChange={(v) => patch({ from_name: v })} /></Field>
-                <Field label="From email"><Text value={form.from_email} onChange={(v) => patch({ from_email: v })} placeholder="noreply@maydaystudio.net" /></Field>
+                <Field label="From email"><Text value={form.from_email} onChange={(v) => patch({ from_email: v })} placeholder="noreply@maydaystudio.app" /></Field>
               </Row>
               <Field label="Reply-to"><Text value={form.reply_to} onChange={(v) => patch({ reply_to: v })} /></Field>
               <Field label="Audience">

@@ -14,12 +14,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ALLOWED_ORIGINS = [
+  "https://maydaystudio.app",
+  "https://www.maydaystudio.app",
+  // Legacy domain — still 301s to maydaystudio.app, kept until the redirect retires.
   "https://mmcreate.io",
   "https://www.mmcreate.io",
   "http://localhost:3000",
 ];
 const CONSENT_VERSION = Deno.env.get("JOBS_CONSENT_VERSION") || "2026-06";
-const SITE = Deno.env.get("SITE_URL") || "https://www.mmcreate.io";
+const SITE = Deno.env.get("SITE_URL") || "https://www.maydaystudio.app";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 
