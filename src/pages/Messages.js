@@ -17,6 +17,13 @@ import useAttachmentEdit from '../lib/useAttachmentEdit';
 import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, dragHasFiles, deleteMessageAndAttachments, removeMessageImagesByUrl, attachmentPreviewLabel } from '../lib/messageImages';
 
 
+// Height of the inline "edit message" textarea, in lines.
+const MSG_EDIT_ROWS = 8;
+
+// Last thread the user had open, so returning to Messages from another nav tab
+// reopens it (the URL is back to a bare /messages by then).
+const LAST_DM_KEY = 'studio-hub-last-dm';
+
 // A conversation is unread when its latest message came from someone else and
 // arrived after the current user's read cursor (last_read_at on their participant row).
 function isConvoUnread(lastMsg, myLastReadAt, myId) {
@@ -102,6 +109,17 @@ export default function Messages({ onNavigate, simulateClient = false }) {
   const [isDragging, setIsDragging] = useState(false);
   const attachInputRef = useRef(null);
   const dragCounterRef = useRef(0); // ignore dragleave from child elements
+  // The open thread is mirrored into the URL as /messages/<id> and into
+  // localStorage, so both a refresh and a trip through another nav tab land
+  // back in it. The URL wins when present (it's the more specific intent — a
+  // deep link or an actual reload); localStorage carries the tab-switch case,
+  // where the path has already been reset to a bare /messages. Read once on
+  // mount, before the sync effect below rewrites either.
+  const pendingConvoIdRef = useRef(
+    window.location.pathname.replace(/^\/+/, '').split('/')[1]
+      || localStorage.getItem(LAST_DM_KEY)
+      || null,
+  );
 
   const fetchConversations = useCallback(async () => {
     if (!profile?.id) return;
@@ -257,6 +275,30 @@ export default function Messages({ onNavigate, simulateClient = false }) {
       console.error('Error marking conversation read:', err);
     }
   }, [profile?.id, fetchUnreadDms]);
+
+  // Reopen the remembered thread once the list has loaded. One-shot: the ref
+  // clears either way, so a thread that was since deleted (or that this account
+  // can't see) is dropped instead of retried forever.
+  useEffect(() => {
+    if (loading || !pendingConvoIdRef.current) return;
+    const wanted = pendingConvoIdRef.current;
+    pendingConvoIdRef.current = null;
+    const convo = conversations.find(c => c.id === wanted);
+    if (convo) setActiveConversation(convo);
+    // The sim preview has no real threads, so a miss there says nothing about
+    // the admin's own remembered one — leave it alone.
+    else if (!simulateClient) localStorage.removeItem(LAST_DM_KEY);
+  }, [loading, conversations, simulateClient]);
+
+  // Mirror the open thread into the URL + localStorage. Held off until the
+  // restore above has run so it can't wipe the id we're about to reopen.
+  useEffect(() => {
+    if (simulateClient || pendingConvoIdRef.current) return;
+    if (activeConversation) localStorage.setItem(LAST_DM_KEY, activeConversation.id);
+    else localStorage.removeItem(LAST_DM_KEY);
+    const path = activeConversation ? `/messages/${activeConversation.id}` : '/messages';
+    if (window.location.pathname !== path) window.history.replaceState({}, '', path);
+  }, [activeConversation, loading, simulateClient]);
 
   // Keep a ref to the active conversation so the always-on list subscription can
   // read it without tearing down + re-subscribing every time it changes.
@@ -1131,13 +1173,6 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
     }
   }, [editing]);
 
-  useEffect(() => {
-    if (editInputRef.current) {
-      editInputRef.current.style.height = 'auto';
-      editInputRef.current.style.height = Math.min(editInputRef.current.scrollHeight, 150) + 'px';
-    }
-  }, [editContent]);
-
   function handleStartEdit() {
     setEditContent(msg.content);
     attachEdit.reset();
@@ -1273,7 +1308,7 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
           <>
             <textarea
               ref={editInputRef}
-              rows={1}
+              rows={MSG_EDIT_ROWS}
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
               onKeyDown={handleEditKeyDown}
@@ -1484,7 +1519,9 @@ const styles = {
     border: '1px solid rgba(91, 143, 199,0.4)', borderRadius: '8px',
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
     boxSizing: 'border-box', resize: 'none', lineHeight: 1.5,
-    minHeight: '34px', maxHeight: '150px', overflow: 'auto',
+    // Fixed MSG_EDIT_ROWS lines tall: text (rows × 1.5em) + padding + borders.
+    // Longer messages scroll inside the box rather than growing it.
+    height: `calc(${MSG_EDIT_ROWS} * 1.5em + 18px)`, overflow: 'auto',
   },
   msgEditActions: {
     display: 'flex', alignItems: 'center', justifyContent: 'flex-end',

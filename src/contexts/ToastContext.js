@@ -43,11 +43,12 @@ const MAX_VISIBLE = 4;
 let emitFn = null;
 const pendingQueue = [];
 
-function dispatch(type, message) {
-  if (message == null) return;
-  const msg = typeof message === 'string' ? message : String(message);
-  if (emitFn) emitFn(type, msg);
-  else pendingQueue.push([type, msg]);
+function dispatch(type, message, opts) {
+  const msg = message == null ? '' : (typeof message === 'string' ? message : String(message));
+  // A toast needs either a body or a title to be worth showing.
+  if (!msg && !opts?.title) return;
+  if (emitFn) emitFn(type, msg, opts);
+  else pendingQueue.push([type, msg, opts]);
 }
 
 export const toast = Object.assign(
@@ -57,6 +58,10 @@ export const toast = Object.assign(
     error:   (message) => dispatch('error', message),
     info:    (message) => dispatch('info', message),
     warning: (message) => dispatch('warning', message),
+    // Richer toast — optional bold title + click-to-navigate handler.
+    //   toast.notify({ title, message, onClick, type, duration })
+    notify: ({ type = 'info', message, title, onClick, duration } = {}) =>
+      dispatch(type, message, { title, onClick, duration }),
   },
 );
 
@@ -77,26 +82,31 @@ export function ToastProvider({ children }) {
     setToasts((cur) => cur.filter((t) => t.id !== id));
   }, []);
 
-  const add = useCallback((type, message) => {
+  const add = useCallback((type, message, opts) => {
     const id = ++nextId;
     setToasts((cur) => {
       // Newest on top; cap the stack.
-      const next = [{ id, type, message }, ...cur];
+      const next = [{
+        id, type, message,
+        title: opts?.title,
+        onClick: opts?.onClick,
+        duration: opts?.duration,
+      }, ...cur];
       return next.slice(0, MAX_VISIBLE);
     });
   }, []);
 
   // Register the singleton emitter + flush anything queued before mount.
   useEffect(() => {
-    emitFn = (type, message) => add(type, message);
+    emitFn = (type, message, opts) => add(type, message, opts);
     if (pendingQueue.length) {
       const drained = pendingQueue.splice(0, pendingQueue.length);
-      drained.forEach(([type, message]) => add(type, message));
+      drained.forEach(([type, message, opts]) => add(type, message, opts));
     }
     return () => { emitFn = null; };
   }, [add]);
 
-  // Hook API — the value is callable AND has .success/.error/.info/.warning.
+  // Hook API — the value is callable AND has .success/.error/.info/.warning/.notify.
   const api = useRef(null);
   if (!api.current) {
     const fn = (message) => add('info', message);
@@ -104,6 +114,8 @@ export function ToastProvider({ children }) {
     fn.error   = (message) => add('error', message);
     fn.info    = (message) => add('info', message);
     fn.warning = (message) => add('warning', message);
+    fn.notify  = ({ type = 'info', message, title, onClick, duration } = {}) =>
+      add(type, message, { title, onClick, duration });
     api.current = fn;
   }
 
@@ -136,28 +148,44 @@ function ToastItem({ toast: t, onDismiss }) {
   }, []);
 
   useEffect(() => {
-    const dur = DURATIONS[t.type] || DURATIONS.info;
+    const dur = t.duration || DURATIONS[t.type] || DURATIONS.info;
     const timer = setTimeout(dismiss, dur);
     return () => clearTimeout(timer);
-  }, [t.type, dismiss]);
+  }, [t.type, t.duration, dismiss]);
 
   const shown = entered && !leaving;
+  const clickable = typeof t.onClick === 'function';
+
+  const handleClick = useCallback(() => {
+    if (!clickable) return;
+    try { t.onClick(); } catch (e) { /* navigation is best-effort */ }
+    dismiss();
+  }, [clickable, t, dismiss]);
 
   return (
     <div
       role={t.type === 'error' ? 'alert' : 'status'}
+      onClick={clickable ? handleClick : undefined}
       style={{
         ...toastStyle,
         borderLeft: `3px solid ${tone.fg}`,
         opacity: shown ? 1 : 0,
         transform: shown ? 'translateX(0)' : 'translateX(16px)',
+        cursor: clickable ? 'pointer' : 'default',
       }}
     >
       <span style={{ ...dotStyle, background: tone.fg }} aria-hidden="true" />
-      <span style={messageStyle}>{t.message}</span>
+      <div style={bodyStyle}>
+        {t.title && <div style={titleStyle}>{t.title}</div>}
+        {t.message && (
+          <div style={t.title ? { ...messageStyle, color: colors.textSubtle } : messageStyle}>
+            {t.message}
+          </div>
+        )}
+      </div>
       <button
         type="button"
-        onClick={dismiss}
+        onClick={(e) => { e.stopPropagation(); dismiss(); }}
         aria-label="Dismiss"
         style={dismissStyle}
       >
@@ -205,8 +233,22 @@ const dotStyle = {
   marginTop: spacing.xs,
 };
 
-const messageStyle = {
+const bodyStyle = {
   flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+};
+
+const titleStyle = {
+  fontSize: fontSizes.md,
+  fontWeight: fontWeights.semibold,
+  lineHeight: 1.35,
+  wordBreak: 'break-word',
+};
+
+const messageStyle = {
   fontSize: fontSizes.md,
   fontWeight: fontWeights.medium,
   lineHeight: 1.45,

@@ -465,7 +465,7 @@ export default function Projects({ onNavigate }) {
       {loading ? (
         <p style={styles.emptyText}>Loading projects...</p>
       ) : viewMode === 'board' ? (
-        <UnifiedBoard />
+        <UnifiedBoard onNavigate={onNavigate} />
       ) : (
         <>
         {/* ── Current Projects ── */}

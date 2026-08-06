@@ -2,10 +2,19 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
 import { isTypeEnabled } from '../lib/notificationPrefs';
+import { toast } from './ToastContext';
 
 const NotificationContext = createContext({});
 
 export const useNotifications = () => useContext(NotificationContext);
+
+// Ask the mounted app shell (AppLayout / AppLayoutMobile) to switch tabs.
+// Fired from a toast click; both shells listen for this event.
+function navigateApp(tab, target) {
+  try {
+    window.dispatchEvent(new CustomEvent('mayday:navigate', { detail: { tab, target } }));
+  } catch (e) { /* SSR / unsupported — ignore */ }
+}
 
 export function NotificationProvider({ children }) {
   const { user, profile, refreshKey } = useAuth();
@@ -128,16 +137,17 @@ export function NotificationProvider({ children }) {
     }
   }, [desktopNotifEnabled, notificationPrefs]);
 
-  // Desktop notification for an incoming DM. DMs don't create notifications
-  // rows (they'd flood the bell), so this fires straight off the
-  // direct_messages realtime stream under the 'messages' category pref.
-  // Mobile push for DMs comes from the forward_dm_to_push DB trigger.
-  const fireDmDesktopNotification = useCallback(async (row) => {
+  // Incoming DM off the (unfiltered) direct_messages realtime stream. DMs don't
+  // create notifications rows (they'd flood the bell), so we surface them here
+  // under the 'messages' category pref: a native OS banner when the tab is in
+  // the background, an in-app toast (slide-out top-right) when it's focused —
+  // mutually exclusive, so a DM never double-notifies. Mobile push for DMs
+  // comes from the forward_dm_to_push DB trigger.
+  const handleIncomingDm = useCallback(async (row) => {
     if (!row || !profile?.id || row.user_id === profile.id) return;
-    if (!desktopNotifEnabled) return;
     if (!isTypeEnabled(notificationPrefs, 'desktop', 'message')) return;
-    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-    if (!document.hidden) return;
+    // Backgrounded tab with OS banners off has nothing to show — skip the lookups.
+    if (document.hidden && !desktopNotifEnabled) return;
     try {
       // Confirm we're actually in this conversation — the realtime stream is
       // unfiltered, so don't trust the row alone.
@@ -154,16 +164,52 @@ export function NotificationProvider({ children }) {
         .eq('id', row.user_id)
         .maybeSingle();
       const senderName = sender?.nickname || sender?.full_name || 'Someone';
-      fireDesktopNotification({
-        id: row.id,
-        type: 'message',
-        title: `New message from ${senderName}`,
-        body: (row.content || '').substring(0, 100),
-      });
+      const body = (row.content || '').substring(0, 120);
+      if (document.hidden) {
+        fireDesktopNotification({
+          id: row.id,
+          type: 'message',
+          title: `New message from ${senderName}`,
+          body,
+        });
+      } else {
+        toast.notify({
+          title: senderName,
+          message: body || 'Sent you a message',
+          onClick: () => navigateApp('messages', row.conversation_id),
+        });
+      }
     } catch (e) {
       // best-effort — never let a notification lookup break the app
     }
   }, [profile?.id, desktopNotifEnabled, notificationPrefs, fireDesktopNotification]);
+
+  // Incoming channel message off the (unfiltered) channel_messages stream. We
+  // only surface an in-app toast when *you* were mentioned and the tab is
+  // focused. When the tab is backgrounded the OS banner is already handled by
+  // the notifications-row path (Channels inserts a 'mention' notification row →
+  // fireDesktopNotification), so firing here too would double-notify.
+  const handleIncomingChannelMessage = useCallback(async (row) => {
+    if (!row || !profile?.id || row.user_id === profile.id) return;
+    if (!Array.isArray(row.mentions) || !row.mentions.includes(profile.id)) return;
+    if (document.hidden) return;
+    if (!isTypeEnabled(notificationPrefs, 'desktop', 'mention')) return;
+    try {
+      const [{ data: sender }, { data: channel }] = await Promise.all([
+        supabase.from('profiles').select('nickname, full_name').eq('id', row.user_id).maybeSingle(),
+        supabase.from('channels').select('name').eq('id', row.channel_id).maybeSingle(),
+      ]);
+      const senderName = sender?.nickname || sender?.full_name || 'Someone';
+      const chLabel = channel?.name ? `#${channel.name}` : 'a channel';
+      toast.notify({
+        title: `${senderName} mentioned you in ${chLabel}`,
+        message: (row.content || '').substring(0, 120) || '📎 Attachment',
+        onClick: () => navigateApp('channels', channel?.name || row.channel_id),
+      });
+    } catch (e) {
+      // best-effort
+    }
+  }, [profile?.id, notificationPrefs]);
 
   // Initial fetch + real-time subscriptions + 5-min fallback poll
   useEffect(() => {
@@ -173,11 +219,12 @@ export function NotificationProvider({ children }) {
     fetchUnreadDms();
 
     const channel = supabase.channel('notification-changes')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, (payload) => { fetchUnreadDms(); fireDmDesktopNotification(payload.new); })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, (payload) => { fetchUnreadDms(); handleIncomingDm(payload.new); })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversation_participants', filter: `user_id=eq.${profile.id}` }, () => fetchUnreadDms())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_reads' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'channel_messages' }, () => fetchUnreadMentions())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'channel_messages' }, (payload) => handleIncomingChannelMessage(payload.new))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => refreshNotifications())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, (payload) => fireDesktopNotification(payload.new))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ad_read_proposals' }, () => refreshNotifications())
@@ -196,7 +243,7 @@ export function NotificationProvider({ children }) {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [user, profile, refreshNotifications, fetchUnreadMentions, fetchUnreadDms, fireDesktopNotification, fireDmDesktopNotification, refreshKey]);
+  }, [user, profile, refreshNotifications, fetchUnreadMentions, fetchUnreadDms, fireDesktopNotification, handleIncomingDm, handleIncomingChannelMessage, refreshKey]);
 
   const value = {
     unreadAnnouncementCount,
