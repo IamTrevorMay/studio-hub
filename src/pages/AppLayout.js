@@ -300,7 +300,7 @@ export default function AppLayout() {
   // usual page, never in the launcher. Widen this back to
   // `!isContractor && !isPartner` to reopen the suite to all staff.
   const isSuiteUser = isAdmin;
-  const { unreadAnnouncementCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, refreshNotifications } = useNotifications();
+  const { unreadAnnouncementCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, newApplicationCount, refreshNotifications } = useNotifications();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => {
     const fromPath = getTabFromPath();
@@ -797,6 +797,9 @@ export default function AppLayout() {
                             {child.key === 'messages' && unreadMessageCount > 0 && (
                               <span style={styles.navBadge}>{unreadMessageCount > 99 ? '99+' : unreadMessageCount}</span>
                             )}
+                            {child.key === 'jobs' && newApplicationCount > 0 && (
+                              <span style={styles.navBadge}>{newApplicationCount > 99 ? '99+' : newApplicationCount}</span>
+                            )}
                             {child.key === 'deliverables' && pendingProposalCount > 0 && (
                               <span style={styles.navDot} />
                             )}
@@ -846,6 +849,9 @@ export default function AppLayout() {
                               {child.key === 'messages' && unreadMessageCount > 0 && (
                                 <span style={styles.navBadge}>{unreadMessageCount > 99 ? '99+' : unreadMessageCount}</span>
                               )}
+                              {child.key === 'jobs' && newApplicationCount > 0 && (
+                                <span style={styles.navBadge}>{newApplicationCount > 99 ? '99+' : newApplicationCount}</span>
+                              )}
                               {child.key === 'projects' && pendingProposalCount > 0 && (
                                 <span style={styles.navBadge}>{pendingProposalCount}</span>
                               )}
@@ -881,6 +887,9 @@ export default function AppLayout() {
                       )}
                       {entry.key === 'messages' && unreadMessageCount > 0 && (
                         <span style={styles.navBadge}>{unreadMessageCount > 99 ? '99+' : unreadMessageCount}</span>
+                      )}
+                      {entry.key === 'jobs' && newApplicationCount > 0 && (
+                        <span style={styles.navBadge}>{newApplicationCount > 99 ? '99+' : newApplicationCount}</span>
                       )}
                       {entry.key === 'deliverables' && pendingProposalCount > 0 && (
                         <span style={styles.navDot} />

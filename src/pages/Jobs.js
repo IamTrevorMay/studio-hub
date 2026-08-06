@@ -5,6 +5,8 @@ import { StructuredDescription, TYPE_LABEL, MODE_LABEL, Field, publicStyles } fr
 import usePersistedTab from '../hooks/usePersistedTab';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
+import { ADMIN_TIER_ROLES } from '../lib/rolePermissions';
+import { useNotifications } from '../contexts/NotificationContext';
 
 // Admin-only Jobs page: manage public listings, review applications, and run
 // onboarding for accepted hires. Public board + edge functions live elsewhere.
@@ -15,6 +17,8 @@ const TYPE_OPTS = [
 ];
 const MODE_OPTS = [{ v: 'remote', l: 'Remote' }, { v: 'hybrid', l: 'Hybrid' }, { v: 'onsite', l: 'On-site' }];
 const APP_STATUSES = ['new', 'reviewing', 'interview', 'accepted', 'declined'];
+// Jobs is admin-tier only, so the notification picker draws from the same set.
+const ADMIN_TIER_ROLE_VALUES = [...ADMIN_TIER_ROLES];
 const STATUS_COLOR = {
   new: { bg: 'rgba(255,255,255,0.08)', fg: 'rgba(255,255,255,0.7)' },
   reviewing: { bg: 'rgba(56,189,248,0.15)', fg: '#7dd3fc' },
@@ -37,10 +41,30 @@ export default function Jobs({ initialApplicationId, onApplicationOpened }) {
   const [onboarding, setOnboarding] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const { refreshNotifications } = useNotifications();
 
   useEffect(() => {
     if (initialApplicationId) setTab('applications');
   }, [initialApplicationId]);
+
+  // Opening Applications is the "I've seen them" signal, so clear this user's
+  // unread job_application notifications and drop the sidebar badge.
+  useEffect(() => {
+    if (tab !== 'applications') return;
+    let cancelled = false;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (cancelled || !user) return;
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', user.id)
+        .eq('type', 'job_application')
+        .eq('is_read', false);
+      if (!cancelled && !error) refreshNotifications();
+    })();
+    return () => { cancelled = true; };
+  }, [tab, refreshNotifications]);
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
@@ -325,7 +349,31 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
   );
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState(null);
+  // Who gets the in-app alert when someone applies. Empty = every admin.
+  const [notifyIds, setNotifyIds] = useState(
+    Array.isArray(listing.notify_user_ids) ? listing.notify_user_ids : [],
+  );
+  const [adminOptions, setAdminOptions] = useState([]);
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  const toggleNotify = (id) => setNotifyIds(prev => (
+    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+  ));
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, nickname, role, sub_role')
+        .in('role', ADMIN_TIER_ROLE_VALUES)
+        .neq('status', 'archived');
+      if (cancelled) return;
+      setAdminOptions((data || []).sort((a, b) => (
+        (a.full_name || a.nickname || '').localeCompare(b.full_name || b.nickname || '')
+      )));
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const setQ = (i, k, v) => setQuestions(prev => prev.map((x, j) => j === i ? { ...x, [k]: v } : x));
 
   const buildStructured = () => ({
@@ -370,6 +418,7 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
       expires_at: f.expires_at ? new Date(f.expires_at + 'T23:59:59Z').toISOString() : null,
       onboarding_checklist: cleanChecklist,
       screening_questions: cleanQuestions,
+      notify_user_ids: notifyIds,
       updated_at: new Date().toISOString(),
     };
     let error;
@@ -434,6 +483,42 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
           <L label="Expires (optional)"><input type="date" style={st.input} value={f.expires_at} onChange={e => set('expires_at', e.target.value)} /></L>
           <div />
         </div>
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '16px 0 12px', paddingTop: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Notify on new application</div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 10 }}>
+            {notifyIds.length === 0
+              ? 'No one selected — every admin gets notified (the default).'
+              : `${notifyIds.length} selected. Only these people get the alert and the Jobs badge.`}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {adminOptions.length === 0 && (
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>Loading people…</div>
+            )}
+            {adminOptions.map(p => {
+              const on = notifyIds.includes(p.id);
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => toggleNotify(p.id)}
+                  style={{
+                    padding: '5px 10px', borderRadius: 999, fontSize: 12, fontFamily: 'inherit', cursor: 'pointer',
+                    background: on ? 'rgba(99,102,241,0.18)' : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${on ? colors.accentBorder : 'rgba(255,255,255,0.1)'}`,
+                    color: on ? colors.accentFg : 'rgba(255,255,255,0.55)',
+                  }}
+                >
+                  {on ? '✓ ' : ''}{p.full_name || p.nickname || 'Unknown'}
+                  {p.sub_role ? ` — ${p.sub_role}` : ''}
+                </button>
+              );
+            })}
+          </div>
+          {notifyIds.length > 0 && (
+            <button style={{ ...st.smallBtn, marginTop: 8 }} onClick={() => setNotifyIds([])}>Clear (notify all admins)</button>
+          )}
+        </div>
+
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '16px 0 12px', paddingTop: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Screening questions</div>
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 10 }}>Shown on the public application form. Applicants answer these when applying.</div>

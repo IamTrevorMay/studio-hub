@@ -29,6 +29,7 @@ export function NotificationProvider({ children }) {
   const [stuckCommentCount, setStuckCommentCount] = useState(0);
   const [flCommentCount, setFlCommentCount] = useState(0);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [newApplicationCount, setNewApplicationCount] = useState(0);
 
   // Single RPC call to get all badge counts
   const refreshNotifications = useCallback(async () => {
@@ -50,6 +51,7 @@ export function NotificationProvider({ children }) {
         setFlCommentCount(data.fl_comment_count || 0);
         setMyTaskCount(data.my_task_count || 0);
         setNewAssignmentCount(data.new_assignment_count || 0);
+        setNewApplicationCount(data.new_application_count || 0);
       }
     } catch (err) {
       console.error('Error fetching notification summary:', err);
@@ -259,6 +261,7 @@ export function NotificationProvider({ children }) {
     stuckCommentCount,
     flCommentCount,
     unreadMessageCount,
+    newApplicationCount,
     fetchUnreadDms,
   };
 

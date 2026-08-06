@@ -84,6 +84,7 @@ async function verifyTurnstile(
       body: form,
     });
     const out = await r.json();
+    if (!out.success) console.error("Turnstile rejected:", JSON.stringify(out["error-codes"] || out));
     return out.success ? "ok" : "fail";
   } catch (e) {
     console.error("Turnstile verify failed:", (e as Error).message);
@@ -184,16 +185,20 @@ Deno.serve(async (req: Request) => {
 
   // Resolve listing (must be open to accept applications)
   let listingTitle = "the role";
+  // Recipients chosen on the listing. Empty (or a general application with no
+  // listing) falls back to every admin, the pre-existing behavior.
+  let notifyUserIds: string[] = [];
   if (listingId) {
     const { data: listing } = await admin
       .from("job_listings")
-      .select("id, title, status")
+      .select("id, title, status, notify_user_ids")
       .eq("id", listingId)
       .single();
     if (!listing || listing.status !== "open") {
       return reply({ error: "This role is no longer accepting applications" }, 400);
     }
     listingTitle = listing.title;
+    notifyUserIds = Array.isArray(listing.notify_user_ids) ? listing.notify_user_ids : [];
   }
 
   // Duplicate guard — one application per (listing, email). Idempotent: report
@@ -273,11 +278,25 @@ Deno.serve(async (req: Request) => {
     { bucket: "jobs_apply_email", key: email },
   ]);
 
-  // Notify admins in-app
-  const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin");
-  if (admins && admins.length) {
+  // Notify in-app: the listing's chosen recipients, else every admin. Chosen
+  // ids are re-checked against admin-tier roles so a demoted or deleted user
+  // silently drops out instead of accruing notifications they can't open.
+  let recipients: Array<{ id: string }> = [];
+  if (notifyUserIds.length) {
+    const { data: picked } = await admin
+      .from("profiles")
+      .select("id")
+      .in("id", notifyUserIds)
+      .in("role", ["admin", "director", "director_creative", "director_comms"]);
+    recipients = picked || [];
+  }
+  if (!recipients.length) {
+    const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin");
+    recipients = admins || [];
+  }
+  if (recipients.length) {
     await admin.from("notifications").insert(
-      admins.map((a) => ({
+      recipients.map((a) => ({
         user_id: a.id,
         type: "job_application",
         title: "New job application",
