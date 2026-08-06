@@ -5,6 +5,11 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { colors } from '../lib/styleTokens';
+import {
+  PT_TZ, getPTparts, toPTDateKey, getPTMinutesSinceMidnight,
+  formatPTTime, toPTTimeString, ptToDate, getPTDayOfWeek,
+  ptToday, anchorKey, addDays, addMonths,
+} from '../lib/ptTime';
 import { guestJoinLink } from '../lib/harbor/session';
 
 
@@ -97,82 +102,6 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const HOUR_HEIGHT = 60;
 
 // ── Pacific Time utilities ──
-const PT_TZ = 'America/Los_Angeles';
-const _ptFull = new Intl.DateTimeFormat('en-US', {
-  timeZone: PT_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-});
-
-function getPTparts(d) {
-  const p = {};
-  _ptFull.formatToParts(d).forEach(({ type, value }) => {
-    if (type === 'year') p.year = +value;
-    else if (type === 'month') p.month = +value;
-    else if (type === 'day') p.day = +value;
-    else if (type === 'hour') p.hour = +value % 24;   // midnight = 24 → 0
-    else if (type === 'minute') p.minute = +value;
-    else if (type === 'second') p.second = +value;
-  });
-  return p;
-}
-
-function toPTDateKey(d) {
-  const { year, month, day } = getPTparts(d);
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
-function getPTMinutesSinceMidnight(d) {
-  const { hour, minute } = getPTparts(d);
-  return hour * 60 + minute;
-}
-
-function formatPTTime(d) {
-  return d.toLocaleTimeString('en-US', { timeZone: PT_TZ, hour: 'numeric', minute: '2-digit' });
-}
-
-function toPTTimeString(d) {
-  const { hour, minute } = getPTparts(d);
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
-
-/** Build a UTC Date from a date string + time string interpreted as Pacific Time */
-function ptToDate(dateStr, timeStr) {
-  // Create a guess in UTC, then adjust by the PT offset on that instant.
-  const [y, mo, da] = dateStr.split('-').map(Number);
-  const [h, mi] = timeStr.split(':').map(Number);
-  const guess = new Date(Date.UTC(y, mo - 1, da, h, mi, 0));
-  // Determine PT offset at the guess instant
-  const pts = getPTparts(guess);
-  const guessLocalMin = pts.hour * 60 + pts.minute;
-  const guessUTCMin = guess.getUTCHours() * 60 + guess.getUTCMinutes();
-  let offsetMin = guessUTCMin - guessLocalMin;
-  // Handle day-boundary wrap
-  if (offsetMin > 720) offsetMin -= 1440;
-  if (offsetMin < -720) offsetMin += 1440;
-  const result = new Date(Date.UTC(y, mo - 1, da, h, mi, 0));
-  result.setUTCMinutes(result.getUTCMinutes() + offsetMin);
-  // Re-check: if the offset changed (DST boundary), adjust once more
-  const check = getPTparts(result);
-  if (check.hour !== h || check.minute !== mi) {
-    const pts2 = getPTparts(result);
-    const localMin2 = pts2.hour * 60 + pts2.minute;
-    const utcMin2 = result.getUTCHours() * 60 + result.getUTCMinutes();
-    let off2 = utcMin2 - localMin2;
-    if (off2 > 720) off2 -= 1440;
-    if (off2 < -720) off2 += 1440;
-    const result2 = new Date(Date.UTC(y, mo - 1, da, h, mi, 0));
-    result2.setUTCMinutes(result2.getUTCMinutes() + off2);
-    return result2;
-  }
-  return result;
-}
-
-function getPTDayOfWeek(d) {
-  const ptStr = d.toLocaleDateString('en-US', { timeZone: PT_TZ, weekday: 'short' });
-  const map = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return map[ptStr] ?? 0;
-}
-
 function formatHourLabel(h) {
   if (h === 0) return '12 AM';
   if (h < 12) return `${h} AM`;
@@ -297,7 +226,10 @@ export default function Calendar({ onNavigate }) {
   const [hubUsers, setHubUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(false);
-  const [viewDate, setViewDate] = useState(new Date());
+  // viewDate is a PT day anchor (lib/ptTime), not a device-local Date. Cells
+  // built at local midnight resolve to the previous PT day for anyone east of
+  // Pacific, which shifted their whole calendar by a day.
+  const [viewDate, setViewDate] = useState(() => ptToday());
   const [viewMode, setViewMode] = usePersistedTab('calendar-view', 'month', ['month', 'week', 'day']);
   const [showMetricool, setShowMetricool] = useState(true);
   const [metricoolError, setMetricoolError] = useState(null);
@@ -1050,40 +982,32 @@ export default function Calendar({ onNavigate }) {
       const weekDays = getWeekDays();
       return { start: weekDays[0], end: new Date(weekDays[6].getFullYear(), weekDays[6].getMonth(), weekDays[6].getDate(), 23, 59, 59) };
     }
-    return { start: new Date(viewDate.getFullYear(), viewDate.getMonth(), viewDate.getDate()), end: new Date(viewDate.getFullYear(), viewDate.getMonth(), viewDate.getDate(), 23, 59, 59) };
+    return { start: ptToDate(anchorKey(viewDate), '00:00'), end: ptToDate(anchorKey(viewDate), '23:59') };
   }
 
   function getMonthRange() {
-    const year = viewDate.getFullYear();
-    const month = viewDate.getMonth();
-    return { start: new Date(year, month, 1), end: new Date(year, month + 1, 0, 23, 59, 59) };
+    const year = viewDate.getUTCFullYear();
+    const month = viewDate.getUTCMonth();
+    return { start: new Date(Date.UTC(year, month, 1, 12)), end: new Date(Date.UTC(year, month + 1, 0, 12)) };
   }
 
   function getCalendarDays() {
-    const year = viewDate.getFullYear();
-    const month = viewDate.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const startOffset = firstDay.getDay();
+    const year = viewDate.getUTCFullYear();
+    const month = viewDate.getUTCMonth();
+    const firstDay = new Date(Date.UTC(year, month, 1, 12));
+    const gridStart = addDays(firstDay, -firstDay.getUTCDay());
     const days = [];
-    for (let i = startOffset - 1; i >= 0; i--) days.push({ date: new Date(year, month, -i), isCurrentMonth: false });
-    for (let i = 1; i <= lastDay.getDate(); i++) days.push({ date: new Date(year, month, i), isCurrentMonth: true });
-    while (days.length < 42) {
-      const d = new Date(year, month + 1, days.length - lastDay.getDate() - startOffset + 1);
-      days.push({ date: d, isCurrentMonth: false });
+    for (let i = 0; i < 42; i++) {
+      const d = addDays(gridStart, i);
+      days.push({ date: d, isCurrentMonth: d.getUTCMonth() === month && d.getUTCFullYear() === year });
     }
     return days;
   }
 
   function getWeekDays() {
-    const d = new Date(viewDate);
-    const day = getPTDayOfWeek(d);
+    const start = addDays(viewDate, -viewDate.getUTCDay());
     const days = [];
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(d);
-      date.setDate(d.getDate() - day + i);
-      days.push(date);
-    }
+    for (let i = 0; i < 7; i++) days.push(addDays(start, i));
     return days;
   }
 
@@ -1092,10 +1016,10 @@ export default function Calendar({ onNavigate }) {
   }
 
   function navigate(dir) {
-    const d = new Date(viewDate);
-    if (viewMode === 'month') d.setMonth(d.getMonth() + dir);
-    else if (viewMode === 'week') d.setDate(d.getDate() + dir * 7);
-    else d.setDate(d.getDate() + dir);
+    let d;
+    if (viewMode === 'month') d = addMonths(viewDate, dir);
+    else if (viewMode === 'week') d = addDays(viewDate, dir * 7);
+    else d = addDays(viewDate, dir);
     setViewDate(d);
   }
 
@@ -1371,7 +1295,7 @@ export default function Calendar({ onNavigate }) {
           </p>
         </div>
         <button
-          onClick={(e) => { e.stopPropagation(); openNewEventModal(new Date()); }}
+          onClick={(e) => { e.stopPropagation(); openNewEventModal(ptToday()); }}
           style={styles.addEventBtn}
         >
           + Add Event
@@ -1387,7 +1311,7 @@ export default function Calendar({ onNavigate }) {
           <button onClick={() => navigate(1)} style={styles.navBtn}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
-          <button onClick={() => setViewDate(new Date())} style={styles.todayBtn}>Today</button>
+          <button onClick={() => setViewDate(ptToday())} style={styles.todayBtn}>Today</button>
         </div>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           {/* View mode toggle */}
@@ -1498,7 +1422,7 @@ export default function Calendar({ onNavigate }) {
                         >
                           <div style={styles.dateRow}>
                             <span style={{ ...styles.dateNumber, ...(isToday ? styles.dateNumberToday : {}) }}>
-                              {day.date.getDate()}
+                              {day.date.getUTCDate()}
                             </span>
                           </div>
 
@@ -1636,7 +1560,7 @@ export default function Calendar({ onNavigate }) {
                   }}
                   onClick={() => { setViewDate(date); setViewMode('day'); }}
                   >
-                    {date.getDate()}
+                    {date.getUTCDate()}
                   </span>
                 </div>
               );

@@ -6,6 +6,10 @@ import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens } from '../utils/mobileTokens';
 import { expandRecurringEvents } from '../lib/recurrence';
 import { colors } from '../lib/styleTokens';
+import {
+  PT_TZ, toPTDateKey, formatPTTime, toPTTimeString, ptToDate,
+  ptDayAnchor, ptToday, anchorKey, addDays, addMonths, daysBetween, formatAnchor,
+} from '../lib/ptTime';
 
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444', meeting: '#3b82f6', live_recording: '#22c55e',
@@ -22,33 +26,21 @@ const WEEKDAYS_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 const HORIZON_DAYS = 30;
 
-function startOfDay(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
+// Every date below is a PT day anchor (see lib/ptTime). The calendar is a
+// shared studio artifact, so a viewer's device timezone must not move an event
+// to a different day or shift which day reads as "today".
 
-function dayKey(d) {
-  // Build from LOCAL parts. toISOString() converts to UTC, so for UTC+ zones
-  // local midnight maps to the previous UTC day → events bucket on the wrong day.
-  const x = new Date(d);
-  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-}
-
-function fmtDayHeader(d) {
-  const today = startOfDay(new Date());
-  const target = startOfDay(d);
-  const diff = Math.round((target - today) / 86400000);
+function fmtDayHeader(anchor) {
+  const diff = daysBetween(ptToday(), anchor);
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Tomorrow';
   if (diff === -1) return 'Yesterday';
-  return target.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  return formatAnchor(anchor, { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
 function fmtTime(iso, allDay) {
   if (allDay) return 'All day';
-  const d = new Date(iso);
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return formatPTTime(new Date(iso));
 }
 
 export default function CalendarMobile() {
@@ -58,21 +50,16 @@ export default function CalendarMobile() {
   const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState(null);
 
-  const [monthCursor, setMonthCursor] = useState(() => {
-    const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d;
-  });
+  const [monthCursor, setMonthCursor] = useState(() => ptDayAnchor(`${toPTDateKey(new Date()).slice(0, 7)}-01`));
   const [selectedDay, setSelectedDay] = useState(null); // for month view tap
 
   // Expand recurring events into concrete occurrences over a range covering both
   // the agenda horizon and the visible month grid. Without this, recurring events
   // only showed on their original start_date.
   const expandedEvents = useMemo(() => {
-    const rangeStart = new Date();
-    rangeStart.setDate(rangeStart.getDate() - 7);
-    rangeStart.setHours(0, 0, 0, 0);
-    const monthEnd = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 7);
-    const horizonEnd = new Date();
-    horizonEnd.setDate(horizonEnd.getDate() + HORIZON_DAYS + 1);
+    const rangeStart = addDays(ptToday(), -7);
+    const monthEnd = addDays(addMonths(monthCursor, 1), 6);
+    const horizonEnd = addDays(ptToday(), HORIZON_DAYS + 1);
     const rangeEnd = monthEnd > horizonEnd ? monthEnd : horizonEnd;
     return expandRecurringEvents(events, rangeStart, rangeEnd);
   }, [events, monthCursor]);
@@ -89,10 +76,8 @@ export default function CalendarMobile() {
   const fetchEvents = useCallback(async () => {
     setLoading(true);
     try {
-      const start = startOfDay(new Date());
-      start.setDate(start.getDate() - 7);
-      const end = new Date(start);
-      end.setDate(end.getDate() + HORIZON_DAYS + 30);
+      const start = addDays(ptToday(), -7);
+      const end = addDays(start, HORIZON_DAYS + 30);
       const { data, error } = await supabase
         .from('calendar_events')
         .select('*, creator:profiles!created_by(id, full_name)')
@@ -114,16 +99,22 @@ export default function CalendarMobile() {
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
 
   function openCreate(day) {
+    // `day` is a PT day anchor from the month grid — it carries no meaningful
+    // clock time, so those default to 9–10am PT. The + button passes nothing
+    // and starts from the current PT time instead.
+    const isAnchor = !!day;
     const base = day || new Date();
     const next = new Date(base.getTime() + 60 * 60 * 1000);
+    const startTime = isAnchor ? '09:00' : hm(base);
+    const endTime = isAnchor ? '10:00' : hm(next);
     setCreateError(null);
     setCreateForm({
       title: '',
       event_type: 'meeting',
       start_date: ymd(base),
-      start_time: hm(base),
-      end_date: ymd(next),
-      end_time: hm(next),
+      start_time: startTime,
+      end_date: isAnchor ? ymd(base) : ymd(next),
+      end_time: endTime,
       all_day: false,
       location: '',
       description: '',
@@ -138,13 +129,14 @@ export default function CalendarMobile() {
     if (!profile?.id) { setCreateError('Not signed in.'); return; }
     setCreating(true); setCreateError(null);
     try {
+      // Wall-clock in the form is Pacific, matching desktop's handleSaveEvent.
       const startDate = f.all_day
-        ? new Date(`${f.start_date}T00:00:00`)
-        : new Date(`${f.start_date}T${f.start_time || '09:00'}:00`);
+        ? ptToDate(f.start_date, '00:00')
+        : ptToDate(f.start_date, f.start_time || '09:00');
       const endDateStr = f.end_date || f.start_date;
       const endDate = f.all_day
-        ? new Date(`${endDateStr}T23:59:59`)
-        : new Date(`${endDateStr}T${f.end_time || '10:00'}:00`);
+        ? ptToDate(endDateStr, '23:59')
+        : ptToDate(endDateStr, f.end_time || '10:00');
       const { error } = await supabase.from('calendar_events').insert({
         title: f.title.trim(),
         description: f.description.trim(),
@@ -245,12 +237,10 @@ export default function CalendarMobile() {
 }
 
 function ymd(d) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return toPTDateKey(d);
 }
 function hm(d) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return toPTTimeString(d);
 }
 
 function CreateEventForm({ form, onChange, onSave, onCancel, saving, error }) {
@@ -422,19 +412,17 @@ function AgendaView({ events, onSelect }) {
 }
 
 function buildAgenda(events) {
-  const today = startOfDay(new Date());
-  const horizon = new Date(today);
-  horizon.setDate(horizon.getDate() + HORIZON_DAYS);
+  const todayKey = anchorKey(ptToday());
+  const horizonKey = anchorKey(addDays(ptToday(), HORIZON_DAYS));
 
   const buckets = new Map();
   for (const ev of events) {
     if (!ev.start_date) continue;
-    const start = new Date(ev.start_date);
-    const evDay = startOfDay(start);
-    if (evDay < today) continue;
-    if (evDay > horizon) continue;
-    const key = dayKey(evDay);
-    if (!buckets.has(key)) buckets.set(key, { date: evDay, events: [] });
+    // Bucket by the event's PT day, not the device's.
+    const key = toPTDateKey(new Date(ev.start_date));
+    if (key < todayKey) continue;
+    if (key > horizonKey) continue;
+    if (!buckets.has(key)) buckets.set(key, { date: ptDayAnchor(key), events: [] });
     buckets.get(key).events.push(ev);
   }
   const sortedKeys = [...buckets.keys()].sort();
@@ -450,14 +438,10 @@ function buildAgenda(events) {
 }
 
 function eventsForDay(events, day) {
-  const target = startOfDay(day);
-  const next = new Date(target);
-  next.setDate(next.getDate() + 1);
-  return events.filter((ev) => {
-    const start = ev.start_date && new Date(ev.start_date);
-    if (!start) return false;
-    return start >= target && start < next;
-  }).sort((a, b) => {
+  const key = anchorKey(day);
+  return events.filter((ev) => (
+    ev.start_date && toPTDateKey(new Date(ev.start_date)) === key
+  )).sort((a, b) => {
     if (a.all_day && !b.all_day) return -1;
     if (!a.all_day && b.all_day) return 1;
     return new Date(a.start_date) - new Date(b.start_date);
@@ -466,12 +450,10 @@ function eventsForDay(events, day) {
 
 function MonthView({ events, monthCursor, setMonthCursor, onSelectDay }) {
   const cells = useMemo(() => buildMonthCells(monthCursor, events), [monthCursor, events]);
-  const monthLabel = monthCursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthLabel = formatAnchor(monthCursor, { month: 'long', year: 'numeric' });
 
   function shift(delta) {
-    const d = new Date(monthCursor);
-    d.setMonth(d.getMonth() + delta);
-    setMonthCursor(d);
+    setMonthCursor(addMonths(monthCursor, delta));
   }
 
   return (
@@ -490,8 +472,8 @@ function MonthView({ events, monthCursor, setMonthCursor, onSelectDay }) {
       </div>
       <div style={styles.grid}>
         {cells.map((cell, i) => {
-          const inMonth = cell.date.getMonth() === monthCursor.getMonth();
-          const isToday = dayKey(cell.date) === dayKey(new Date());
+          const inMonth = cell.date.getUTCMonth() === monthCursor.getUTCMonth();
+          const isToday = anchorKey(cell.date) === anchorKey(ptToday());
           return (
             <button
               key={i}
@@ -504,7 +486,7 @@ function MonthView({ events, monthCursor, setMonthCursor, onSelectDay }) {
                 fontWeight: isToday ? 700 : 500,
               }}
             >
-              <span>{cell.date.getDate()}</span>
+              <span>{cell.date.getUTCDate()}</span>
               {cell.count > 0 && (
                 <span style={{
                   ...styles.dayDot,
@@ -520,23 +502,21 @@ function MonthView({ events, monthCursor, setMonthCursor, onSelectDay }) {
 }
 
 function buildMonthCells(cursor, events) {
-  const firstOfMonth = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-  const startWeekday = firstOfMonth.getDay(); // 0 Sun
-  const gridStart = new Date(firstOfMonth);
-  gridStart.setDate(gridStart.getDate() - startWeekday);
+  // cursor is the anchor for the 1st of the month; anchors carry UTC parts.
+  const firstOfMonth = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), 1, 12));
+  const gridStart = addDays(firstOfMonth, -firstOfMonth.getUTCDay());
 
   const counts = new Map();
   for (const ev of events) {
     if (!ev.start_date) continue;
-    const k = dayKey(new Date(ev.start_date));
+    const k = toPTDateKey(new Date(ev.start_date));
     counts.set(k, (counts.get(k) || 0) + 1);
   }
 
   const cells = [];
   for (let i = 0; i < 42; i++) {
-    const d = new Date(gridStart);
-    d.setDate(d.getDate() + i);
-    cells.push({ date: d, count: counts.get(dayKey(d)) || 0 });
+    const d = addDays(gridStart, i);
+    cells.push({ date: d, count: counts.get(anchorKey(d)) || 0 });
   }
   return cells;
 }
@@ -574,8 +554,8 @@ function EventDetail({ event }) {
       <h3 style={detailStyles.title}>{event.title || 'Untitled'}</h3>
       <DetailRow label="When" value={
         event.all_day
-          ? `${start.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} (all day)`
-          : `${start.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${end ? ` – ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}`
+          ? `${start.toLocaleDateString('en-US', { timeZone: PT_TZ, weekday: 'long', month: 'short', day: 'numeric' })} (all day)`
+          : `${start.toLocaleString('en-US', { timeZone: PT_TZ, weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${end ? ` – ${formatPTTime(end)}` : ''} PT`
       } />
       {event.location && <DetailRow label="Location" value={event.location} />}
       {event.description && <DetailRow label="Notes" value={event.description} />}
