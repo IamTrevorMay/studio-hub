@@ -22,7 +22,7 @@ import { clickableKeyProps } from '../../lib/styleRecipes';
 
 const SELECT = `
   id, name, type, status, deadline, film_date, edit_deadline,
-  drive_folder_id, drive_folder_name, drive_folder_url,
+  beat_sheet_id,
   on_hold, hold_reason, archived_at, stage_config, sort_order,
   project_stage_assignments(id, stage, user_id, profile:profiles(id, full_name, nickname, title, role))
 `;
@@ -66,7 +66,7 @@ function isCurrentStageAssignee(project, userId) {
   );
 }
 
-export default function UnifiedBoard() {
+export default function UnifiedBoard({ onNavigate }) {
   const { profile, isAdmin } = useAuth();
   const confirm = useConfirm();
   const isMobile = useIsMobile();
@@ -544,6 +544,7 @@ export default function UnifiedBoard() {
           userId={profile?.id}
           onClose={() => setEditProject(null)}
           onSaved={fetchProjects}
+          onNavigate={onNavigate}
         />
       )}
       {cardCtxMenu && (
@@ -1692,7 +1693,7 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
 
 // ─── EditProjectModal ────────────────────────────────────────────
 
-function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
+function EditProjectModal({ project, isAdmin, userId, onClose, onSaved, onNavigate }) {
   const confirm = useConfirm();
   const [name, setName] = useState(project.name || '');
   const [type, setType] = useState(project.type || PROJECT_TYPE_OPTIONS[0].value);
@@ -1705,39 +1706,49 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
   const [stageConfig, setStageConfig] = useState(project.stage_config || {});
   const [stageAssignments, setStageAssignments] = useState(project.project_stage_assignments || []);
   const [teamMembers, setTeamMembers] = useState([]);
-  const [folderId, setFolderId] = useState(project.drive_folder_id || '');
-  const [folderName, setFolderName] = useState(project.drive_folder_name || '');
-  const [folderUrl, setFolderUrl] = useState(project.drive_folder_url || '');
-  const [folders, setFolders] = useState([]);
-  const [foldersLoading, setFoldersLoading] = useState(false);
-  const [foldersError, setFoldersError] = useState(null);
+  const [beatSheetId, setBeatSheetId] = useState(project.beat_sheet_id || '');
+  const [beatSheets, setBeatSheets] = useState([]);
+  const [sheetsLoading, setSheetsLoading] = useState(false);
+  const [sheetsError, setSheetsError] = useState(null);
 
-  // Load the Drive subfolders for the project's type root so the Folder
-  // dropdown can list them. Re-fetches when the type changes.
+  // Load the live beat sheets so the Beat Sheet dropdown can list them.
   useEffect(() => {
     let cancelled = false;
-    setFoldersError(null);
-    setFoldersLoading(true);
+    setSheetsError(null);
+    setSheetsLoading(true);
     (async () => {
-      try {
-        const data = await callEdgeFn('project-drive-folders', { type });
-        if (cancelled) return;
-        setFolders(data.items || []);
-      } catch (err) {
-        if (!cancelled) setFoldersError(err.message);
-      } finally {
-        if (!cancelled) setFoldersLoading(false);
-      }
+      const { data, error } = await supabase
+        .from('beat_sheets')
+        .select('id, title, folder, is_archived')
+        .order('created_at', { ascending: false });
+      if (cancelled) return;
+      if (error) setSheetsError(error.message);
+      else setBeatSheets(data || []);
+      setSheetsLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [type]);
+  }, []);
 
-  function onFolderChange(id) {
-    if (!id) { setFolderId(''); setFolderName(''); setFolderUrl(''); return; }
-    const f = folders.find((x) => x.id === id);
-    setFolderId(id);
-    setFolderName(f?.name || '');
-    setFolderUrl(f?.url || '');
+  // Archived sheets are hidden, except the one already linked to this project —
+  // dropping it from the list would silently unlink it on save.
+  const sheetOptions = beatSheets.filter(
+    (bs) => (!bs.is_archived && bs.folder !== 'archive') || bs.id === beatSheetId,
+  );
+  const linkedSheet = beatSheets.find((bs) => bs.id === beatSheetId);
+
+  // Jumping to the Beat Sheet page unmounts this modal, so persist the link
+  // first — otherwise picking a sheet and hitting Open would drop it.
+  async function openLinkedSheet() {
+    if (beatSheetId !== (project.beat_sheet_id || '')) {
+      const { error } = await supabase
+        .from('projects')
+        .update({ beat_sheet_id: beatSheetId || null })
+        .eq('id', project.id);
+      if (error) { toast.error(`Save failed: ${error.message}`); return; }
+      onSaved?.();
+    }
+    onNavigate('production', beatSheetId);
+    onClose();
   }
 
   useEffect(() => {
@@ -1818,9 +1829,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
         film_date: filmDate || null,
         edit_deadline: editDeadline || null,
         post_time: postTime || null,
-        drive_folder_id: folderId || null,
-        drive_folder_name: folderName || null,
-        drive_folder_url: folderUrl || null,
+        beat_sheet_id: beatSheetId || null,
       };
       const { error } = await supabase.from('projects').update(patch).eq('id', project.id);
       if (error) throw error;
@@ -1978,39 +1987,38 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
           </div>
         </div>
 
-        <Field label="Folder">
+        <Field label="Beat Sheet">
           <div style={{ display: 'flex', gap: spacing.sm, alignItems: 'center' }}>
             <select
-              value={folderId}
-              onChange={(e) => onFolderChange(e.target.value)}
-              disabled={!canEdit || foldersLoading}
+              value={beatSheetId}
+              onChange={(e) => setBeatSheetId(e.target.value)}
+              disabled={!canEdit || sheetsLoading}
               style={{ ...s.input, flex: 1 }}
             >
               <option value="">
-                {foldersLoading ? 'Loading folders…' : foldersError ? 'Failed to load folders' : 'No folder linked'}
+                {sheetsLoading ? 'Loading beat sheets…' : sheetsError ? 'Failed to load beat sheets' : 'No beat sheet linked'}
               </option>
-              {/* Keep a previously-linked folder selectable even if it's not in the fetched list. */}
-              {folderId && !folders.some((f) => f.id === folderId) && (
-                <option value={folderId}>{folderName || 'Linked folder'}</option>
+              {/* Keep a previously-linked sheet selectable even if it's not in the fetched list. */}
+              {beatSheetId && !beatSheets.some((bs) => bs.id === beatSheetId) && (
+                <option value={beatSheetId}>Linked beat sheet</option>
               )}
-              {folders.map((f) => (
-                <option key={f.id} value={f.id}>{f.name}</option>
+              {sheetOptions.map((bs) => (
+                <option key={bs.id} value={bs.id}>{bs.title || 'Untitled'}</option>
               ))}
             </select>
-            {folderUrl && (
-              <a
-                href={folderUrl}
-                target="_blank"
-                rel="noreferrer"
-                style={s.folderLink}
-                title="Open in Drive"
+            {beatSheetId && onNavigate && (
+              <button
+                type="button"
+                onClick={openLinkedSheet}
+                style={{ ...s.openLink, cursor: 'pointer' }}
+                title={linkedSheet?.title ? `Open "${linkedSheet.title}"` : 'Open beat sheet'}
               >
                 Open ↗
-              </a>
+              </button>
             )}
           </div>
-          {foldersError && (
-            <div style={{ color: colors.danger.fg, fontSize: fontSizes.xs, marginTop: spacing.xs }}>{foldersError}</div>
+          {sheetsError && (
+            <div style={{ color: colors.danger.fg, fontSize: fontSizes.xs, marginTop: spacing.xs }}>{sheetsError}</div>
           )}
         </Field>
 
@@ -2284,9 +2292,9 @@ const s = {
   },
   dueDate: { color: colors.textMuted, fontWeight: fontWeights.medium },
   scheduleDate: { fontWeight: fontWeights.medium, fontVariantNumeric: 'tabular-nums' },
-  folderLink: {
+  openLink: {
     color: colors.accentFg, fontSize: fontSizes.sm, fontWeight: fontWeights.medium,
-    textDecoration: 'none', whiteSpace: 'nowrap',
+    fontFamily: 'inherit', textDecoration: 'none', whiteSpace: 'nowrap',
     padding: `${spacing.sm}px ${spacing.md}px`,
     border: `1px solid ${colors.accentBorder}`, borderRadius: radii.sm,
     background: colors.accentSoft,
