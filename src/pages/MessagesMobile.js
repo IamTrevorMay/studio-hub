@@ -56,6 +56,10 @@ export default function MessagesMobile({ onNavigate }) {
   const [renameValue, setRenameValue] = useState('');
   const longPressTimer = useRef(null);
   const longPressFired = useRef(false);
+  // Thread to reopen after a refresh, read from the URL before anything rewrites it.
+  const pendingConvoIdRef = useRef(
+    window.location.pathname.replace(/^\/+/, '').split('/')[1] || null,
+  );
 
   const fetchConversations = useCallback(async () => {
     if (!profile?.id) return;
@@ -139,6 +143,19 @@ export default function MessagesMobile({ onNavigate }) {
     Promise.all([fetchConversations(), fetchTeamMembers()]).finally(() => setLoading(false));
   }, [profile?.id, fetchConversations, fetchTeamMembers]);
 
+  // Reopen the thread named in the URL (/messages/<id>) once the list loads, so
+  // a refresh lands back in it. The path is reset to bare /messages first: the
+  // back-button effect below re-pushes it, keeping one clean history entry
+  // instead of stacking two that both point at the open thread.
+  useEffect(() => {
+    if (loading || !pendingConvoIdRef.current) return;
+    const wanted = pendingConvoIdRef.current;
+    pendingConvoIdRef.current = null;
+    const convo = conversations.find((c) => c.id === wanted);
+    window.history.replaceState({}, '', '/messages');
+    if (convo) setActiveConvo(convo);
+  }, [loading, conversations]);
+
   function convoName(convo) {
     if (!convo) return '';
     if (convo.name) return convo.name;
@@ -200,9 +217,11 @@ export default function MessagesMobile({ onNavigate }) {
   // phone's back button/gesture returns to the thread list instead of leaving
   // the Messages tab. The sheet's chevron goes through history.back() too, so
   // popstate is the single close path and the stack never accumulates entries.
+  // That entry carries /messages/<id> so a refresh reopens the thread; going
+  // back restores the bare /messages path underneath it.
   useEffect(() => {
     if (!activeConvo) return undefined;
-    window.history.pushState({ maydayConvo: activeConvo.id }, '');
+    window.history.pushState({ maydayConvo: activeConvo.id }, '', `/messages/${activeConvo.id}`);
     const onPop = () => setActiveConvo(null);
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
