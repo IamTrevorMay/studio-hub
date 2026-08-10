@@ -31,11 +31,12 @@ const corsHeaders = {
 const MAYDAY_INCOME_CATEGORIES = [
   "YouTube Income", "TikTok Income", "Twitch Income", "Substack Income",
   "Sponsorship Income", "Merch Income", "Facebook Income", "Services",
+  "Production Services",
 ];
 const MAYDAY_EXPENSE_CATEGORIES = [
   "Employees", "Rent & Utilities", "Equipment", "Equipment - Neptune",
   "R&D/Production", "Travel", "Admin Subscriptions", "Creative Subscriptions",
-  "Insurance", "Freelancers", "Misc Expense", "Administration", "Supplies",
+  "Insurance", "Contractors", "Misc Expense", "Administration", "Supplies",
   "Entertainment/Fun", "Medical", "Food", "Bank Fees", "Taxes",
 ];
 

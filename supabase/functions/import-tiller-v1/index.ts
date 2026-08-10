@@ -41,6 +41,13 @@ const EXPENSE = new Set([
 ]);
 const TRANSFER = new Set(["Loan Repayment", "Funding"]);
 
+// The legacy doc predates the 2026-07-29 Freelancer→Contractor rename, so its
+// literal values stay in the match sets above and are renamed on write instead.
+// Dropping "Freelancers" from EXPENSE would silently discard those rows.
+const LEGACY_CATEGORY_RENAMES: Record<string, string> = {
+  "Freelancers": "Contractors",
+};
+
 async function getAccessToken(): Promise<string> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -195,7 +202,7 @@ Deno.serve(async (req: Request) => {
         transaction_id: transactionId,
         date: dateStr,
         description,
-        category,
+        category: LEGACY_CATEGORY_RENAMES[category] ?? category,
         amount_cents: amountCents,
         account,
         business: "mayday_media",

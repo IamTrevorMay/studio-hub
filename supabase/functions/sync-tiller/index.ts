@@ -40,6 +40,7 @@ const INCOME_CATEGORIES = new Set([
   "Merch Income",
   "Facebook Income",
   "Services",
+  "Production Services",
   "Interest",
   "Reimbursement",
 ]);
@@ -61,7 +62,7 @@ const EXPENSE_CATEGORIES = new Set([
   "Admin Subscriptions",
   "Creative Subscriptions",
   "Insurance",
-  "Freelancers",
+  "Contractors",
   "Misc Expense",
   "Administration",
   "Supplies",
