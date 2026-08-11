@@ -229,6 +229,18 @@ Read-only deliverables portal for the ad agency partner. Role `agency` (distinct
 - **Freshness**: portal polls every 20s + realtime on `agency_comments` / own `ad_read_proposals` (deliverable rows are outside the agency's RLS read set, so no postgres_changes for them)
 - Migration: `20260709190000_agency_portal.sql`
 
+## Whiteboard (added 2026-08-11)
+
+MS-Paint-style drawing tool in the **Filming** nav folder (`whiteboard` key → `src/pages/tools/Whiteboard.js`). Not related to the older `src/pages/editors/Whiteboard.js`, which is the pen-only doc-editor used by Ideation.
+
+- **Shared boards:** one row per board in `whiteboards`; the whole scene is a vector object list in `content` (`{ objects: [...], bg }`). Every staff member (`is_staff()`) can open and draw on any board; only the creator or an admin can rename/delete (delete via RLS, rename via the `whiteboards_guard_update` trigger, which also pins `created_by`).
+- **Object model** (not a bitmap — that's why zoom stays crisp and eraser/fill act on whole objects): `stroke`, `line`, `arrow`, `rect`, `ellipse`, `text`, `image`.
+- **Tools:** select (move / marquee / resize handles), pan, pen, eraser, line, arrow, rectangle, ellipse, text, fill. Fill paints a shape's interior, or the board background when you click empty space. Keyboard: V/H/P/E/L/A/R/O/T/F, ⌘Z / ⇧⌘Z, ⌘A, Delete, Escape, Space-drag to pan, ⌘+scroll to zoom.
+- **Images:** paste, drop, or the toolbar picker → public `whiteboard-images` bucket (`<boardId>/<uuid>.<ext>`, 10 MB, image mime types only). Export renders the scene to a PNG at 2×.
+- **Persistence:** debounced autosave (900 ms) + flush on unmount. No live multiplayer — a realtime subscription on the row shows a "someone else saved" banner offering to load their version instead of silently clobbering it.
+- Desktop-only (`whiteboard: 'excluded'` in `src/config/mobileNavConfig.js`; the Filming folder is already stripped from the mobile nav).
+- Migration: `20260811120000_whiteboards.sql`.
+
 ## Admin Mode / Work Mode
 
 Two sidebar modes toggled via button at bottom of sidebar (`AppLayout.js`).

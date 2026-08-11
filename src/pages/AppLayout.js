@@ -33,6 +33,7 @@ import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
 import Telestration from './tools/Telestration';
+import WhiteboardTool from './tools/Whiteboard';
 import PitchVideos from './tools/PitchVideos';
 import Timeline from './tools/Timeline';
 import Broadcast from './tools/Broadcast';
@@ -83,6 +84,7 @@ const NAV_ITEMS = [
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
   { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
+  { key: 'whiteboard', label: 'Whiteboard', icon: WhiteboardIcon },
   { key: 'pitch_videos', label: 'Asset Search', icon: CameraIcon },
   { key: 'post_show', label: 'Video Tools', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon, adminOnly: true },
@@ -245,6 +247,7 @@ const NAV_ICON_MAP = {
   teleprompter: ToolsIcon,
   broadcast: ToolsIcon,
   telestration: ToolsIcon,
+  whiteboard: WhiteboardIcon,
   pitch_videos: CameraIcon,
   post_show: ToolsIcon,
   timeline: ToolsIcon,
@@ -1142,6 +1145,7 @@ export default function AppLayout() {
           {activeTab === 'screenwriter' && <PageErrorBoundary key="screenwriter"><Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'teleprompter' && <PageErrorBoundary key="teleprompter"><Teleprompter onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'telestration' && <PageErrorBoundary key="telestration"><Telestration onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'whiteboard' && <PageErrorBoundary key="whiteboard"><WhiteboardTool onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'pitch_videos' && <PageErrorBoundary key="pitch_videos"><PitchVideos onBack={() => setActiveTab(asContractor ? 'fl_dashboard' : 'dashboard')} /></PageErrorBoundary>}
           {activeTab === 'post_show' && <PageErrorBoundary key="post_show"><PostShow onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'timeline' && <PageErrorBoundary key="timeline"><Timeline /></PageErrorBoundary>}
@@ -1665,6 +1669,16 @@ function FilmingIcon({ active }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="2" y="6" width="12" height="8" rx="1.5" />
       <path d="M14 9l4-2.5v7L14 11" />
+    </svg>
+  );
+}
+
+function WhiteboardIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
+      <rect x="2.5" y="3.5" width="15" height="10" rx="1.5" />
+      <path d="M10 13.5v3M7.5 16.5h5" strokeLinecap="round" />
+      <path d="M5.5 10.5l2-3 2 2 1.5-2 2.5 3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
