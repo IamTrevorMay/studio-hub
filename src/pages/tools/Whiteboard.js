@@ -29,6 +29,7 @@ const MAX_SCALE = 8;
 const HANDLE_PX = 9;          // resize handle size, in screen pixels
 const HIT_SLOP = 6;           // extra hit-test tolerance, in screen pixels
 const MAX_IMAGE_WORLD = 520;  // longest side of a freshly dropped image
+const DUP_OFFSET = 24;        // world units a duplicate/paste is nudged by
 const HISTORY_LIMIT = 60;
 const AUTOSAVE_MS = 900;
 
@@ -112,8 +113,10 @@ function distToSegment(px, py, x1, y1, x2, y2) {
 }
 
 // `slop` arrives in world units (screen slop / scale) so hit tests feel the
-// same at every zoom level.
-function hitTest(o, px, py, slop) {
+// same at every zoom level. `solid` treats an unfilled shape as if it were
+// filled — the fill tool needs a click *inside* an outline-only rectangle to
+// count, where selection deliberately wants only the outline itself.
+function hitTest(o, px, py, slop, solid = false) {
   const b = objBounds(o);
   if (px < b.x - slop || py < b.y - slop || px > b.x + b.w + slop || py > b.y + b.h + slop) return false;
 
@@ -132,7 +135,7 @@ function hitTest(o, px, py, slop) {
   if (o.type === 'text' || o.type === 'image') return true;
 
   const r = normRect(o);
-  if (o.fill && o.fill !== 'none') {
+  if (solid || (o.fill && o.fill !== 'none')) {
     if (o.type === 'ellipse') {
       const cx = r.x + r.w / 2;
       const cy = r.y + r.h / 2;
@@ -360,6 +363,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [zoomPct, setZoomPct] = useState(100);
   const [textDraft, setTextDraft] = useState(null);
+  const textAreaRef = useRef(null);
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
   const [remoteEdit, setRemoteEdit] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -383,6 +387,8 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
   const historyRef = useRef({ past: [], future: [] });
   const drawRef = useRef(() => {});
   const skipNextSaveRef = useRef(true);
+  const clipboardRef = useRef([]);
+  const pasteCountRef = useRef(0);
   const [history, setHistory] = useState({ canUndo: false, canRedo: false });
 
   useEffect(() => { objectsRef.current = objects; }, [objects]);
@@ -659,6 +665,59 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
     setBg(next);
   }, [pushHistory]);
 
+  // ─── Duplicate / clipboard ───
+  // The clipboard is in-app only: system-clipboard paste stays reserved for
+  // images, so copying a shape here can't collide with pasting a screenshot.
+  const cloneObjects = useCallback((objs, dx, dy) => objs.map((o) => ({
+    ...translateObj(JSON.parse(JSON.stringify(o)), dx, dy),
+    id: uid(),
+  })), []);
+
+  const selectedObjects = useCallback(() => {
+    const ids = new Set(selectedRef.current);
+    return objectsRef.current.filter((o) => ids.has(o.id));
+  }, []);
+
+  const addAndSelect = useCallback((copies) => {
+    if (!copies.length) return;
+    commit((prev) => [...prev, ...copies]);
+    const ids = copies.map((c) => c.id);
+    setSelectedIds(ids);
+    selectedRef.current = ids;
+    setTool('select');
+  }, [commit]);
+
+  const duplicateSelection = useCallback(() => {
+    const src = selectedObjects();
+    if (!src.length) return;
+    addAndSelect(cloneObjects(src, DUP_OFFSET, DUP_OFFSET));
+  }, [selectedObjects, cloneObjects, addAndSelect]);
+
+  const copySelection = useCallback(() => {
+    const src = selectedObjects();
+    if (!src.length) return false;
+    clipboardRef.current = JSON.parse(JSON.stringify(src));
+    pasteCountRef.current = 0;
+    return true;
+  }, [selectedObjects]);
+
+  const cutSelection = useCallback(() => {
+    if (!copySelection()) return;
+    const ids = new Set(selectedRef.current);
+    commit((prev) => prev.filter((o) => !ids.has(o.id)));
+    setSelectedIds([]);
+    selectedRef.current = [];
+  }, [copySelection, commit]);
+
+  const pasteClipboard = useCallback(() => {
+    const src = clipboardRef.current;
+    if (!src?.length) return false;
+    pasteCountRef.current += 1;
+    const nudge = DUP_OFFSET * pasteCountRef.current;
+    addAndSelect(cloneObjects(src, nudge, nudge));
+    return true;
+  }, [cloneObjects, addAndSelect]);
+
   // ─── View helpers ───
   const toWorld = useCallback((e) => {
     const rect = canvasRef.current.getBoundingClientRect();
@@ -706,11 +765,11 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
   }, [scheduleDraw]);
 
   // ─── Pointer ───
-  const topObjectAt = useCallback((p) => {
+  const topObjectAt = useCallback((p, solid = false) => {
     const slop = HIT_SLOP / viewRef.current.scale;
     const list = objectsRef.current;
     for (let i = list.length - 1; i >= 0; i--) {
-      if (hitTest(list[i], p.x, p.y, slop)) return list[i];
+      if (hitTest(list[i], p.x, p.y, slop, solid)) return list[i];
     }
     return null;
   }, []);
@@ -787,11 +846,14 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
       return;
     }
     if (t === 'text') {
-      openTextEditor(p, null);
+      // Deferred to pointerup: mousedown's default action clears focus after
+      // React commits, which would blur (and so discard) a textarea mounted
+      // here on the way down.
+      dragRef.current = { mode: 'text', start: p };
       return;
     }
     if (t === 'fill') {
-      const hit = topObjectAt(p);
+      const hit = topObjectAt(p, true);
       if (!hit) {
         commitBg(color);                   // clicking empty space paints the backdrop
       } else {
@@ -914,6 +976,10 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
     try { canvasRef.current?.releasePointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     if (!d) return;
 
+    if (d.mode === 'text') {
+      openTextEditor(d.start, null);
+      return;
+    }
     if (d.mode === 'draw') {
       const draft = draftRef.current;
       draftRef.current = null;
@@ -946,7 +1012,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
       }
       scheduleDraw();
     }
-  }, [commit, scheduleDraw]);
+  }, [commit, openTextEditor, scheduleDraw]);
 
   // Trackpad: two-finger scroll pans, ctrl/⌘ + scroll zooms (browser pinch
   // arrives as ctrl+wheel). Bound natively so preventDefault sticks.
@@ -968,6 +1034,20 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
   }, [zoomTo, scheduleDraw]);
 
   // ─── Text ───
+  // Keyed on where the box was opened, not on the draft object, so typing
+  // doesn't re-focus and stomp the caret on every keystroke.
+  const textOpenKey = textDraft ? `${textDraft.id || 'new'}:${textDraft.x}:${textDraft.y}` : null;
+  useEffect(() => {
+    if (!textOpenKey) return undefined;
+    const raf = requestAnimationFrame(() => {
+      const el = textAreaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [textOpenKey]);
+
   const commitText = useCallback(() => {
     const d = textDraft;
     setTextDraft(null);
@@ -1038,13 +1118,18 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
     const onPaste = (e) => {
       if (textDraft) return;
       const item = Array.from(e.clipboardData?.items || []).find((i) => i.type.startsWith('image/'));
-      if (!item) return;
-      e.preventDefault();
-      placeImage(item.getAsFile());
+      if (item) {
+        e.preventDefault();
+        placeImage(item.getAsFile());
+        return;
+      }
+      // No image on the system clipboard — fall back to whatever was copied
+      // inside the board.
+      if (pasteClipboard()) e.preventDefault();
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [placeImage, textDraft]);
+  }, [placeImage, pasteClipboard, textDraft]);
 
   // ─── Keyboard ───
   useEffect(() => {
@@ -1058,6 +1143,9 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
         return;
       }
       if (meta && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+      if (meta && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelection(); return; }
+      if (meta && e.key.toLowerCase() === 'c') { if (copySelection()) e.preventDefault(); return; }
+      if (meta && e.key.toLowerCase() === 'x') { e.preventDefault(); cutSelection(); return; }
       if (meta && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         const all = objectsRef.current.map((o) => o.id);
@@ -1091,7 +1179,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [undo, redo, commit, zoomTo, scheduleDraw]);
+  }, [undo, redo, commit, duplicateSelection, copySelection, cutSelection, zoomTo, scheduleDraw]);
 
   // ─── Export ───
   const exportPng = useCallback(() => {
@@ -1278,7 +1366,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
             {selectedIds.length > 0 && <span style={styles.selCount}>{selectedIds.length} selected</span>}
             <span style={styles.hintText}>
               {tool === 'fill' ? 'Click a shape to fill it · click empty space to set the background'
-                : tool === 'select' ? 'Drag to move · handles to resize · double-click text to edit'
+                : tool === 'select' ? 'Drag to move · handles to resize · ⌘D duplicates · double-click text to edit'
                   : 'Space + drag pans · ⌘ + scroll zooms'}
             </span>
           </div>
@@ -1301,8 +1389,9 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
             {!loaded && <div style={styles.canvasLoading}>Loading board…</div>}
             {textDraft && (
               <textarea
-                autoFocus
+                ref={textAreaRef}
                 value={textDraft.value}
+                placeholder="Type…"
                 onChange={(e) => setTextDraft((d) => ({ ...d, value: e.target.value }))}
                 onBlur={commitText}
                 onKeyDown={(e) => {
