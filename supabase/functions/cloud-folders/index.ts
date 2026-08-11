@@ -42,7 +42,9 @@ Deno.serve(async (req: Request) => {
       .eq("id", user.id)
       .single();
 
-    if (profile?.role !== "admin") {
+    // Admin-tier: directors run contractor onboarding too.
+    const ADMIN_TIER = ["admin", "director", "director_creative", "director_comms"];
+    if (!ADMIN_TIER.includes(profile?.role)) {
       return new Response(JSON.stringify({ error: "Admin access required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

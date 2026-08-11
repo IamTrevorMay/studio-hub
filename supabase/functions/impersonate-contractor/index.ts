@@ -40,7 +40,9 @@ Deno.serve(async (req: Request) => {
 
     const { data: callerProfile } = await userClient
       .from("profiles").select("role").eq("id", user.id).single();
-    if (callerProfile?.role !== "admin") {
+    // Admin-tier: directors run contractor onboarding too.
+    const ADMIN_TIER = ["admin", "director", "director_creative", "director_comms"];
+    if (!ADMIN_TIER.includes(callerProfile?.role)) {
       return json({ error: "Strict admin access required" }, 403);
     }
 

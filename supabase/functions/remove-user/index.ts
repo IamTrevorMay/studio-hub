@@ -42,7 +42,11 @@ Deno.serve(async (req: Request) => {
       .eq("id", user.id)
       .single();
 
-    if (profile?.role !== "admin") {
+    // Admin-tier (admin + director) may remove people; only a full admin may
+    // remove another admin-tier account, so a director can't delete an admin.
+    const ADMIN_TIER = ["admin", "director", "director_creative", "director_comms"];
+    const callerRole = profile?.role;
+    if (!ADMIN_TIER.includes(callerRole)) {
       return new Response(JSON.stringify({ error: "Admin access required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -70,6 +74,20 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+
+    if (callerRole !== "admin") {
+      const { data: target } = await adminClient
+        .from("profiles")
+        .select("role")
+        .eq("id", userId)
+        .single();
+      if (ADMIN_TIER.includes(target?.role)) {
+        return new Response(JSON.stringify({ error: "Only a full admin can remove an admin or director" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     const { error } = await adminClient.auth.admin.deleteUser(userId);
     if (error) {

@@ -7,6 +7,13 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// Who may invite, and whom they may invite. Directors are admin-tier and run
+// contractor/client onboarding, so they can send those invites — but only a
+// full admin can mint another admin-tier account, otherwise a director could
+// promote themselves by inviting a second account.
+const ADMIN_TIER_ROLES = ["admin", "director", "director_creative", "director_comms"];
+const ELEVATED_INVITE_ROLES = new Set(ADMIN_TIER_ROLES);
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -37,14 +44,15 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Check if the user is an admin
+    // Check that the caller is admin-tier
     const { data: profile } = await userClient
       .from("profiles")
       .select("role")
       .eq("id", user.id)
       .single();
 
-    if (profile?.role !== "admin") {
+    const callerRole = profile?.role;
+    if (!ADMIN_TIER_ROLES.includes(callerRole)) {
       return new Response(JSON.stringify({ error: "Admin access required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -61,6 +69,16 @@ Deno.serve(async (req: Request) => {
     }
     const inviteRole = role || "member";
     const normalizedEmail = email.toLowerCase().trim();
+
+    // Privilege escalation guard: a director inviting an admin or another
+    // director would hand out their own tier (or above) without a full admin
+    // ever approving it. The UI hides this path; this is the boundary.
+    if (callerRole !== "admin" && ELEVATED_INVITE_ROLES.has(inviteRole)) {
+      return new Response(JSON.stringify({ error: "Only a full admin can invite admins or directors" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Clients are external customers: no sub-role, no payment plumbing, no
     // Cloud account, no drive-folder assignment.
