@@ -30,6 +30,10 @@ const HANDLE_PX = 9;          // resize handle size, in screen pixels
 const HIT_SLOP = 6;           // extra hit-test tolerance, in screen pixels
 const MAX_IMAGE_WORLD = 520;  // longest side of a freshly dropped image
 const DUP_OFFSET = 24;        // world units a duplicate/paste is nudged by
+const MAX_FILL_PIXELS = 6e6;  // ceiling on the flood-fill work buffer
+const MAX_FILL_SCALE = 2;     // device px per world unit while flood filling
+const FILL_ALPHA = 64;        // alpha at which a pixel counts as a barrier
+const FILL_MARGIN = 24;       // world-unit skirt around the barrier bounds
 const HISTORY_LIMIT = 60;
 const AUTOSAVE_MS = 900;
 
@@ -272,6 +276,115 @@ function drawObject(ctx, o, imgCache, onImageLoad) {
   ctx.restore();
 }
 
+// ─── Flood fill ──────────────────────────────────────────────────────
+//
+// Pen strokes are paths, not regions, so "fill inside this doodle" can't be
+// answered from the geometry. Instead the barrier objects are rasterised into
+// a scratch buffer, a scanline flood runs from the click, and the resulting
+// mask is committed as an image object. Anything the flood can reach that
+// touches the buffer edge is an open region — the caller falls back to
+// painting the board background there, the way Paint floods the whole canvas
+// when you click outside every shape.
+
+function hexToRgb(hex) {
+  let h = String(hex || '#ffffff').replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const n = parseInt(h, 16);
+  if (Number.isNaN(n)) return { r: 255, g: 255, b: 255 };
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+// Barriers are drawn on a transparent buffer, so only alpha matters — a
+// stroke's own color is irrelevant to where the flood stops. The alpha
+// threshold sits low enough that antialiased edges count as solid, which is
+// what stops a fill leaking through a hairline gap.
+function rasterizeBarriers(objs, area, scale, imgCache) {
+  const w = Math.max(1, Math.round(area.w * scale));
+  const h = Math.max(1, Math.round(area.h * scale));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.setTransform(scale, 0, 0, scale, -area.x * scale, -area.y * scale);
+  objs.forEach((o) => drawObject(ctx, o, imgCache, null));
+  return { data: ctx.getImageData(0, 0, w, h).data, w, h };
+}
+
+function floodRegion(mask, seedX, seedY) {
+  const { data, w, h } = mask;
+  if (seedX < 0 || seedY < 0 || seedX >= w || seedY >= h) return null;
+  const blocked = (i) => data[i * 4 + 3] >= FILL_ALPHA;
+  if (blocked(seedY * w + seedX)) return null;
+
+  const filled = new Uint8Array(w * h);
+  const stack = [seedX, seedY];
+  let count = 0;
+  let open = false;
+  let minX = w;
+  let minY = h;
+  let maxX = -1;
+  let maxY = -1;
+
+  while (stack.length) {
+    const y = stack.pop();
+    const x = stack.pop();
+    const row = y * w;
+    if (filled[row + x] || blocked(row + x)) continue;
+
+    let x1 = x;
+    while (x1 >= 0 && !filled[row + x1] && !blocked(row + x1)) x1--;
+    x1++;
+    let x2 = x;
+    while (x2 < w && !filled[row + x2] && !blocked(row + x2)) x2++;
+    x2--;
+
+    if (x1 === 0 || x2 === w - 1 || y === 0 || y === h - 1) open = true;
+    if (x1 < minX) minX = x1;
+    if (x2 > maxX) maxX = x2;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+
+    for (let xx = x1; xx <= x2; xx++) {
+      filled[row + xx] = 1;
+      count++;
+      if (y > 0) {
+        const up = row - w + xx;
+        if (!filled[up] && !blocked(up)) { stack.push(xx, y - 1); }
+      }
+      if (y < h - 1) {
+        const down = row + w + xx;
+        if (!filled[down] && !blocked(down)) { stack.push(xx, y + 1); }
+      }
+    }
+  }
+  return { filled, count, open, minX, minY, maxX, maxY };
+}
+
+// Crops the mask to what was actually filled and paints it in `color`.
+function maskToCanvas(mask, region, color) {
+  const { w } = mask;
+  const cw = region.maxX - region.minX + 1;
+  const ch = region.maxY - region.minY + 1;
+  const c = document.createElement('canvas');
+  c.width = cw;
+  c.height = ch;
+  const ctx = c.getContext('2d');
+  const out = ctx.createImageData(cw, ch);
+  const { r, g, b } = hexToRgb(color);
+  for (let y = 0; y < ch; y++) {
+    for (let x = 0; x < cw; x++) {
+      if (!region.filled[(y + region.minY) * w + (x + region.minX)]) continue;
+      const i = (y * cw + x) * 4;
+      out.data[i] = r;
+      out.data[i + 1] = g;
+      out.data[i + 2] = b;
+      out.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+  return c;
+}
+
 function handlePositions(b) {
   const { x, y, w, h } = b;
   return [
@@ -366,7 +479,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
   const textAreaRef = useRef(null);
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
   const [remoteEdit, setRemoteEdit] = useState(null);
-  const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
 
   // Refs that the draw loop reads — keeps pointer moves off the React path.
@@ -785,6 +898,81 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
     return handlePositions(b).find((h) => Math.abs(p.x - h.x) <= tol && Math.abs(p.y - h.y) <= tol) || null;
   }, [toWorld]);
 
+  // ─── Flood fill ───
+  const uploadCanvas = useCallback(async (canvas) => {
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) return null;
+    const path = `${board.id}/${uid()}.png`;
+    const { error: upErr } = await supabase.storage
+      .from('whiteboard-images')
+      .upload(path, blob, { contentType: 'image/png', upsert: false });
+    if (upErr) {
+      setError(`Fill upload failed: ${upErr.message}`);
+      return null;
+    }
+    return supabase.storage.from('whiteboard-images').getPublicUrl(path).data.publicUrl;
+  }, [board.id]);
+
+  // Returns true when it filled a closed region; false means "open region",
+  // and the caller paints the board background instead.
+  const floodFillAt = useCallback(async (p) => {
+    // Earlier fills are excluded from the barrier pass so a region can be
+    // re-filled with a new color instead of being blocked by its own paint.
+    const barriers = objectsRef.current.filter((o) => o.origin !== 'fill');
+    if (!barriers.length) return false;
+    const bounds = boundsOfAll(barriers);
+    if (!bounds) return false;
+    const area = {
+      x: bounds.x - FILL_MARGIN,
+      y: bounds.y - FILL_MARGIN,
+      w: bounds.w + FILL_MARGIN * 2,
+      h: bounds.h + FILL_MARGIN * 2,
+    };
+    // Outside everything → nothing to be enclosed by.
+    if (p.x < area.x || p.y < area.y || p.x > area.x + area.w || p.y > area.y + area.h) return false;
+
+    const scale = Math.min(MAX_FILL_SCALE, Math.sqrt(MAX_FILL_PIXELS / Math.max(1, area.w * area.h)));
+    let mask;
+    try {
+      mask = rasterizeBarriers(barriers, area, scale, imgCache.current);
+    } catch (err) {
+      // A cross-origin image on the board taints the buffer and getImageData
+      // throws — fall back rather than pretending the fill worked.
+      setError('Could not read the canvas to flood fill (an image blocked it).');
+      return true;
+    }
+
+    const region = floodRegion(mask, Math.round((p.x - area.x) * scale), Math.round((p.y - area.y) * scale));
+    if (!region) return false;
+    if (region.open) return false;
+    // A closed but sub-pixel nook: swallow the click rather than surprising
+    // someone by repainting the whole background.
+    if (region.count < 4) return true;
+
+    setBusy('Filling region…');
+    const cropped = maskToCanvas(mask, region, color);
+    const url = await uploadCanvas(cropped);
+    setBusy(null);
+    if (!url) return true;
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    const obj = {
+      id: uid(),
+      type: 'image',
+      origin: 'fill',
+      url,
+      x: area.x + region.minX / scale,
+      y: area.y + region.minY / scale,
+      w: (region.maxX - region.minX + 1) / scale,
+      h: (region.maxY - region.minY + 1) / scale,
+    };
+    img.onload = () => { imgCache.current.set(url, img); scheduleDraw(); };
+    img.src = url;
+    commit((prev) => [...prev, obj]);
+    return true;
+  }, [color, commit, uploadCanvas, scheduleDraw]);
+
   const eraseAt = useCallback((p, first) => {
     const slop = (HIT_SLOP + 4) / viewRef.current.scale;
     const list = objectsRef.current;
@@ -854,16 +1042,21 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
     }
     if (t === 'fill') {
       const hit = topObjectAt(p, true);
-      if (!hit) {
-        commitBg(color);                   // clicking empty space paints the backdrop
-      } else {
+      // A vector shape knows its own interior — recolor it directly and skip
+      // the raster path, so the result stays editable geometry.
+      if (hit && hit.type !== 'image') {
         commit((prev) => prev.map((o) => {
           if (o.id !== hit.id) return o;
           if (o.type === 'rect' || o.type === 'ellipse') return { ...o, fill: color };
-          if (o.type === 'image') return o;
           return { ...o, color };
         }));
+        return;
       }
+      // Placed artwork isn't paintable; an earlier fill is (it re-floods).
+      if (hit && hit.origin !== 'fill') return;
+      floodFillAt(p).then((filled) => {
+        if (!filled) commitBg(color);      // open region → paint the backdrop
+      });
       return;
     }
 
@@ -889,7 +1082,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
       dragRef.current = { mode: 'marquee', start: p, additive: e.shiftKey, base: selectedRef.current };
     }
     scheduleDraw();
-  }, [color, width, fill, textDraft, toWorld, topObjectAt, handleAt, commit, commitBg, eraseAt, openTextEditor, scheduleDraw]);
+  }, [color, width, fill, textDraft, toWorld, topObjectAt, handleAt, commit, commitBg, eraseAt, floodFillAt, openTextEditor, scheduleDraw]);
 
   const onPointerMove = useCallback((e) => {
     const d = dragRef.current;
@@ -1078,7 +1271,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
   // ─── Images ───
   const placeImage = useCallback(async (file) => {
     if (!file || !file.type?.startsWith('image/')) return;
-    setUploading(true);
+    setBusy("Uploading image…");
     setError(null);
     const ext = (file.name?.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
     const path = `${board.id}/${uid()}.${ext}`;
@@ -1086,7 +1279,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
       .from('whiteboard-images')
       .upload(path, file, { contentType: file.type, upsert: false });
     if (upErr) {
-      setUploading(false);
+      setBusy(null);
       setError(`Image upload failed: ${upErr.message}`);
       return;
     }
@@ -1107,12 +1300,13 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
       commit((prev) => [...prev, obj]);
       setSelectedIds([obj.id]);
       selectedRef.current = [obj.id];
-      setUploading(false);
+      setBusy(null);
       scheduleDraw();
     };
-    img.onerror = () => { setUploading(false); setError('Image uploaded but could not be loaded.'); };
+    img.onerror = () => { setBusy(null); setError('Image uploaded but could not be loaded.'); };
     img.src = url;
   }, [board.id, commit, scheduleDraw]);
+
 
   useEffect(() => {
     const onPaste = (e) => {
@@ -1237,7 +1431,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
           {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Save failed' : ''}
         </span>
         <div style={{ flex: 1 }} />
-        <label style={{ ...styles.iconBtn, cursor: uploading ? 'wait' : 'pointer' }} title="Add an image (or just paste one)">
+        <label style={{ ...styles.iconBtn, cursor: busy ? 'wait' : 'pointer' }} title="Add an image (or just paste one)">
           <Icon name="image" />
           <input
             type="file"
@@ -1365,7 +1559,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
             <div style={{ flex: 1 }} />
             {selectedIds.length > 0 && <span style={styles.selCount}>{selectedIds.length} selected</span>}
             <span style={styles.hintText}>
-              {tool === 'fill' ? 'Click a shape to fill it · click empty space to set the background'
+              {tool === 'fill' ? 'Click a shape to fill it · click inside a closed drawing to flood it · open space paints the background'
                 : tool === 'select' ? 'Drag to move · handles to resize · ⌘D duplicates · double-click text to edit'
                   : 'Space + drag pans · ⌘ + scroll zooms'}
             </span>
@@ -1414,7 +1608,7 @@ function BoardCanvas({ board, onBack, onTitleChange }) {
               <button onClick={() => zoomTo(viewRef.current.scale * 1.25)} style={styles.zoomBtn} title="Zoom in">+</button>
               <button onClick={fitToContent} style={styles.zoomFit} title="Fit the drawing to the screen">Fit</button>
             </div>
-            {uploading && <div style={styles.uploadPill}>Uploading image…</div>}
+            {busy && <div style={styles.uploadPill}>{busy}</div>}
           </div>
         </div>
       </div>
