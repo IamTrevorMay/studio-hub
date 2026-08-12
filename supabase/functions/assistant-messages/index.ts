@@ -30,7 +30,9 @@ Deno.serve(async (req) => {
 
   const auth = await getUserFromJwt(req);
   if (!auth) return resp({ error: "Unauthorized" }, 401);
-  if (!auth.isAdmin) return resp({ error: "Admin only" }, 403);
+  // Strict admin: this endpoint was admin-only before isAdmin became
+  // admin-tier, and directors are not meant to reach it.
+  if (!auth.isStrictAdmin) return resp({ error: "Admin only" }, 403);
 
   let since: string | null = null;
   let limit = 200;

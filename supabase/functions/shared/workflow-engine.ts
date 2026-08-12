@@ -48,9 +48,17 @@ export function getAdminClient(): SupabaseClient {
 
 // ─── Auth helper ───────────────────────────────────────────────
 
+// Admin-tier = admin + director, matching the DB's is_admin() helper and the
+// client's isAdminTier. `isAdmin` used to be a literal role === 'admin' check,
+// which silently locked directors out of every function gated on it (a
+// director assigning a task got a 403 while the button was right there).
+// Callers that must stay admin-only — the assistant and mailer endpoints —
+// check `isStrictAdmin` instead.
+const ADMIN_TIER_ROLES = ["admin", "director", "director_creative", "director_comms"];
+
 export async function getUserFromJwt(
   req: Request,
-): Promise<{ userId: string; isAdmin: boolean } | null> {
+): Promise<{ userId: string; role: string | null; isAdmin: boolean; isStrictAdmin: boolean } | null> {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return null;
 
@@ -69,7 +77,13 @@ export async function getUserFromJwt(
     .eq("id", user.id)
     .single();
 
-  return { userId: user.id, isAdmin: profile?.role === "admin" };
+  const role = profile?.role ?? null;
+  return {
+    userId: user.id,
+    role,
+    isAdmin: ADMIN_TIER_ROLES.includes(role ?? ""),
+    isStrictAdmin: role === "admin",
+  };
 }
 
 // ─── CORS ──────────────────────────────────────────────────────

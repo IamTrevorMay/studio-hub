@@ -63,7 +63,9 @@ Deno.serve(async (req) => {
   if (!isInternal) {
     const auth = await getUserFromJwt(req);
     if (!auth) return jsonResp({ error: "Unauthorized" }, 401);
-    if (!auth.isAdmin) return jsonResp({ error: "Admin only" }, 403);
+    // Strict admin: this endpoint was admin-only before isAdmin became
+  // admin-tier, and directors are not meant to reach it.
+  if (!auth.isStrictAdmin) return jsonResp({ error: "Admin only" }, 403);
   }
 
   let body: { campaign_id?: string; test_recipients?: string[] };
