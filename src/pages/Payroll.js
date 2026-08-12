@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { ptDateToUtcISO } from '../lib/ptDate';
+import { callWorkflowFn } from '../lib/workflowApi';
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
 
@@ -129,6 +130,11 @@ export default function Payroll() {
   const [oneOffs, setOneOffs] = useState([]);
   const [paidMap, setPaidMap] = useState({});
   const [unbilledUploads, setUnbilledUploads] = useState([]);
+  // Task hours reported this period (tasks flagged requires_hours).
+  const [hourTasks, setHourTasks] = useState([]);
+  const [editingHoursId, setEditingHoursId] = useState(null); // task id
+  const [hoursDraft, setHoursDraft] = useState('');
+  const [savingHours, setSavingHours] = useState(false);
   const [billingIds, setBillingIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -152,7 +158,7 @@ export default function Payroll() {
 
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
-    const [contractorsRes, fpRes, assignmentsRes, membersRes, salariesRes, oneOffsRes, paidRes, unbilledRes] = await Promise.all([
+    const [contractorsRes, fpRes, assignmentsRes, membersRes, salariesRes, oneOffsRes, paidRes, unbilledRes, hourTasksRes] = await Promise.all([
       supabase.from('profiles').select('id, full_name, avatar_url, title, pay_method, pay_method_detail').in('role', ['contractor', 'freelancer']),
       supabase.from('contractor_profiles').select('id, payment_type, rate'),
       supabase.from('contractor_assignments')
@@ -167,6 +173,17 @@ export default function Payroll() {
       // Drive uploads with attribution but no assignment row this period — the
       // safety net for the "batch never entered" gap (see drive-watch-poll).
       supabase.rpc('unbilled_drive_uploads', { p_start: selectedPeriod.start, p_end: selectedPeriod.end }),
+      // Tasks flagged "Report Hours to Complete" and closed this period. These
+      // are what an hourly member's pay is built from; for salaried members
+      // they're shown for visibility only.
+      supabase.from('tasks')
+        .select('id, title, assignee_id, hours_spent, completed_at')
+        .eq('requires_hours', true)
+        .eq('status', 'complete')
+        .not('hours_spent', 'is', null)
+        .gte('completed_at', ptDateToUtcISO(selectedPeriod.start))
+        .lt('completed_at', ptDateToUtcISO(selectedPeriod.end, true))
+        .order('completed_at', { ascending: true }),
     ]);
     const HIDDEN = ['Test1', 'Test2'];
     const notHidden = p => !HIDDEN.includes(p.full_name);
@@ -181,6 +198,7 @@ export default function Payroll() {
     (paidRes.data || []).forEach(r => { pm[r.profile_id] = true; });
     setPaidMap(pm);
     setUnbilledUploads(unbilledRes.error ? [] : (unbilledRes.data || []));
+    setHourTasks(hourTasksRes.error ? [] : (hourTasksRes.data || []));
     setLoading(false);
     setRefreshing(false);
   }, [selectedPeriod]);
@@ -215,21 +233,45 @@ export default function Payroll() {
     return { ...c, fp, assignments: rows, total };
   });
 
-  // Salaried member payroll
+  const hourTasksByAssignee = {};
+  hourTasks.forEach(t => {
+    if (!t.assignee_id) return;
+    (hourTasksByAssignee[t.assignee_id] || (hourTasksByAssignee[t.assignee_id] = [])).push(t);
+  });
+
+  // Member payroll. A member is on exactly one pay type: per period, yearly, or
+  // hourly — where the period's pay is the hours they reported on tasks.
   const memberPayroll = salariedMembers.map(m => {
     const salary = salaryMap[m.id];
-    let periodPay = 0;
-    if (salary) {
+    const isHourly = salary?.salary_type === 'hourly';
+    let salaryPay = 0;
+    if (salary && !isHourly) {
       if (salary.salary_type === 'per_period') {
-        periodPay = salary.amount_cents;
+        salaryPay = salary.amount_cents;
       } else {
         // yearly: (amount / 260) * business days in period
         const dailyRate = salary.amount_cents / 260;
-        periodPay = Math.round(dailyRate * businessDays);
+        salaryPay = Math.round(dailyRate * businessDays);
       }
     }
-    return { ...m, salary, periodPay };
+    const rateCents = isHourly ? salary.amount_cents : null;
+    const myHourTasks = hourTasksByAssignee[m.id] || [];
+    const hoursTotal = myHourTasks.reduce((sum, t) => sum + Number(t.hours_spent || 0), 0);
+    // Salaried members' hours are tracked but don't move their pay — only an
+    // hourly member's period total is built from them.
+    const hoursPay = rateCents ? Math.round(hoursTotal * rateCents) : 0;
+    return {
+      ...m, salary, salaryPay, rateCents, isHourly,
+      hourTasks: myHourTasks, hoursTotal, hoursPay,
+      periodPay: salaryPay + hoursPay,
+    };
   });
+
+  // Hours reported by contractors are logged but NOT paid here — contractors
+  // bill through their own assignments, and paying both would double up.
+  const contractorHourTasks = contractors
+    .map(c => ({ contractor: c, tasks: hourTasksByAssignee[c.id] || [] }))
+    .filter(r => r.tasks.length > 0);
 
   const contractorTotal = contractorPayroll.reduce((sum, c) => sum + c.total, 0);
   const salariedTotal = memberPayroll.reduce((sum, m) => sum + m.periodPay, 0);
@@ -237,6 +279,28 @@ export default function Payroll() {
   const grandTotal = contractorTotal + salariedTotal + oneOffTotal;
 
   // ── Salary CRUD ─────────────────────────────────────────────────
+
+  // Admin correction of hours the member reported at completion.
+  async function handleSaveHours(taskId) {
+    const trimmed = hoursDraft.trim();
+    const n = trimmed === '' ? null : Number(trimmed);
+    if (n !== null && (!isFinite(n) || n <= 0 || n > 500)) return;
+    setSavingHours(true);
+    try {
+      await callWorkflowFn('workflow-update-task', {
+        task_id: taskId,
+        action: 'set_hours',
+        hours_spent: n,
+      });
+      setEditingHoursId(null);
+      setHoursDraft('');
+      await fetchData(true);
+    } catch (err) {
+      console.error('Save hours failed:', err);
+    } finally {
+      setSavingHours(false);
+    }
+  }
 
   async function handleSaveSalary(profileId) {
     setSavingSalary(true);
@@ -660,7 +724,9 @@ export default function Payroll() {
                       <span style={styles.salaryInfo}>
                         {m.salary.salary_type === 'yearly'
                           ? `${formatCents(m.salary.amount_cents)}/yr`
-                          : `${formatCents(m.salary.amount_cents)}/period`}
+                          : m.salary.salary_type === 'hourly'
+                            ? `${formatCents(m.salary.amount_cents)}/hr`
+                            : `${formatCents(m.salary.amount_cents)}/period`}
                       </span>
                     )}
                   </div>
@@ -686,6 +752,66 @@ export default function Payroll() {
 
                 {renderPayMethodEditRow(m.id)}
 
+                {/* Reported task hours for this period */}
+                {m.hourTasks.length > 0 && (
+                  <div style={styles.hoursBlock}>
+                    <div style={styles.hoursHeader}>
+                      <span style={styles.hoursHeaderLabel}>
+                        REPORTED TASK HOURS · {m.hoursTotal}h
+                      </span>
+                      <span style={styles.hoursHeaderTotal}>
+                        {m.isHourly
+                          ? formatCents(m.hoursPay)
+                          : m.salary ? 'tracked only — not hourly' : 'no pay type set'}
+                      </span>
+                    </div>
+                    {m.hourTasks.map(t => (
+                      <div key={t.id} style={styles.hoursRow}>
+                        <span style={styles.hoursRowTitle}>{t.title}</span>
+                        {editingHoursId === t.id ? (
+                          <span style={styles.hoursEditWrap}>
+                            <input
+                              type="number"
+                              step="0.25"
+                              value={hoursDraft}
+                              onChange={(e) => setHoursDraft(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveHours(t.id); }}
+                              style={styles.hoursInput}
+                              autoFocus
+                            />
+                            <button
+                              style={styles.hoursSaveBtn}
+                              disabled={savingHours}
+                              onClick={() => handleSaveHours(t.id)}
+                            >
+                              Save
+                            </button>
+                            <button
+                              style={styles.hoursCancelBtn}
+                              onClick={() => { setEditingHoursId(null); setHoursDraft(''); }}
+                            >
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            style={styles.hoursValueBtn}
+                            title="Edit reported hours"
+                            onClick={() => { setEditingHoursId(t.id); setHoursDraft(String(t.hours_spent)); }}
+                          >
+                            {t.hours_spent}h
+                            {m.rateCents != null && (
+                              <span style={styles.hoursRowAmount}>
+                                {formatCents(Math.round(Number(t.hours_spent) * m.rateCents))}
+                              </span>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {isEditing && (
                   <div style={styles.salaryFormRow}>
                     <select
@@ -695,13 +821,18 @@ export default function Payroll() {
                     >
                       <option value="yearly">Yearly</option>
                       <option value="per_period">Per Period</option>
+                      <option value="hourly">Hourly</option>
                     </select>
                     <div style={styles.salaryInputWrap}>
                       <span style={styles.dollarSign}>$</span>
                       <input
                         type="number"
                         step="0.01"
-                        placeholder={salaryForm.salary_type === 'yearly' ? 'Annual salary' : 'Per period amount'}
+                        placeholder={
+                          salaryForm.salary_type === 'yearly' ? 'Annual salary'
+                            : salaryForm.salary_type === 'hourly' ? 'Rate per hour'
+                              : 'Per period amount'
+                        }
                         value={salaryForm.amount}
                         onChange={(e) => setSalaryForm(f => ({ ...f, amount: e.target.value }))}
                         style={styles.salaryInput}
@@ -727,6 +858,37 @@ export default function Payroll() {
               </div>
             );
           })}
+
+          {/* Contractor-reported task hours: logged for visibility, not paid
+              here — contractors bill through their own assignments, so paying
+              these too would double up. */}
+          {contractorHourTasks.length > 0 && (
+            <div style={{ ...styles.card, marginTop: 20, borderColor: 'rgba(245,158,11,0.25)' }}>
+              <div style={styles.hoursBlock}>
+                <div style={styles.hoursHeader}>
+                  <span style={{ ...styles.hoursHeaderLabel, color: '#f59e0b' }}>
+                    CONTRACTOR TASK HOURS · NOT PAID HERE
+                  </span>
+                </div>
+                <p style={{ ...styles.hoursRowTitle, whiteSpace: 'normal', margin: '0 0 8px' }}>
+                  These came from member-style tasks. Pay them through the contractor's
+                  assignments if they're billable.
+                </p>
+                {contractorHourTasks.map(({ contractor, tasks }) => (
+                  <div key={contractor.id}>
+                    {tasks.map(t => (
+                      <div key={t.id} style={styles.hoursRow}>
+                        <span style={styles.hoursRowTitle}>
+                          {contractor.full_name} — {t.title}
+                        </span>
+                        <span style={{ ...styles.hoursValueBtn, cursor: 'default' }}>{t.hours_spent}h</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ONE-OFF ITEMS */}
           <div style={{ ...styles.sectionHeader, marginTop: 36 }}>
@@ -1179,6 +1341,101 @@ const styles = {
     fontSize: 11,
     color: 'rgba(255,255,255,0.4)',
     flexShrink: 0,
+  },
+  // Reported task hours (tasks.requires_hours)
+  hoursBlock: {
+    padding: '10px 18px 12px',
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+  },
+  hoursHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  hoursHeaderLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    color: 'rgba(255,255,255,0.35)',
+  },
+  hoursHeaderTotal: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  hoursRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: '4px 0',
+  },
+  hoursRowTitle: {
+    fontSize: 12.5,
+    color: 'rgba(255,255,255,0.6)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  hoursValueBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    background: 'none',
+    border: 'none',
+    padding: '2px 4px',
+    borderRadius: 5,
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12.5,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+    flexShrink: 0,
+  },
+  hoursRowAmount: {
+    color: 'rgba(255,255,255,0.45)',
+    fontWeight: 500,
+    minWidth: 62,
+    textAlign: 'right',
+  },
+  hoursEditWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  hoursInput: {
+    width: 76,
+    padding: '4px 8px',
+    borderRadius: 6,
+    border: '1px solid rgba(255,255,255,0.15)',
+    background: 'rgba(0,0,0,0.25)',
+    color: '#fff',
+    fontSize: 12.5,
+    fontFamily: 'DM Sans, sans-serif',
+    outline: 'none',
+  },
+  hoursSaveBtn: {
+    padding: '4px 10px',
+    borderRadius: 6,
+    border: 'none',
+    background: colors.accent,
+    color: '#fff',
+    fontSize: 11.5,
+    fontWeight: 700,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+  },
+  hoursCancelBtn: {
+    padding: '4px 8px',
+    borderRadius: 6,
+    border: '1px solid rgba(255,255,255,0.12)',
+    background: 'none',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 11.5,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
   },
   editBtn: {
     padding: '5px 12px',

@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { callWorkflowFn } from '../lib/workflowApi';
 import SprintGoals from './SprintGoals';
 import SprintRetroModal from './SprintRetroModal';
+import HoursPromptModal from './HoursPromptModal';
 import { colors } from '../lib/styleTokens';
 
 const SPRINT_COLUMNS = [
@@ -584,6 +585,10 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
   const [loading, setLoading] = useState(true);
   const [editingTask, setEditingTask] = useState(null);
   const [cardMenu, setCardMenu] = useState(null); // { taskId, x, y }
+  // { task, cardId, prevStatus, signOff } — set when a card moved to Done is
+  // linked to a task flagged "Report Hours to Complete".
+  const [hoursPrompt, setHoursPrompt] = useState(null);
+  const [hoursSubmitting, setHoursSubmitting] = useState(false);
   const isNewTaskRef = useRef(false);
   const [projects, setProjects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
@@ -1172,10 +1177,23 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
         let cur = lt;
         if (lt.id) {
           const { data: fresh } = await supabase.from('tasks')
-            .select('status, requires_sign_off').eq('id', lt.id).maybeSingle();
+            .select('status, requires_sign_off, requires_hours, hours_spent, title')
+            .eq('id', lt.id).maybeSingle();
           if (fresh) cur = fresh;
         }
         if (cur.status === 'active') {
+          // "Report Hours to Complete": the server rejects a completion with no
+          // hours, so ask here instead of firing a call that would 400 and
+          // leave the card sitting in Done with the task still open.
+          if (cur.requires_hours && cur.hours_spent == null) {
+            setHoursPrompt({
+              task: { id: task.task_id, title: cur.title || task.content },
+              cardId: draggableId,
+              prevStatus: task.status,
+              signOff: !!cur.requires_sign_off,
+            });
+            return;
+          }
           const action = cur.requires_sign_off ? 'sign_off' : undefined;
           callWorkflowFn('workflow-complete-task', { task_id: task.task_id, action }).catch(err =>
             console.error('Sprint done → workflow-complete-task failed:', err)
@@ -1247,6 +1265,42 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
 
   return (
     <div style={sectionStyle}>
+      {/* Hours report, when a card whose linked task requires hours hits Done.
+          Cancelling puts the card back where it came from — the task can't
+          complete without the number, so leaving it in Done would lie. */}
+      <HoursPromptModal
+        open={!!hoursPrompt}
+        task={hoursPrompt?.task}
+        submitting={hoursSubmitting}
+        onCancel={async () => {
+          const p = hoursPrompt;
+          setHoursPrompt(null);
+          if (!p) return;
+          setTasks(ts => ts.map(t => (t.id === p.cardId ? { ...t, status: p.prevStatus } : t)));
+          await supabase.from('personal_tasks')
+            .update({ status: p.prevStatus, updated_at: new Date().toISOString() })
+            .eq('id', p.cardId);
+          if (onBoardChange) onBoardChange();
+        }}
+        onSubmit={async (hours) => {
+          const p = hoursPrompt;
+          if (!p) return;
+          setHoursSubmitting(true);
+          try {
+            await callWorkflowFn('workflow-complete-task', {
+              task_id: p.task.id,
+              action: p.signOff ? 'sign_off' : undefined,
+              payload: { hours_spent: hours },
+            });
+            setHoursPrompt(null);
+          } catch (err) {
+            console.error('Sprint done → complete with hours failed:', err);
+          } finally {
+            setHoursSubmitting(false);
+          }
+        }}
+      />
+
       {/* ── Header: Sprint title + week selector ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

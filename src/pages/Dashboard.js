@@ -17,6 +17,7 @@ import SprintPanel from '../components/SprintPanel';
 import NotificationSettings from '../components/NotificationSettings';
 import DailyBriefingModal from '../components/DailyBriefingModal';
 import MyTasks from './MyTasks';
+import AssignmentMenuButton from '../components/AssignmentMenuButton';
 import backdropDismiss from '../lib/backdropDismiss';
 
 const STATUS_COLORS = {
@@ -226,6 +227,9 @@ export default function Dashboard({ onNavigate }) {
 
   // Unread contractor-comment notifications surfaced as cards in My Tasks (admin only)
   const [assignmentCommentNotifs, setAssignmentCommentNotifs] = useState([]);
+
+  // Bumped by the My Tasks "+ Assignment" button to remount the embedded list.
+  const [myTasksRefresh, setMyTasksRefresh] = useState(0);
 
   const fetchAssignmentCommentNotifs = useCallback(async () => {
     if (!isAdmin || !profile?.id) return;
@@ -1497,7 +1501,16 @@ export default function Dashboard({ onNavigate }) {
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Today</h2>
         <div style={styles.itineraryCard}>
-          <h3 style={styles.subSectionTitle}>My Tasks</h3>
+          <div style={styles.subSectionHeader}>
+            <h3 style={{ ...styles.subSectionTitle, margin: 0 }}>My Tasks</h3>
+            {isAdmin && (
+              <AssignmentMenuButton
+                compact
+                currentUserId={profile?.id}
+                onCreated={() => setMyTasksRefresh(n => n + 1)}
+              />
+            )}
+          </div>
           {assignmentCommentNotifs.map(notif => (
             <div key={notif.id} style={styles.assignmentCommentCard}>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -1575,7 +1588,9 @@ export default function Dashboard({ onNavigate }) {
               </div>
             );
           })}
-          <MyTasks embedded onNavigate={onNavigate} />
+          {/* Remounts after an assignment is created so a self-assigned task
+              shows up without a page refresh. */}
+          <MyTasks key={myTasksRefresh} embedded onNavigate={onNavigate} />
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '16px 0' }} />
           {renderTodaySchedule()}
           {renderTodoList()}
@@ -2447,6 +2462,13 @@ const styles = {
     margin: '0 0 16px 0',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
+  },
+  subSectionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '12px',
+    margin: '0 0 10px 0',
   },
   subSectionTitle: {
     fontSize: '13px',

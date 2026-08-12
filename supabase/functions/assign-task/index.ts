@@ -52,6 +52,9 @@ Deno.serve(async (req: Request) => {
     const notes = ((body.notes as string) || "").trim() || null;
     const linkUrl = ((body.link_url as string) || "").trim() || null;
     const navTarget = ((body.nav_target as string) || "").trim() || null;
+    // "Report Hours to Complete" — assignee must report hours before the task
+    // can be closed; those hours are paid in Payroll at their hourly rate.
+    const requiresHours = body.requires_hours === true;
 
     // Optional template: reuse a workflow block's action/modal as a one-off.
     // Whitelisted so a client can't set an arbitrary step_key.
@@ -96,6 +99,7 @@ Deno.serve(async (req: Request) => {
       nav_target: navTarget,
       related_entity_type: relType,
       related_entity_id: relId,
+      requires_hours: requiresHours,
       created_by: auth.userId,
       position: 0,
     }));

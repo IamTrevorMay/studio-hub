@@ -8,6 +8,7 @@ import { getStepAction } from '../lib/workflowSteps';
 import { getWorkflowModal } from '../lib/workflowModals';
 import ResearchScopeModal from '../components/ResearchScopeModal';
 import AlreadyResearchingModal from '../components/AlreadyResearchingModal';
+import HoursPromptModal from '../components/HoursPromptModal';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 
@@ -206,6 +207,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
   const [scopeModalTask, setScopeModalTask] = useState(null); // "Set Research Scope" task
   const [skipScopeTask, setSkipScopeTask] = useState(null); // scope task being skipped via "who's already researching"
   const [confirmTask, setConfirmTask] = useState(null); // task pending confirmation
+  const [hoursPrompt, setHoursPrompt] = useState(null); // { task, payload } awaiting an hours report
   const [confirmNotes, setConfirmNotes] = useState({}); // { [taskId]: notes } added when approving an automation gate
   const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
   const [projectMeta, setProjectMeta] = useState({}); // { [project_id]: { name, type } }
@@ -464,7 +466,14 @@ export default function MyTasks({ onNavigate, embedded = false }) {
 
   // ─── Actions ──────────────────────────────────────────────
 
+  // Tasks flagged "Report Hours to Complete" can't close until the assignee
+  // reports hours. Gating here (rather than at each button) covers every path
+  // that ends in handleComplete — primary action, confirm, and step modals.
   const handleComplete = async (task, payload = {}) => {
+    if (task.requires_hours && payload.hours_spent == null && task.hours_spent == null) {
+      setHoursPrompt({ task, payload });
+      return;
+    }
     setCompletingIds(prev => new Set(prev).add(task.id));
     try {
       await callWorkflowFn('workflow-complete-task', { task_id: task.id, payload });
@@ -1323,6 +1332,21 @@ export default function MyTasks({ onNavigate, embedded = false }) {
           const t = skipScopeTask;
           setSkipScopeTask(null);
           if (t) await handleSkip(t);
+        }}
+      />
+
+      {/* "Report Hours to Complete" — required before the task can close */}
+      <HoursPromptModal
+        open={!!hoursPrompt}
+        task={hoursPrompt?.task}
+        submitting={!!hoursPrompt && completingIds.has(hoursPrompt.task.id)}
+        onCancel={() => setHoursPrompt(null)}
+        onSubmit={(hours) => {
+          const pending = hoursPrompt;
+          setHoursPrompt(null);
+          if (pending) {
+            handleComplete(pending.task, { ...(pending.payload || {}), hours_spent: hours });
+          }
         }}
       />
 

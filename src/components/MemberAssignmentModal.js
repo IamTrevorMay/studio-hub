@@ -6,32 +6,7 @@ import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
 
-const TEAM_ROLES = ['admin', 'director', 'member', 'director_creative', 'director_comms'];
-
 const RESEARCH_NOTE = 'Fill out a research brief for an upcoming project.';
-
-const PAGES = [
-  { key: 'dashboard', label: 'Dashboard' },
-  { key: 'projects', label: 'Projects' },
-  { key: 'write', label: 'Write' },
-  { key: 'production', label: 'Beat Sheet' },
-  { key: 'screenwriter', label: 'Screenwriter' },
-  { key: 'teleprompter', label: 'Teleprompter' },
-  { key: 'telestration', label: 'Telestrator' },
-  { key: 'post_show', label: 'Video Tools' },
-  { key: 'timeline', label: 'Timeline' },
-  { key: 'reviews', label: 'Reviews' },
-  { key: 'organize', label: 'Organize' },
-  { key: 'deliverables', label: 'Deliverables' },
-  { key: 'resources', label: 'Resources' },
-  { key: 'research', label: 'Research' },
-  { key: 'calendar', label: 'Calendar' },
-  { key: 'analytics', label: 'Analytics' },
-  { key: 'business_dev', label: 'Roadmap' },
-  { key: 'invoicing', label: 'Invoicing' },
-  { key: 'channels', label: 'Channels' },
-  { key: 'messages', label: 'Messages' },
-];
 
 const TASK_TEMPLATES = [
   { key: 'write_ad_reads', label: 'Write Ad Read', entity: 'deliverable', titlePrefix: 'Write ad read' },
@@ -50,8 +25,9 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [link, setLink] = useState('');
-  const [navTarget, setNavTarget] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [requiresHours, setRequiresHours] = useState(false);
+  const [assigneeMenuOpen, setAssigneeMenuOpen] = useState(false);
   const [template, setTemplate] = useState('');
   const [recordId, setRecordId] = useState('');
   const [recordSearch, setRecordSearch] = useState('');
@@ -70,7 +46,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
       const [profRes, delivRows, campRes] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, full_name, email, role')
+          .select('id, full_name, email, role, title')
           .order('full_name', { ascending: true, nullsFirst: false }),
         fetchAllRows(
           supabase
@@ -117,12 +93,29 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
     if (open) fetchData();
   }, [open, fetchData]);
 
-  const team = useMemo(() => profiles.filter(p => TEAM_ROLES.includes(p.role)), [profiles]);
+  // Assignable people: members and contractors only. Admins/directors hand out
+  // this work rather than receive it, so they're not options here.
+  const team = useMemo(() => profiles.filter(p => p.role === 'member'), [profiles]);
   const contractors = useMemo(() => profiles.filter(p => p.role === 'contractor' || p.role === 'freelancer'), [profiles]);
 
   const toggleAssignee = (id) => {
     setAssignees(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
+
+  const personName = useCallback(
+    (id) => {
+      const p = profiles.find(x => x.id === id);
+      return p ? (p.full_name || p.email) : 'Unknown';
+    },
+    [profiles],
+  );
+
+  // Label on the closed dropdown: names while short, a count once it isn't.
+  const assigneeLabel = assignees.length === 0
+    ? 'Select who this goes to…'
+    : assignees.length <= 2
+      ? assignees.map(personName).join(', ')
+      : `${assignees.length} people selected`;
 
   const activeTemplate = TASK_TEMPLATES.find(t => t.key === template) || null;
   const recordOptions = useMemo(() => {
@@ -171,7 +164,8 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
     : !!researchForm.big_question.trim());
 
   const resetForm = () => {
-    setTitle(''); setAssignees([]); setDueDate(''); setNotes(''); setLink(''); setNavTarget('');
+    setTitle(''); setAssignees([]); setDueDate(''); setNotes(''); setLink('');
+    setRequiresHours(false); setAssigneeMenuOpen(false);
     setTemplate(''); setRecordId(''); setRecordSearch('');
     setResearchMode('existing'); setSelectedDocUrl(''); setResearchForm(emptyResearchForm());
   };
@@ -205,7 +199,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
           due_date: dueDate || null,
           notes: notes.trim() || null,
           link_url: linkUrl,
-          nav_target: navTarget || null,
+          requires_hours: requiresHours,
           ...(activeTemplate ? (isResearch ? {
             step_key: activeTemplate.key,
           } : {
@@ -254,14 +248,27 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
             autoFocus
           />
 
-          <div style={styles.fieldLabel}>Template (optional)</div>
-          <select style={styles.input} value={template} onChange={e => onPickTemplate(e.target.value)}>
-            <option value="">— Plain task —</option>
-            {TASK_TEMPLATES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-          </select>
+          <div style={styles.field}>
+            <div style={styles.fieldLabel}>Template (optional)</div>
+            <select style={styles.input} value={template} onChange={e => onPickTemplate(e.target.value)}>
+              <option value="">— Plain task —</option>
+              {TASK_TEMPLATES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </div>
+
+          <div style={styles.field}>
+            <div style={styles.fieldLabel}>Description (optional)</div>
+            <textarea
+              style={styles.textarea}
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Any context or instructions…"
+              rows={3}
+            />
+          </div>
 
           {activeTemplate && !isResearch && (
-            <div style={{ marginTop: 10 }}>
+            <div style={styles.field}>
               <div style={styles.fieldLabel}>
                 {activeTemplate.entity === 'campaign' ? 'Campaign' : 'Deliverable'}
                 {!recordId && <span style={{ color: '#f87171', marginLeft: 6 }}>required</span>}
@@ -293,7 +300,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
           )}
 
           {isResearch && (
-            <div style={{ marginTop: 10 }}>
+            <div style={styles.field}>
               <div style={styles.fieldLabel}>
                 Research document
                 {!researchReady && <span style={{ color: '#f87171', marginLeft: 6 }}>required</span>}
@@ -321,7 +328,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
                   {researchDocs.map(d => <option key={d.id} value={d.url}>{d.name}</option>)}
                 </select>
               ) : (
-                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 16 }}>
                   {RESEARCH_FIELDS.map(f => (
                     <div key={f.key}>
                       <div style={styles.fieldLabel}>
@@ -350,11 +357,43 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
             </div>
           )}
 
-          <div style={{ ...styles.fieldLabel, marginTop: 12 }}>
-            Assign to {assignees.length > 0 && <span style={styles.countPill}>{assignees.length}</span>}
+          <div style={styles.field}>
+            <div style={styles.fieldLabel}>
+              Assign to {assignees.length > 0 && <span style={styles.countPill}>{assignees.length}</span>}
+            </div>
+            <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              style={styles.selectTrigger}
+              onClick={() => setAssigneeMenuOpen(v => !v)}
+            >
+              <span style={assignees.length ? styles.selectValue : styles.selectPlaceholder}>
+                {assigneeLabel}
+              </span>
+              <span style={styles.selectCaret}>▾</span>
+            </button>
+
+              {assigneeMenuOpen && (
+                <>
+                  <div style={styles.menuBackdrop} onClick={() => setAssigneeMenuOpen(false)} />
+                  {/* Stays open on pick — one task is created per person checked. */}
+                  <div style={styles.assigneeMenu}>
+                    <AssigneeGroup
+                      label="Members" people={team}
+                      selected={assignees} onToggle={toggleAssignee}
+                    />
+                    <AssigneeGroup
+                      label="Contractors" people={contractors}
+                      selected={assignees} onToggle={toggleAssignee}
+                    />
+                    {team.length === 0 && contractors.length === 0 && (
+                      <div style={styles.menuEmpty}>No assignable people found</div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-          <PeopleChips label="Team" people={team} selected={assignees} onToggle={toggleAssignee} />
-          <PeopleChips label="Contractors" people={contractors} selected={assignees} onToggle={toggleAssignee} />
 
           <div style={styles.formGrid}>
             <div>
@@ -367,20 +406,26 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
             </div>
           </div>
 
-          <div style={styles.fieldLabel}>"Do it" button → page (optional)</div>
-          <select style={styles.input} value={navTarget} onChange={e => setNavTarget(e.target.value)}>
-            <option value="">— No button —</option>
-            {PAGES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-          </select>
-
-          <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Notes (optional)</div>
-          <textarea
-            style={styles.textarea}
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            placeholder="Any context or instructions…"
-            rows={2}
-          />
+          {/* Report Hours to Complete — the assignee is prompted for hours
+              before they can close the task; those hours land in Payroll. */}
+          <button
+            type="button"
+            style={{ ...styles.toggleRow, ...(requiresHours ? styles.toggleRowOn : null) }}
+            onClick={() => setRequiresHours(v => !v)}
+            aria-pressed={requiresHours}
+          >
+            <span style={{ ...styles.toggleTrack, ...(requiresHours ? styles.toggleTrackOn : null) }}>
+              <span style={{ ...styles.toggleKnob, ...(requiresHours ? styles.toggleKnobOn : null) }} />
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={styles.toggleLabel}>Report Hours to Complete</span>
+              <span style={styles.toggleDesc}>
+                {requiresHours
+                  ? 'They must report hours to mark this done — logged to their payroll for the period.'
+                  : 'Off — the task can be completed without reporting hours.'}
+              </span>
+            </span>
+          </button>
         </div>
 
         <div style={styles.footer}>
@@ -394,6 +439,34 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// One optgroup-style block of checkbox rows inside the Assign to dropdown.
+function AssigneeGroup({ label, people, selected, onToggle }) {
+  if (people.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <div style={styles.menuGroupLabel}>{label}</div>
+      {people.map(p => {
+        const on = selected.includes(p.id);
+        return (
+          <button
+            key={p.id}
+            type="button"
+            style={{ ...styles.assigneeRow, ...(on ? styles.assigneeRowOn : null) }}
+            onClick={() => onToggle(p.id)}
+            aria-pressed={on}
+          >
+            <span style={{ ...styles.checkbox, ...(on ? styles.checkboxOn : null) }}>
+              {on ? '✓' : ''}
+            </span>
+            <span style={styles.assigneeName}>{p.full_name || p.email}</span>
+            {p.title && <span style={styles.assigneeTitle}>{p.title}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -429,7 +502,7 @@ const styles = {
   },
   header: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-    padding: '20px 24px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+    padding: '20px 24px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)',
   },
   h2: { fontSize: 18, fontWeight: 700, color: '#fff', margin: 0 },
   subtitle: { fontSize: 12, color: 'rgba(255,255,255,0.45)', margin: '3px 0 0' },
@@ -437,21 +510,82 @@ const styles = {
     background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 26,
     cursor: 'pointer', lineHeight: 1, padding: 0, marginTop: -2,
   },
-  body: { padding: '16px 24px', overflowY: 'auto', flex: 1 },
+  body: { padding: '20px 24px', overflowY: 'auto', flex: 1 },
   footer: {
     display: 'flex', justifyContent: 'flex-end', gap: 10,
-    padding: '14px 24px', borderTop: '1px solid rgba(255,255,255,0.06)',
+    padding: '16px 24px', borderTop: '1px solid rgba(255,255,255,0.06)',
   },
   titleInput: {
     width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 10, padding: '11px 13px', color: '#fff', fontSize: 15, fontWeight: 600,
-    outline: 'none', boxSizing: 'border-box', marginBottom: 14, fontFamily: 'inherit',
+    outline: 'none', boxSizing: 'border-box', marginBottom: 16, fontFamily: 'inherit',
   },
+  // Every label + control pair sits in a `field` block, so vertical rhythm is
+  // set in one place instead of per-field marginTop overrides.
+  field: { marginBottom: 16 },
   fieldLabel: {
     fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.4,
-    textTransform: 'uppercase', margin: '4px 0 6px', display: 'flex', alignItems: 'center', gap: 6,
+    textTransform: 'uppercase', margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 6,
   },
   countPill: { background: colors.accent, color: colors.white, borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 800 },
+
+  // Assign to — multi-select dropdown
+  selectTrigger: {
+    width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8, padding: '10px 12px', color: '#fff', fontSize: 13.5, cursor: 'pointer',
+    fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left',
+    boxSizing: 'border-box',
+  },
+  selectValue: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  selectPlaceholder: { flex: 1, color: 'rgba(255,255,255,0.35)' },
+  selectCaret: { fontSize: 10, color: 'rgba(255,255,255,0.4)' },
+  menuBackdrop: { position: 'fixed', inset: 0, zIndex: 1001 },
+  assigneeMenu: {
+    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, zIndex: 1002,
+    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10,
+    padding: 6, maxHeight: 260, overflowY: 'auto', boxShadow: '0 10px 28px rgba(0,0,0,0.55)',
+  },
+  menuGroupLabel: {
+    fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: 0.5,
+    textTransform: 'uppercase', padding: '6px 8px 4px',
+  },
+  menuEmpty: { fontSize: 12, color: 'rgba(255,255,255,0.35)', padding: '10px 8px' },
+  assigneeRow: {
+    display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
+    background: 'none', border: 'none', borderRadius: 6, padding: '7px 8px',
+    color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontFamily: 'inherit',
+  },
+  assigneeRowOn: { background: 'rgba(99,102,241,0.14)', color: '#fff' },
+  checkbox: {
+    width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+    border: '1px solid rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', fontSize: 10, color: '#fff', lineHeight: 1,
+  },
+  checkboxOn: { background: colors.accent, borderColor: colors.accent },
+  assigneeName: { fontSize: 13, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  assigneeTitle: { fontSize: 10.5, color: 'rgba(255,255,255,0.35)', flexShrink: 0 },
+
+  // Report Hours toggle
+  toggleRow: {
+    display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%', textAlign: 'left',
+    padding: '11px 12px', borderRadius: 10, cursor: 'pointer',
+    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+    fontFamily: 'inherit',
+  },
+  toggleRowOn: { background: 'rgba(99,102,241,0.1)', borderColor: 'rgba(99,102,241,0.35)' },
+  toggleTrack: {
+    width: 34, height: 19, borderRadius: 999, background: 'rgba(255,255,255,0.12)',
+    flexShrink: 0, position: 'relative', transition: 'background 0.15s', marginTop: 1,
+  },
+  toggleTrackOn: { background: colors.accent },
+  toggleKnob: {
+    position: 'absolute', top: 2, left: 2, width: 15, height: 15, borderRadius: '50%',
+    background: '#fff', transition: 'left 0.15s',
+  },
+  toggleKnobOn: { left: 17 },
+  toggleLabel: { display: 'block', fontSize: 13, fontWeight: 700, color: '#fff' },
+  toggleDesc: { display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 3, lineHeight: 1.4 },
+
   chipGroupLabel: { fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', margin: '2px 0 4px', letterSpacing: 0.4 },
   chipWrap: { display: 'flex', flexWrap: 'wrap', gap: 6 },
   personChip: {
@@ -460,7 +594,7 @@ const styles = {
     fontFamily: 'inherit',
   },
   personChipOn: { background: colors.accentA25, border: '1px solid rgba(91, 143, 199,0.6)', color: colors.accentFgSoft, fontWeight: 600 },
-  formGrid: { display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginTop: 12 },
+  formGrid: { display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginBottom: 16 },
   input: {
     width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 8, padding: '8px 10px', color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box',

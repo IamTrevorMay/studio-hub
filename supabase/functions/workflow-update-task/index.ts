@@ -271,6 +271,37 @@ Deno.serve(async (req: Request) => {
       return jsonResp({ ok: true, status: "skipped", activated_task_ids: activated });
     }
 
+    // ─── Correct reported hours (admin only) ─────────────────
+    // Backs the editable hours cell in Payroll: the assignee reports at
+    // completion, an admin can fix the number afterward. Pass null to clear.
+    case "set_hours": {
+      if (!isAdmin) {
+        return jsonResp({ error: "Admin only" }, 403);
+      }
+      const raw = body.hours_spent;
+      let hours: number | null = null;
+      if (raw !== null && raw !== undefined && raw !== "") {
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0 || n > 500) {
+          return jsonResp({ error: "hours_spent must be a number between 0 and 500" }, 400);
+        }
+        hours = Math.round(n * 4) / 4;
+      }
+
+      const { error: hoursErr } = await admin
+        .from("tasks")
+        .update({
+          hours_spent: hours,
+          hours_reported_at: hours === null ? null : new Date().toISOString(),
+        })
+        .eq("id", taskId);
+      if (hoursErr) {
+        return jsonResp({ error: hoursErr.message }, 500);
+      }
+
+      return jsonResp({ ok: true, hours_spent: hours });
+    }
+
     // ─── Toggle whether this task counts toward the My Tasks tab badge ───
     case "set_badge_count": {
       if (!isOwner && !isAdmin) {

@@ -106,6 +106,31 @@ Deno.serve(async (req: Request) => {
     return jsonResp({ error: "Not authorized to complete this task" }, 403);
   }
 
+  // ─── "Report Hours to Complete" gate ─────────────────────────
+  // The client shows a prompt, but the rule is enforced here — hours become
+  // pay, so no completion path (sprint board, admin, a stale client) may skip
+  // it. A number already on the task (an admin correction) satisfies the gate.
+  const hoursFields: Record<string, unknown> = {};
+  if (task.requires_hours) {
+    const raw = (payload as Record<string, unknown> | undefined)?.hours_spent;
+    if (raw === undefined || raw === null || raw === "") {
+      if (task.hours_spent == null) {
+        return jsonResp({
+          error: "hours_required",
+          message: "Report the hours you spent to complete this task.",
+        }, 400);
+      }
+    } else {
+      const hours = Number(raw);
+      if (!Number.isFinite(hours) || hours <= 0 || hours > 500) {
+        return jsonResp({ error: "hours_spent must be a number between 0 and 500" }, 400);
+      }
+      // Quarter-hour granularity, matching what the prompt offers.
+      hoursFields.hours_spent = Math.round(hours * 4) / 4;
+      hoursFields.hours_reported_at = new Date().toISOString();
+    }
+  }
+
   // Mark complete.
   const { error: updErr } = await admin
     .from("tasks")
@@ -113,6 +138,7 @@ Deno.serve(async (req: Request) => {
       status: "complete",
       completion_payload: payload || {},
       completed_at: new Date().toISOString(),
+      ...hoursFields,
     })
     .eq("id", task_id);
   if (updErr) return jsonResp({ error: `Update failed: ${updErr.message}` }, 500);

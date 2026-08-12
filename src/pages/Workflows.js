@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import KanbanPanel from './workflows/KanbanPanel';
-import MemberAssignmentModal from '../components/MemberAssignmentModal';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 import TaskEditModal from '../components/TaskEditModal';
 import ProgressTable from '../components/workflows/ProgressTable';
@@ -62,9 +61,8 @@ export default function Workflows() {
   const [newAutoTriggerType, setNewAutoTriggerType] = useState('schedule');
 
   // ── Assignment modals ──
-  const [assignMenuOpen, setAssignMenuOpen] = useState(false);
-  const [memberAssignOpen, setMemberAssignOpen] = useState(false);
-  const [contractorAssignOpen, setContractorAssignOpen] = useState(false);
+  // Creation lives on the Dashboard now; what's left here is the edit path for
+  // an existing contractor assignment opened from a Progress row.
 
   // ── Progress edit modals ──
   const [editingTask, setEditingTask] = useState(null);
@@ -688,18 +686,11 @@ export default function Workflows() {
         </div>
       )}
 
-      {/* Assignment modals */}
-      <MemberAssignmentModal
-        open={memberAssignOpen}
-        onClose={() => setMemberAssignOpen(false)}
-        showToast={showToast}
-        onCreated={fetchProgress}
-      />
+      {/* Edit an existing contractor assignment (opened from a Progress row) */}
       <ContractorAssignmentModal
-        open={contractorAssignOpen || !!editingContractorAssign}
+        open={!!editingContractorAssign}
         existing={editingContractorAssign || undefined}
-        onClose={() => { setContractorAssignOpen(false); setEditingContractorAssign(null); }}
-        onCreated={fetchProgress}
+        onClose={() => setEditingContractorAssign(null)}
         onSaved={fetchProgress}
         showToast={showToast}
         currentUserId={profile?.id}
@@ -1138,42 +1129,10 @@ export default function Workflows() {
       {/* ── GRID OVERVIEW ── */}
       {!drilledView && (
       <>
-      {/* Page header: title + Assignment dropdown */}
+      {/* Page header. The "+ Assignment" dropdown moved to the Dashboard's
+          My Tasks header (admin-tier only) — see AssignmentMenuButton. */}
       <div style={styles.pageHeader}>
         <h1 style={styles.pageTitle}>Workflows</h1>
-        <div style={{ position: 'relative' }}>
-          <button
-            style={styles.assignBtn}
-            onClick={() => setAssignMenuOpen(v => !v)}
-          >
-            + Assignment
-            <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.7 }}>▾</span>
-          </button>
-          {assignMenuOpen && (
-            <>
-              <div
-                style={styles.assignMenuBackdrop}
-                onClick={() => setAssignMenuOpen(false)}
-              />
-              <div style={styles.assignMenu}>
-                <button
-                  style={styles.assignMenuItem}
-                  onClick={() => { setAssignMenuOpen(false); setMemberAssignOpen(true); }}
-                >
-                  <div style={styles.assignMenuLabel}>Member</div>
-                  <div style={styles.assignMenuDesc}>Team/assistant/partner — one-off task</div>
-                </button>
-                <button
-                  style={styles.assignMenuItem}
-                  onClick={() => { setAssignMenuOpen(false); setContractorAssignOpen(true); }}
-                >
-                  <div style={styles.assignMenuLabel}>Contractor</div>
-                  <div style={styles.assignMenuDesc}>Contractor — paid assignment</div>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
       </div>
 
       {/* Top row: Flows (75%) + Automations (25%) */}
@@ -1405,59 +1364,6 @@ const styles = {
     fontWeight: 800,
     color: '#fff',
     margin: 0,
-  },
-  assignBtn: {
-    background: colors.accent,
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    padding: '8px 16px',
-    fontSize: 13,
-    fontWeight: 700,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    display: 'flex',
-    alignItems: 'center',
-  },
-  assignMenuBackdrop: {
-    position: 'fixed',
-    inset: 0,
-    zIndex: 998,
-  },
-  assignMenu: {
-    position: 'absolute',
-    top: '100%',
-    right: 0,
-    marginTop: 6,
-    minWidth: 260,
-    background: colors.bgHover,
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: 10,
-    padding: 6,
-    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-    zIndex: 999,
-  },
-  assignMenuItem: {
-    display: 'block',
-    width: '100%',
-    textAlign: 'left',
-    background: 'none',
-    border: 'none',
-    borderRadius: 6,
-    padding: '10px 12px',
-    color: '#fff',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  },
-  assignMenuLabel: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: '#fff',
-  },
-  assignMenuDesc: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.45)',
-    marginTop: 2,
   },
 
   // Grid overview
