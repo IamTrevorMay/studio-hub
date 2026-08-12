@@ -109,30 +109,12 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Send the invite email. Pass role in user_metadata so the
-    // handle_new_user() trigger picks it up when the profile is auto-created.
-    const { data, error } = await adminClient.auth.admin.inviteUserByEmail(normalizedEmail, {
-      data: {
-        role: inviteRole,
-        title: effectiveTitle,
-        sub_role: effectiveSubRole,
-        payment_type: effectivePaymentType,
-        rate: effectiveRate,
-        assigned_drive_folder_id: isClientInvite ? null : (assigned_drive_folder_id || null),
-        assigned_drive_folder_name: isClientInvite ? null : (assigned_drive_folder_name || null),
-      },
-      redirectTo: Deno.env.get("SITE_URL") || "https://www.maydaystudio.app",
-    });
-
-    if (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Log the invite in the invitations table (AuthPage looks this up on accept)
-    const { error: inviteLogError } = await adminClient.from("invitations").insert({
+    // Log the invite BEFORE sending it. handle_new_user() reads this row to set
+    // the new profile's role, and inviteUserByEmail fires that trigger
+    // immediately — inserting afterwards raced it and silently landed the user
+    // on the 'member' fallback (which is how a contractor invite could end up
+    // as a member and vanish from the contractor pickers).
+    const { data: inviteRow, error: inviteLogError } = await adminClient.from("invitations").insert({
       email: normalizedEmail,
       invited_by: user.id,
       accepted_at: null,
@@ -151,9 +133,39 @@ Deno.serve(async (req: Request) => {
       overtime_enabled: inviteOvertimeEnabled,
       overtime_max_hours: inviteOvertimeMax,
       overtime_multiplier: inviteOvertimeMult,
-    });
+    }).select("id").maybeSingle();
     if (inviteLogError) {
+      // Fatal now: without this row the trigger can't assign the right role.
       console.error("Failed to log invitation:", inviteLogError);
+      return new Response(JSON.stringify({ error: `Could not record invitation: ${inviteLogError.message}` }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Send the invite email. Pass role in user_metadata too, as a fallback the
+    // handle_new_user() trigger uses if the invitations lookup comes up empty.
+    const { data, error } = await adminClient.auth.admin.inviteUserByEmail(normalizedEmail, {
+      data: {
+        role: inviteRole,
+        title: effectiveTitle,
+        sub_role: effectiveSubRole,
+        payment_type: effectivePaymentType,
+        rate: effectiveRate,
+        assigned_drive_folder_id: isClientInvite ? null : (assigned_drive_folder_id || null),
+        assigned_drive_folder_name: isClientInvite ? null : (assigned_drive_folder_name || null),
+      },
+      redirectTo: Deno.env.get("SITE_URL") || "https://www.maydaystudio.app",
+    });
+
+    if (error) {
+      // Roll the invitation row back so a failed send doesn't leave a stale
+      // pending invite that the next signup would pick up.
+      if (inviteRow?.id) await adminClient.from("invitations").delete().eq("id", inviteRow.id);
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // ── Cloud integration: create Cloud user + set folder restrictions ──
