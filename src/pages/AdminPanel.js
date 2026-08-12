@@ -6,6 +6,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { colors } from '../lib/styleTokens';
 import { isDirectorRole, DIRECTOR_SUB_ROLE_LABELS } from '../lib/rolePermissions';
+import UserDetailModal from '../components/UserDetailModal';
 
 
 // Contractor sub-roles (formerly "titles").
@@ -50,6 +51,7 @@ export default function AdminPanel({ initialTab }) {
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [inviteError, setInviteError] = useState('');
   const [titlePickerFor, setTitlePickerFor] = useState(null);
+  const [detailUser, setDetailUser] = useState(null); // Team row opened in the detail drawer
   const [activeTab, setActiveTab] = usePersistedTab('admin-panel', 'invite', ['invite', 'team', 'google', 'notifications']);
 
   // Google Calendar state
@@ -540,13 +542,22 @@ export default function AdminPanel({ initialTab }) {
           <div style={styles.teamList}>
             {teamMembers.map(member => (
               <div key={member.id} style={styles.teamItem}>
-                <div style={styles.teamAvatar}>
+                {/* Avatar + name open the full detail drawer */}
+                <div
+                  style={{ ...styles.teamAvatar, cursor: 'pointer' }}
+                  onClick={() => setDetailUser(member)}
+                  title={`Open ${member.full_name}'s details`}
+                >
                   {member.avatar_url ? (
                     <img src={member.avatar_url} alt="" style={styles.teamAvatarImg} />
                   ) : member.full_name?.charAt(0)?.toUpperCase()}
                 </div>
                 <div style={styles.teamInfo}>
-                  <div style={styles.teamName}>
+                  <div
+                    style={{ ...styles.teamName, cursor: 'pointer' }}
+                    onClick={() => setDetailUser(member)}
+                    title="Open details"
+                  >
                     {member.full_name}
                     {member.id === profile.id && (
                       <span style={styles.youBadge}>You</span>
@@ -600,6 +611,14 @@ export default function AdminPanel({ initialTab }) {
               </div>
             ))}
           </div>
+
+          <UserDetailModal
+            open={!!detailUser}
+            user={detailUser}
+            currentUserId={profile.id}
+            onClose={() => setDetailUser(null)}
+            onSaved={fetchTeamMembers}
+          />
         </div>
       )}
 
