@@ -7,9 +7,9 @@ import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { colors } from '../lib/styleTokens';
 
 // Client portal home: the client's own projects (contractor_assignments rows
-// they created), a notifications strip, comment threads, and links out to the
-// review room. All writes ride client-scoped RLS; notifications for these
-// assignments are DB-trigger-generated — this page never inserts them.
+// they created), comment threads, and links out to the review room. All writes
+// ride client-scoped RLS. Alerts live on the Notifications tab (cl_notifications)
+// and the bell — this page deliberately carries no notifications strip.
 
 const STATUS_LABELS = {
   assigned: 'Waiting to start',
@@ -69,10 +69,6 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('active');
   const [selectedId, setSelectedId] = useState(null);
-
-  // Notifications strip
-  const [notifications, setNotifications] = useState([]);
-  const [notifsExpanded, setNotifsExpanded] = useState(false);
 
   // Comments (for the selected assignment)
   const [comments, setComments] = useState([]);
@@ -138,17 +134,6 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
     setReviewsByAssignment(map);
   }, [profile?.id]);
 
-  const fetchNotifications = useCallback(async () => {
-    if (!profile?.id) return;
-    const { data } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', profile.id)
-      .order('created_at', { ascending: false })
-      .limit(20);
-    setNotifications(data || []);
-  }, [profile?.id]);
-
   const fetchComments = useCallback(async (assignmentId) => {
     if (!assignmentId) return;
     const { data } = await supabase
@@ -163,8 +148,7 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
     fetchEditors();
     fetchClientProfile();
     fetchAssignments();
-    fetchNotifications();
-  }, [fetchEditors, fetchClientProfile, fetchAssignments, fetchNotifications]);
+  }, [fetchEditors, fetchClientProfile, fetchAssignments]);
 
   useEffect(() => {
     if (selectedId) fetchComments(selectedId);
@@ -198,13 +182,6 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
     enabled: !!profile?.id,
   });
 
-  useRealtimeTable('cl-notifications', {
-    table: 'notifications',
-    filter: profile?.id ? `user_id=eq.${profile.id}` : undefined,
-    onAny: fetchNotifications,
-    enabled: !!profile?.id,
-  });
-
   useRealtimeTable('cl-comments', {
     table: 'contractor_assignment_comments',
     filter: selectedId ? `assignment_id=eq.${selectedId}` : undefined,
@@ -213,32 +190,6 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
   });
 
   // ── Handlers ───────────────────────────────────────────────────
-
-  async function handleMarkNotifRead(notifId) {
-    await supabase.from('notifications').update({ is_read: true }).eq('id', notifId);
-    fetchNotifications();
-  }
-
-  async function handleMarkAllNotifsRead() {
-    await supabase.from('notifications')
-      .update({ is_read: true })
-      .eq('user_id', profile.id)
-      .eq('is_read', false);
-    fetchNotifications();
-  }
-
-  function handleNotifClick(n) {
-    if (!n.is_read) handleMarkNotifRead(n.id);
-    if (n.link_tab === 'cl_review' && n.link_target) {
-      if (onNavigate) onNavigate('cl_review', n.link_target);
-    } else if (n.link_tab === 'cl_dashboard' && n.link_target) {
-      const target = assignments.find(a => a.id === n.link_target);
-      if (target) {
-        if (target.status === 'completed') setFilter('all');
-        setSelectedId(n.link_target);
-      }
-    }
-  }
 
   async function handlePostComment() {
     if (!newComment.trim() || postingComment || !selectedId) return;
@@ -269,9 +220,6 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
     return true;
   });
 
-  const unreadNotifs = notifications.filter(n => !n.is_read);
-  const visibleNotifs = notifsExpanded ? notifications : notifications.slice(0, 3);
-
   // ── Render ─────────────────────────────────────────────────────
 
   if (loading) {
@@ -284,65 +232,6 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
 
   return (
     <div style={styles.page}>
-      {/* Notifications strip */}
-      {notifications.length > 0 && (
-        <div style={styles.notifsSection}>
-          <div style={styles.notifsSectionHeader} onClick={() => setNotifsExpanded(!notifsExpanded)}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={styles.notifsTitle}>Notifications</span>
-              {unreadNotifs.length > 0 && (
-                <span style={styles.notifsUnreadBadge}>{unreadNotifs.length}</span>
-              )}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {unreadNotifs.length > 0 && (
-                <button
-                  onClick={e => { e.stopPropagation(); handleMarkAllNotifsRead(); }}
-                  style={styles.markAllReadBtn}
-                >
-                  Mark All Read
-                </button>
-              )}
-              <span style={styles.notifsCaret}>{notifsExpanded ? '▲' : '▼'}</span>
-            </div>
-          </div>
-          <div style={styles.notifsList}>
-            {visibleNotifs.map(n => (
-              <div
-                key={n.id}
-                style={{ ...styles.notifItem, ...(n.is_read ? {} : styles.notifItemUnread) }}
-                onClick={() => handleNotifClick(n)}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{
-                    fontSize: 13,
-                    fontWeight: n.is_read ? 500 : 600,
-                    color: n.is_read ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.9)',
-                  }}>
-                    {n.title}
-                  </span>
-                  {n.body && (
-                    <p style={{
-                      fontSize: 12,
-                      color: n.is_read ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.55)',
-                      margin: '3px 0 0', lineHeight: 1.4,
-                    }}>
-                      {n.body}
-                    </p>
-                  )}
-                </div>
-                <span style={styles.notifTime}>{formatRelativeTime(n.created_at)}</span>
-              </div>
-            ))}
-            {!notifsExpanded && notifications.length > 3 && (
-              <button style={styles.showAllNotifsBtn} onClick={() => setNotifsExpanded(true)}>
-                Show all {notifications.length}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Header row */}
       <div style={styles.headerRow}>
         <div>
@@ -573,86 +462,6 @@ const styles = {
     color: 'rgba(255,255,255,0.5)',
     textAlign: 'center',
     marginTop: 80,
-  },
-
-  // Notifications strip
-  notifsSection: {
-    background: 'rgba(255,255,255,0.03)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: 10,
-    marginBottom: 28,
-    overflow: 'hidden',
-  },
-  notifsSectionHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '14px 18px',
-    cursor: 'pointer',
-  },
-  notifsTitle: {
-    fontSize: 15,
-    fontWeight: 600,
-    color: 'rgba(255,255,255,0.9)',
-  },
-  notifsUnreadBadge: {
-    background: colors.accent,
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: 700,
-    borderRadius: 10,
-    padding: '1px 7px',
-    minWidth: 18,
-    textAlign: 'center',
-  },
-  notifsCaret: {
-    color: 'rgba(255,255,255,0.3)',
-    fontSize: 12,
-  },
-  markAllReadBtn: {
-    background: 'rgba(255,255,255,0.06)',
-    color: 'rgba(255,255,255,0.6)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 6,
-    padding: '4px 10px',
-    fontSize: 11,
-    fontWeight: 500,
-    fontFamily: 'DM Sans, sans-serif',
-    cursor: 'pointer',
-  },
-  notifsList: {
-    borderTop: '1px solid rgba(255,255,255,0.06)',
-  },
-  notifItem: {
-    padding: '12px 18px',
-    borderBottom: '1px solid rgba(255,255,255,0.04)',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  notifItemUnread: {
-    background: colors.accentA06,
-    borderLeft: `3px solid ${colors.accent}`,
-  },
-  notifTime: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.3)',
-    whiteSpace: 'nowrap',
-    flexShrink: 0,
-  },
-  showAllNotifsBtn: {
-    display: 'block',
-    width: '100%',
-    background: 'none',
-    border: 'none',
-    color: colors.accentFg,
-    fontSize: 12,
-    fontWeight: 600,
-    padding: '10px 18px',
-    cursor: 'pointer',
-    fontFamily: 'DM Sans, sans-serif',
-    textAlign: 'center',
   },
 
   // Header
