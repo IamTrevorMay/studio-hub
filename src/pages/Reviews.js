@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -17,7 +17,7 @@ const SOURCE_FILTERS = [
   { key: 'client', label: 'Client' },
 ];
 
-export default function Reviews() {
+export default function Reviews({ initialReviewId, onOpened }) {
   const { profile, isAdmin, refreshKey } = useAuth();
   const confirm = useConfirm();
   const [reviews, setReviews] = useState([]);
@@ -27,12 +27,15 @@ export default function Reviews() {
   const [activeReview, setActiveReview] = useState(null);
   const [sourceFilter, setSourceFilter] = useState('all'); // all | studio | client
 
+  // Consume the deep-link prop exactly once per incoming id.
+  const openedInitialRef = useRef(null);
+
   const fetchReviews = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchAllRows(
         supabase.from('reviews')
-          .select('*, creator:profiles!reviews_created_by_fkey(full_name), thumbs:review_thumbnails(file_path, created_at), versions:review_versions(version_number, client_verdict), assignment:contractor_assignments!reviews_assignment_id_fkey(id, title, contractor_id, created_by, creator:profiles!freelancer_assignments_created_by_fkey(full_name))')
+          .select('*, creator:profiles!reviews_created_by_fkey(full_name), thumbs:review_thumbnails(file_path, created_at), versions:review_versions(version_number, client_verdict), shares:review_client_shares(client_id), assignment:contractor_assignments!reviews_assignment_id_fkey(id, title, contractor_id, created_by, creator:profiles!freelancer_assignments_created_by_fkey(full_name))')
           .order('created_at', { ascending: false })
       );
       // For reviews with no video yet, surface an uploaded thumbnail (earliest) on the card.
@@ -45,7 +48,12 @@ export default function Reviews() {
         // Latest version's client verdict, for the card mini chip.
         const latestVersion = (r.versions || []).slice().sort((a, b) =>
           b.version_number - a.version_number)[0];
-        return { ...r, thumbUrl, latestVerdict: latestVersion?.client_verdict || null };
+        return {
+          ...r,
+          thumbUrl,
+          latestVerdict: latestVersion?.client_verdict || null,
+          shareCount: (r.shares || []).length,
+        };
       });
       setReviews(enriched);
     } catch (err) {
@@ -107,21 +115,36 @@ export default function Reviews() {
     fetchReviews();
   }, [fetchReviews]));
 
+  // Deep-link from AppLayout (notification click: cl_review_verdict → review id)
+  useEffect(() => {
+    if (!initialReviewId) { openedInitialRef.current = null; return; }
+    if (loading) return;
+    if (openedInitialRef.current === initialReviewId) return;
+    const target = reviews.find(r => r.id === initialReviewId);
+    if (target) {
+      openedInitialRef.current = initialReviewId;
+      setActiveReview(target);
+      if (onOpened) onOpened();
+    }
+  }, [loading, initialReviewId, reviews, onOpened]);
+
   if (activeReview) {
     return (
       <ReviewPlayer
         key={activeReview.id}
         review={activeReview}
-        onBack={() => setActiveReview(null)}
+        onBack={() => { setActiveReview(null); fetchReviews(); }}
         profile={profile}
         isAdmin={isAdmin}
       />
     );
   }
 
+  // "Client" = anything a client can see: assignment-linked or shared directly.
   const filteredReviews = reviews.filter(r => {
-    if (sourceFilter === 'studio') return !r.assignment_id;
-    if (sourceFilter === 'client') return !!r.assignment_id;
+    const clientFacing = !!r.assignment_id || r.shareCount > 0;
+    if (sourceFilter === 'studio') return !clientFacing;
+    if (sourceFilter === 'client') return clientFacing;
     return true;
   });
 
@@ -214,9 +237,11 @@ export default function Reviews() {
                 )}
               </div>
               <div style={styles.reviewCardBody}>
-                {review.assignment_id && (
+                {(review.assignment_id || review.shareCount > 0) && (
                   <div style={styles.cardChipRow}>
-                    <span style={styles.clientChip}>Client</span>
+                    {review.assignment_id
+                      ? <span style={styles.clientChip}>Client</span>
+                      : <span style={styles.clientChip}>Shared · {review.shareCount}</span>}
                     {review.latestVerdict === 'approved' && (
                       <span style={{ ...styles.cardVerdictChip, ...styles.cardVerdictApproved }}>✓ Approved</span>
                     )}

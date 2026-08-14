@@ -6,8 +6,9 @@ import { getDisplayName } from '../lib/displayName';
 import { colors } from '../lib/styleTokens';
 import ReviewPlayer from '../components/reviews/ReviewPlayer';
 
-// Client portal — Review tab. Read-only list of the cuts editors have
-// submitted on this client's assignments. Opening a card renders the shared
+// Client portal — Review tab. Lists the cuts editors submitted on this client's
+// assignments plus any review the studio shared directly with this client
+// (review_client_shares). Opening a card renders the shared
 // ReviewPlayer in client mode (timestamped comments + per-version verdict via
 // the submit_review_verdict RPC — the player owns that write path; this page
 // never inserts notifications).
@@ -84,48 +85,74 @@ export default function ClientReview({ initialReviewId, onOpened, demo = false }
     }
     if (!profile?.id) return;
     try {
-      // 1. Own assignments (RLS: created_by = self)
-      const { data: assigns, error: assignErr } = await supabase
-        .from('contractor_assignments')
-        .select('id, title, contractor_id')
-        .eq('created_by', profile.id);
-      if (assignErr) throw assignErr;
-      const assignRows = assigns || [];
-      if (assignRows.length === 0) {
+      // 1. Two sources: reviews on this client's own assignments (RLS:
+      //    created_by = self) and reviews staff shared straight to this client
+      //    (review_client_shares — those may have no assignment at all).
+      const [assignRes, shareRes] = await Promise.all([
+        supabase.from('contractor_assignments')
+          .select('id, title, contractor_id')
+          .eq('created_by', profile.id),
+        supabase.from('review_client_shares')
+          .select('review_id')
+          .eq('client_id', profile.id),
+      ]);
+      if (assignRes.error) throw assignRes.error;
+      if (shareRes.error) throw shareRes.error;
+      const assignRows = assignRes.data || [];
+      const sharedIds = [...new Set((shareRes.data || []).map(r => r.review_id))];
+      if (assignRows.length === 0 && sharedIds.length === 0) {
         setReviews([]);
         return;
       }
 
-      // 2. Reviews on those assignments, with their versions embedded
-      const { data: revs, error: revErr } = await supabase
-        .from('reviews')
-        .select('*, versions:review_versions(id, version_number, label, client_verdict, youtube_video_id, created_at)')
-        .in('assignment_id', assignRows.map(a => a.id))
-        .order('created_at', { ascending: false });
-      if (revErr) throw revErr;
+      // 2. Reviews from both sources, with their versions embedded. Kept as two
+      //    queries and merged by id — a shared review can also be an assignment
+      //    review, and .or() across an embed-bearing select is fragile.
+      const cols = '*, versions:review_versions(id, version_number, label, client_verdict, youtube_video_id, created_at)';
+      const queries = [];
+      if (assignRows.length > 0) {
+        queries.push(supabase.from('reviews').select(cols).in('assignment_id', assignRows.map(a => a.id)));
+      }
+      if (sharedIds.length > 0) {
+        queries.push(supabase.from('reviews').select(cols).in('id', sharedIds));
+      }
+      const results = await Promise.all(queries);
+      const failed = results.find(r => r.error);
+      if (failed) throw failed.error;
+      const revsById = {};
+      results.forEach(res => (res.data || []).forEach(row => { revsById[row.id] = row; }));
+      const revs = Object.values(revsById)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-      // 3. Editor names — stitched by id (robust vs. FK-hint embeds)
-      const editorIds = [...new Set(assignRows.map(a => a.contractor_id).filter(Boolean))];
-      const editorsById = {};
-      if (editorIds.length > 0) {
+      // 3. Names — stitched by id (robust vs. FK-hint embeds). Assignment
+      //    reviews credit the editor; shared reviews credit the studio member
+      //    who made the review.
+      const peopleIds = [...new Set([
+        ...assignRows.map(a => a.contractor_id),
+        ...revs.filter(r => !r.assignment_id).map(r => r.created_by),
+      ].filter(Boolean))];
+      const peopleById = {};
+      if (peopleIds.length > 0) {
         const { data: profs } = await supabase
           .from('profiles')
           .select('id, full_name, nickname')
-          .in('id', editorIds);
-        (profs || []).forEach(p => { editorsById[p.id] = p; });
+          .in('id', peopleIds);
+        (profs || []).forEach(p => { peopleById[p.id] = p; });
       }
 
       const assignById = {};
       assignRows.forEach(a => { assignById[a.id] = a; });
 
-      const enriched = (revs || []).map(r => {
+      const enriched = revs.map(r => {
         const assignment = assignById[r.assignment_id] || null;
         const versions = (r.versions || []).slice().sort((a, b) => a.version_number - b.version_number);
         const latest = versions[versions.length - 1] || null;
         return {
           ...r,
           assignment,
-          editor: assignment ? (editorsById[assignment.contractor_id] || null) : null,
+          editor: assignment ? (peopleById[assignment.contractor_id] || null) : null,
+          sharedBy: assignment ? null : (peopleById[r.created_by] || null),
+          isShared: !assignment,
           versionCount: versions.length,
           latestVerdict: latest?.client_verdict || null,
           thumbVideoId: r.youtube_video_id || latest?.youtube_video_id || null,
@@ -175,7 +202,7 @@ export default function ClientReview({ initialReviewId, onOpened, demo = false }
       <div style={styles.header}>
         <h1 style={styles.title}>Review</h1>
         <p style={styles.subtitle}>
-          {reviews.length} cut{reviews.length !== 1 ? 's' : ''} from your editors
+          {reviews.length} cut{reviews.length !== 1 ? 's' : ''} from your editors and the studio
         </p>
       </div>
 
@@ -184,7 +211,7 @@ export default function ClientReview({ initialReviewId, onOpened, demo = false }
       ) : reviews.length === 0 ? (
         <div style={styles.emptyCard}>
           <p style={styles.emptyText}>
-            No cuts to review yet — your editor will submit review links here.
+            No cuts to review yet — your editor or the studio will share review links here.
           </p>
         </div>
       ) : (
@@ -232,7 +259,11 @@ export default function ClientReview({ initialReviewId, onOpened, demo = false }
                     {review.assignment?.title || review.title}
                   </h3>
                   <span style={styles.reviewCardMeta}>
-                    {review.editor ? `Edited by ${getDisplayName(review.editor)}` : 'Your editor'}
+                    {review.editor
+                      ? `Edited by ${getDisplayName(review.editor)}`
+                      : review.isShared
+                        ? `Shared by ${review.sharedBy ? getDisplayName(review.sharedBy) : 'Mayday Studio'}`
+                        : 'Your editor'}
                     {' · '}
                     {new Date(review.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </span>

@@ -1158,7 +1158,7 @@ export default function AppLayout() {
           {isAdmin && activeTab === 'accounting' && <PageErrorBoundary key="accounting"><Accounting initialTab={navTarget} onTabOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'research' && <PageErrorBoundary key="research"><Research /></PageErrorBoundary>}
           {activeTab === 'research_docs' && <PageErrorBoundary key="research_docs"><ResearchDocs /></PageErrorBoundary>}
-          {activeTab === 'reviews' && <PageErrorBoundary key="reviews"><Reviews /></PageErrorBoundary>}
+          {activeTab === 'reviews' && <PageErrorBoundary key="reviews"><Reviews initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {(isAdmin || isPartner) && activeTab === 'business_dev' && <PageErrorBoundary key="business_dev"><BusinessDev /></PageErrorBoundary>}
           {isAdmin && activeTab === 'payroll' && <PageErrorBoundary key="payroll"><Payroll /></PageErrorBoundary>}
           {isAdmin && activeTab === 'invoicing' && <PageErrorBoundary key="invoicing"><Invoicing /></PageErrorBoundary>}

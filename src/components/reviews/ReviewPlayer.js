@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
-import { colors } from '../../lib/styleTokens';
+import { colors, zIndex } from '../../lib/styleTokens';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -146,7 +146,7 @@ function VerdictChip({ verdict }) {
 
 // ─── Review Player ───────────────────────────────────────────────────────────
 // mode: 'staff' (default) | 'contractor' | 'client'
-//  - staff:      full behavior + verdict chips on version tabs
+//  - staff:      full behavior + verdict chips on version tabs + Share with client
 //  - contractor: same as staff inside the player (details + add-version usable,
 //                verdict chips visible, no verdict buttons)
 //  - client:     no add-version form, details read-only (comments still usable),
@@ -154,8 +154,10 @@ function VerdictChip({ verdict }) {
 
 function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo = false }) {
   const isClient = mode === 'client';
+  const isStaffMode = mode === 'staff';
   const canAddVersion = !isClient;
   const canEditDetails = !isClient;
+  const canShare = isStaffMode && !demo;
 
   const playerRef = useRef(null);
   const ytPlayerRef = useRef(null);
@@ -189,6 +191,14 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
   const [showDetailComments, setShowDetailComments] = useState({}); // { 'thumbnail-id': true, ... }
   const [detailCommentText, setDetailCommentText] = useState({});
   const thumbnailInputRef = useRef(null);
+
+  // Share-with-client state (staff mode only)
+  const [showShare, setShowShare] = useState(false);
+  const [clientOptions, setClientOptions] = useState([]);
+  const [sharedClientIds, setSharedClientIds] = useState([]);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [sharePending, setSharePending] = useState(null); // client id mid-write
+  const [shareSearch, setShareSearch] = useState('');
 
   useEffect(() => {
     fetchVersions();
@@ -449,6 +459,59 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
     if (ytPlayerRef.current?.seekTo) ytPlayerRef.current.seekTo(seconds, true);
   }
 
+  // ─── Share with client ─────────────────────────────────────────────────────
+  // Staff-only. Rows in review_client_shares are what the client portal reads;
+  // the DB stamps shared_by and fires the client's "shared with you" notification,
+  // so nothing here inserts a notification.
+  async function fetchShares() {
+    if (!canShare) return;
+    const { data, error } = await supabase
+      .from('review_client_shares')
+      .select('client_id')
+      .eq('review_id', review.id);
+    if (error) { console.error('Fetch review shares failed:', error.message); return; }
+    setSharedClientIds((data || []).map(r => r.client_id));
+  }
+
+  useEffect(() => {
+    if (!canShare) return;
+    fetchShares();
+  }, [review.id, canShare]);
+
+  async function openShare() {
+    setShowShare(true);
+    if (clientOptions.length === 0) {
+      setShareLoading(true);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, nickname, email, avatar_url')
+        .eq('role', 'client')
+        .order('full_name');
+      if (error) console.error('Fetch clients failed:', error.message);
+      setClientOptions(data || []);
+      setShareLoading(false);
+    }
+    fetchShares();
+  }
+
+  async function toggleShare(clientId) {
+    if (sharePending) return;
+    setSharePending(clientId);
+    const isShared = sharedClientIds.includes(clientId);
+    if (isShared) {
+      const { error } = await supabase.from('review_client_shares')
+        .delete().eq('review_id', review.id).eq('client_id', clientId);
+      if (error) { console.error('Unshare failed:', error.message); alert('Could not remove access.'); }
+      else setSharedClientIds(prev => prev.filter(id => id !== clientId));
+    } else {
+      const { error } = await supabase.from('review_client_shares')
+        .insert({ review_id: review.id, client_id: clientId, shared_by: profile?.id || null });
+      if (error) { console.error('Share failed:', error.message); alert('Could not share this review.'); }
+      else setSharedClientIds(prev => [...prev, clientId]);
+    }
+    setSharePending(null);
+  }
+
   // ─── Details CRUD ──────────────────────────────────────────────────────────
   async function fetchDetails() {
     if (demo) return; // sim preview has no details rows
@@ -560,8 +623,29 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
         <div>
           <button onClick={onBack} style={styles.backBtn}>← Back to Reviews</button>
           <h1 style={styles.pageTitle}>{review.title}</h1>
+          {canShare && sharedClientIds.length > 0 && (
+            <span style={styles.sharedChip}>
+              Shared with {sharedClientIds.length} client{sharedClientIds.length !== 1 ? 's' : ''}
+            </span>
+          )}
         </div>
+        {canShare && (
+          <button onClick={openShare} style={styles.shareBtn}>Share</button>
+        )}
       </div>
+
+      {showShare && (
+        <ShareModal
+          clients={clientOptions}
+          sharedIds={sharedClientIds}
+          loading={shareLoading}
+          pendingId={sharePending}
+          search={shareSearch}
+          onSearch={setShareSearch}
+          onToggle={toggleShare}
+          onClose={() => setShowShare(false)}
+        />
+      )}
 
       {/* Version Tabs */}
       {versions.length > 0 && (
@@ -935,6 +1019,75 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
   );
 }
 
+// ─── Share with client modal ─────────────────────────────────────────────────
+// Staff pick which client accounts see this review. A shared client gets it in
+// their portal Review tab and can comment + submit a verdict; renaming and
+// deleting stay staff-only (enforced by the reviews UPDATE/DELETE policies).
+
+function ShareModal({ clients, sharedIds, loading, pendingId, search, onSearch, onToggle, onClose }) {
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? clients.filter(c =>
+        (c.full_name || '').toLowerCase().includes(q) ||
+        (c.email || '').toLowerCase().includes(q))
+    : clients;
+
+  return (
+    <div style={styles.modalOverlay} onClick={onClose}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.modalHeader}>
+          <div>
+            <h3 style={styles.modalTitle}>Share with a client</h3>
+            <p style={styles.modalSub}>
+              They can watch, comment, and approve — but can't rename or delete the review.
+            </p>
+          </div>
+          <button onClick={onClose} style={styles.modalClose}>✕</button>
+        </div>
+
+        {clients.length > 6 && (
+          <input
+            value={search}
+            onChange={(e) => onSearch(e.target.value)}
+            placeholder="Search clients..."
+            style={styles.modalSearch}
+          />
+        )}
+
+        <div style={styles.modalList}>
+          {loading ? (
+            <p style={styles.modalEmpty}>Loading clients...</p>
+          ) : filtered.length === 0 ? (
+            <p style={styles.modalEmpty}>
+              {clients.length === 0 ? 'No client accounts yet.' : 'No clients match that search.'}
+            </p>
+          ) : (
+            filtered.map(c => {
+              const shared = sharedIds.includes(c.id);
+              const busy = pendingId === c.id;
+              return (
+                <div key={c.id} style={styles.clientRow}>
+                  <div style={styles.clientInfo}>
+                    <span style={styles.clientName}>{c.full_name || c.email}</span>
+                    {c.email && c.full_name && <span style={styles.clientEmail}>{c.email}</span>}
+                  </div>
+                  <button
+                    onClick={() => onToggle(c.id)}
+                    disabled={busy || (pendingId && !busy)}
+                    style={{ ...styles.shareToggle, ...(shared ? styles.shareToggleOn : {}) }}
+                  >
+                    {busy ? '…' : shared ? '✓ Shared' : 'Share'}
+                  </button>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Comment Card with replies ───────────────────────────────────────────────
 
 function CommentCard({ comment: c, profile, isAdmin, onSeek, onResolve, onDelete, onAddReply, onDeleteReply }) {
@@ -1033,6 +1186,25 @@ const styles = {
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexShrink: 0 },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   backBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: '13px', cursor: 'pointer', padding: '0 0 8px 0', fontFamily: 'inherit', fontWeight: 500 },
+
+  // Share with client
+  shareBtn: { padding: '8px 18px', background: colors.accentA12, border: `1px solid ${colors.accentA30}`, borderRadius: '10px', color: colors.accentFg, fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 },
+  sharedChip: { display: 'inline-block', padding: '2px 8px', background: colors.accentA10, border: `1px solid ${colors.accentA30}`, borderRadius: '6px', color: colors.accentFg, fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' },
+  modalOverlay: { position: 'fixed', inset: 0, background: colors.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: zIndex.modal, padding: '20px' },
+  modal: { width: '100%', maxWidth: '440px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', background: colors.bgModal, border: `1px solid ${colors.border}`, borderRadius: '14px', padding: '20px' },
+  modalHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '14px' },
+  modalTitle: { fontSize: '17px', fontWeight: 700, color: colors.white, margin: 0 },
+  modalSub: { fontSize: '12px', color: colors.textDim, margin: '4px 0 0' },
+  modalClose: { background: 'none', border: 'none', color: colors.textDim, fontSize: '15px', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px' },
+  modalSearch: { padding: '9px 12px', background: colors.whiteA05, border: `1px solid ${colors.border}`, borderRadius: '8px', color: colors.white, fontSize: '13px', fontFamily: 'inherit', outline: 'none', marginBottom: '10px' },
+  modalList: { overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' },
+  modalEmpty: { color: colors.textDim, fontSize: '13px', margin: 0, padding: '16px 0', textAlign: 'center' },
+  clientRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '10px 12px', background: colors.whiteA02, border: `1px solid ${colors.whiteA06}`, borderRadius: '10px' },
+  clientInfo: { display: 'flex', flexDirection: 'column', minWidth: 0 },
+  clientName: { fontSize: '13px', fontWeight: 600, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  clientEmail: { fontSize: '11px', color: colors.textPlaceholder, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  shareToggle: { padding: '6px 14px', background: colors.bgInput, border: `1px solid ${colors.border}`, borderRadius: '8px', color: colors.textSubtle, fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 },
+  shareToggleOn: { background: colors.success.bg, border: `1px solid ${colors.success.border}`, color: colors.success.fg },
 
   // Version bar
   versionBar: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexShrink: 0 },
