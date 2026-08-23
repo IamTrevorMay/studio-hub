@@ -126,9 +126,9 @@ const BETA_PAGE_NAV = [
 ];
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
 const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'clients', 'workflows', 'jobs', 'invoicing', 'ops', ...BETA_PAGE_KEYS];
-// Everyday anchors kept at the top of the Admin Mode sidebar (items + folders).
-const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'deliverables', 'channels', 'messages'];
-const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_production']);
+// Production folders: everything nested under these lives in Production Mode
+// (below the divider) instead of the everyday/general list.
+const PRODUCTION_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_production']);
 // Admin-only page entries appended after a divider.
 const ADMIN_PAGE_NAV = [
   { type: 'item', key: 'workflows', label: 'Workflows' },
@@ -155,39 +155,17 @@ const CONTRACTOR_MODE_NAV = [
   { type: 'item', key: 'ct_documents', label: 'Documents' },
   { type: 'item', key: 'ct_team', label: 'Team' },
 ];
-// Build Admin Mode sidebar: essential items/folders from resolved nav, divider,
-// admin pages, then the Beta folder for the beta owner only.
-function buildAdminNav(resolvedNav, isBetaOwner) {
-  const essentialKeySet = new Set(ADMIN_ESSENTIAL_KEYS);
-  const top = [];
-  // Pull essential items and folders (with their children) from resolved nav
-  for (const entry of resolvedNav) {
-    if (entry.type === 'item' && essentialKeySet.has(entry.key)) {
-      top.push(entry);
-    } else if (entry.type === 'folder' && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.id)) {
-      top.push(entry);
-    } else if (entry.type === 'item' && entry.folderId && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.folderId)) {
-      top.push(entry);
-    }
-  }
-  return [...top, { type: 'divider' }, ...ADMIN_PAGE_NAV, ...(isBetaOwner ? BETA_PAGE_NAV : [])];
-}
-// Collect all valid tab keys for admin mode (essential items + folder children + admin pages).
-function getAdminModeKeys(resolvedNav, isBetaOwner) {
-  const keys = new Set([...ADMIN_ESSENTIAL_KEYS, ...ADMIN_PAGE_KEYS, 'admin']);
-  if (!isBetaOwner) BETA_PAGE_KEYS.forEach(k => keys.delete(k));
-  for (const entry of resolvedNav) {
-    if (entry.type === 'item' && entry.folderId && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.folderId)) {
-      keys.add(entry.key);
-    }
-  }
-  return keys;
-}
-
-// Work View nav: strip the admin pages, retire the (now-empty) "Core Team"
-// folder by promoting its remaining items to top level, and drop empty folders.
-function buildWorkNav(nav) {
-  let items = nav.filter(e => !(e.type === 'item' && ADMIN_PAGE_KEYS.includes(e.key)));
+// General everyday nav — shared by the TOP of every mode (Work, Production,
+// Admin, Contractor). Strips the admin-only pages (they live below the divider
+// in Admin Mode) and the production folders (they live in Production Mode),
+// retires the "Core Team" folder by promoting any survivors to top level, and
+// drops folders left empty.
+function buildGeneralNav(nav) {
+  let items = nav.filter(e =>
+    !(e.type === 'item' && ADMIN_PAGE_KEYS.includes(e.key))
+    && !(e.type === 'folder' && PRODUCTION_FOLDER_IDS.has(e.id))
+    && !(e.type === 'item' && e.folderId && PRODUCTION_FOLDER_IDS.has(e.folderId)),
+  );
   const coreTeamIds = new Set(
     items.filter(e => e.type === 'folder' && /core team/i.test(e.label || '')).map(e => e.id),
   );
@@ -197,6 +175,54 @@ function buildWorkNav(nav) {
   const childCount = {};
   items.forEach(e => { if (e.type === 'item' && e.folderId) childCount[e.folderId] = (childCount[e.folderId] || 0) + 1; });
   return items.filter(e => !(e.type === 'folder' && !childCount[e.id]));
+}
+
+// Pull the production folders (and their children) out of the resolved nav,
+// preserving order — the section shown below the divider in Production Mode.
+function buildProductionSection(resolvedNav) {
+  const out = [];
+  for (const entry of resolvedNav) {
+    if (entry.type === 'folder' && PRODUCTION_FOLDER_IDS.has(entry.id)) out.push(entry);
+    else if (entry.type === 'item' && entry.folderId && PRODUCTION_FOLDER_IDS.has(entry.folderId)) out.push(entry);
+  }
+  return out;
+}
+
+// Item keys present in a built nav array (folders excluded).
+function navItemKeys(navArray) {
+  const keys = new Set();
+  for (const e of navArray) if (e.type === 'item') keys.add(e.key);
+  return keys;
+}
+
+// Admin Mode: general list, divider, admin pages, then the Beta folder for the
+// beta owner only.
+function buildAdminNav(resolvedNav, isBetaOwner) {
+  return [...buildGeneralNav(resolvedNav), { type: 'divider' }, ...ADMIN_PAGE_NAV, ...(isBetaOwner ? BETA_PAGE_NAV : [])];
+}
+
+// Production Mode: general list, divider, then the production folders.
+function buildProductionNav(resolvedNav) {
+  const section = buildProductionSection(resolvedNav);
+  const general = buildGeneralNav(resolvedNav);
+  return section.length ? [...general, { type: 'divider' }, ...section] : general;
+}
+
+// Contractor Mode: general list, divider, then the contractor management pages.
+function buildContractorModeNav(resolvedNav) {
+  return [...buildGeneralNav(resolvedNav), { type: 'divider' }, ...CONTRACTOR_MODE_NAV];
+}
+
+// Valid tab keys for Admin Mode: general list + production (viewable, just not
+// shown in the admin sidebar) + admin pages + Admin Settings.
+function getAdminModeKeys(resolvedNav, isBetaOwner) {
+  const keys = new Set([
+    ...ADMIN_PAGE_KEYS, 'admin',
+    ...navItemKeys(buildGeneralNav(resolvedNav)),
+    ...navItemKeys(buildProductionSection(resolvedNav)),
+  ]);
+  if (!isBetaOwner) BETA_PAGE_KEYS.forEach(k => keys.delete(k));
+  return keys;
 }
 
 // Public URL aliases — the page is presented as "Roadmap" but keeps its
@@ -316,7 +342,7 @@ export default function AppLayout() {
   });
   const [mode, setMode] = useState(() => {
     const m = localStorage.getItem('studio-hub-mode');
-    return (m === 'admin' || m === 'contractor') ? m : 'work';
+    return (m === 'admin' || m === 'contractor' || m === 'production') ? m : 'work';
   });
   // Suite surface: 'launcher' | 'harbor' | null (null = Bridge, the classic
   // tab world). Resolved from the URL before tab resolution; bare '/' goes to
@@ -350,10 +376,13 @@ export default function AppLayout() {
     localStorage.setItem('nav-folder-state', JSON.stringify(folderCollapseState));
   }, [folderCollapseState]);
 
-  // Non-admins can never be in Admin Mode; keep them pinned to Work View.
+  // Production Mode is open to all staff (admins, directors, members);
+  // contractors/clients get their own locked portals. Admin & Contractor Mode
+  // stay admin-only — bounce a non-admin out of those back to Work View.
+  const canUseProductionMode = !isContractor && !isClient;
   useEffect(() => {
-    if (!isAdmin && mode !== 'work') setMode('work');
-  }, [isAdmin, mode]);
+    if (!isAdmin && mode !== 'work' && !(mode === 'production' && canUseProductionMode)) setMode('work');
+  }, [isAdmin, mode, canUseProductionMode]);
 
   useEffect(() => {
     localStorage.setItem('studio-hub-mode', mode);
@@ -367,12 +396,16 @@ export default function AppLayout() {
   const adminModeKeys = getAdminModeKeys(resolvedNav, isBetaOwner);
 
   // On load (and when mode flips), keep the open page consistent with the mode.
+  // Production pages stay viewable in every mode (they're only *shown* in the
+  // Production sidebar), so only the mode-exclusive pages bounce.
   useEffect(() => {
     if (mode === 'admin' && isAdmin) {
       if (!adminModeKeys.has(activeTab)) setActiveTab('workflows');
     } else if (mode === 'contractor' && isAdmin) {
-      if (!CONTRACTOR_MODE_KEYS.includes(activeTab)) setActiveTab('ct_assignments');
+      // Contractor Mode shows the general list too; only admin-exclusive pages are invalid.
+      if (ADMIN_PAGE_KEYS.includes(activeTab)) setActiveTab('ct_assignments');
     } else if (ADMIN_PAGE_KEYS.includes(activeTab) || CONTRACTOR_MODE_KEYS.includes(activeTab)) {
+      // Work / Production: bounce off admin- and contractor-exclusive pages.
       setActiveTab('dashboard');
     }
     // eslint-disable-next-line
@@ -424,8 +457,9 @@ export default function AppLayout() {
     previewingContractor ? contractorNav
       : previewingClient ? clientSimNav
         : (mode === 'admin' && isAdmin) ? adminNav
-          : (mode === 'contractor' && isAdmin) ? CONTRACTOR_MODE_NAV
-            : buildWorkNav(resolvedNav)
+          : (mode === 'contractor' && isAdmin) ? buildContractorModeNav(resolvedNav)
+            : (mode === 'production' && canUseProductionMode) ? buildProductionNav(resolvedNav)
+              : buildGeneralNav(resolvedNav)
   ).filter(e => !e.hidden);
 
   async function openViewAsMenu() {
@@ -476,8 +510,17 @@ export default function AppLayout() {
   function toggleContractorMode() {
     const next = mode === 'contractor' ? 'work' : 'contractor';
     setMode(next);
-    if (next === 'contractor') { if (!CONTRACTOR_MODE_KEYS.includes(activeTab)) setActiveTab('ct_assignments'); }
+    // Contractor Mode now carries the general list, so only bounce off an
+    // admin-exclusive page (onto the first contractor tab) when entering.
+    if (next === 'contractor') { if (ADMIN_PAGE_KEYS.includes(activeTab)) setActiveTab('ct_assignments'); }
     else resetTabToWork();
+  }
+  function toggleProductionMode() {
+    const next = mode === 'production' ? 'work' : 'production';
+    setMode(next);
+    // Production Mode carries the general list at top; entering keeps the
+    // current page. Leaving only bounces off mode-exclusive pages.
+    if (next === 'work') resetTabToWork();
   }
 
   function toggleFolder(folderId) {
@@ -949,6 +992,25 @@ export default function AppLayout() {
             )}
           </svg>
         </button>
+
+        {/* Production Mode toggle - available to all staff (admins, directors,
+            members). Surfaces the Pre-Production / Filming / Post-Production
+            folders below a divider. */}
+        {canUseProductionMode && !previewingContractor && !previewingClient && (
+          <button
+            onClick={toggleProductionMode}
+            style={{
+              ...styles.navItem,
+              ...(mode === 'production' ? styles.navItemActive : {}),
+              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+              marginTop: '8px',
+            }}
+            title={sidebarCollapsed ? (mode === 'production' ? 'Exit Production Mode' : 'Production Mode') : undefined}
+          >
+            <ProductionModeIcon active={mode === 'production'} />
+            {!sidebarCollapsed && <span>{mode === 'production' ? 'Exit Production Mode' : 'Production Mode'}</span>}
+          </button>
+        )}
 
         {/* Admin Mode toggle - between collapse toggle and user area */}
         {isAdmin && !previewingContractor && !previewingClient && (
@@ -1650,6 +1712,15 @@ function ViewAsIcon({ active }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z" strokeLinejoin="round" />
       <circle cx="10" cy="10" r="2.5" />
+    </svg>
+  );
+}
+
+function ProductionModeIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
+      <rect x="2.5" y="7" width="15" height="10" rx="1.5" />
+      <path d="M2.8 7l2.4-3.2 3.2 2.4M8 6.2l3.2-2.9 3 2.6M13.8 5.9l3-2.7" strokeLinejoin="round" />
     </svg>
   );
 }

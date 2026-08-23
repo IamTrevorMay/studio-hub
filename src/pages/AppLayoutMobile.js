@@ -95,8 +95,11 @@ const DESKTOP_ADMIN_PAGE_KEYS = new Set([
   'payroll', 'analytics', 'tracking', 'accounting', 'business_dev',
   'freelancers', 'workflows', 'jobs', 'invoicing', 'ops',
 ]);
-const ADMIN_ESSENTIAL_KEYS = new Set(['dashboard', 'projects', 'calendar', 'deliverables']);
-const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production']);
+// Production folders: their pages live in Production Mode (below the divider),
+// not the everyday/general list. filming/post_production are additionally
+// excluded from mobile entirely (below), so in practice the mobile production
+// section is the pre_production folder's mobile-capable pages.
+const PRODUCTION_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_production']);
 
 // Folders fully removed from the mobile left nav (both Work and Admin modes).
 // Drops the folder header AND any items nested under it.
@@ -109,43 +112,44 @@ function stripExcludedFolders(nav) {
   });
 }
 
-// Build the Admin View nav list from resolved nav + hardcoded admin pages.
-// Essential items/folders pulled from resolvedNav, then admin pages appended.
-function buildAdminModeNav(resolvedNav) {
-  const top = [];
-  for (const entry of resolvedNav) {
-    if (entry.type === 'item' && ADMIN_ESSENTIAL_KEYS.has(entry.key)) {
-      top.push(entry);
-    } else if (entry.type === 'folder' && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.id)) {
-      top.push(entry);
-    } else if (entry.type === 'item' && entry.folderId && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.folderId)) {
-      top.push(entry);
-    }
+// Strip the production folders (header + nested items) from a nav list — used
+// to build the general/everyday list shared by the top of every mode.
+function stripProductionFolders(nav) {
+  return nav.filter((entry) => {
+    if (entry.type === 'folder') return !PRODUCTION_FOLDER_IDS.has(entry.id);
+    if (entry.type === 'item' && entry.folderId) return !PRODUCTION_FOLDER_IDS.has(entry.folderId);
+    return true;
+  });
+}
+
+// Pull the production folders (and their surviving children) out of a nav list,
+// preserving order and dropping any folder left empty after mobile filtering.
+function buildProductionSection(nav) {
+  const items = [];
+  for (const entry of nav) {
+    if (entry.type === 'folder' && PRODUCTION_FOLDER_IDS.has(entry.id)) items.push(entry);
+    else if (entry.type === 'item' && entry.folderId && PRODUCTION_FOLDER_IDS.has(entry.folderId)) items.push(entry);
   }
+  const childCount = {};
+  items.forEach((e) => { if (e.type === 'item' && e.folderId) childCount[e.folderId] = (childCount[e.folderId] || 0) + 1; });
+  return items.filter((e) => !(e.type === 'folder' && !childCount[e.id]));
+}
+
+// The admin-only pages section appended below the divider in Admin Mode.
+function buildAdminPagesSection() {
+  const out = [];
   for (const key of MOBILE_ADMIN_PAGE_KEYS) {
     // Skip desktop-only pages (they route to DesktopOnlyScreen) — no point
     // surfacing a tab whose only content is "use desktop instead".
     if (isExcludedOnMobile(key)) continue;
     const item = NAV_ITEMS.find((i) => i.key === key);
-    if (item) top.push({ type: 'item', key: item.key, label: item.label });
+    if (item) out.push({ type: 'item', key: item.key, label: item.label });
   }
-  top.push({ type: 'item', key: 'admin', label: 'Admin Settings' });
-  return top;
+  out.push({ type: 'item', key: 'admin', label: 'Admin Settings' });
+  return out;
 }
 
-function getAdminModeKeySet(resolvedNav) {
-  const keys = new Set([
-    ...ADMIN_ESSENTIAL_KEYS,
-    ...MOBILE_ADMIN_PAGE_KEYS.filter((k) => !isExcludedOnMobile(k)),
-    'admin',
-  ]);
-  for (const entry of resolvedNav) {
-    if (entry.type === 'item' && entry.folderId && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.folderId)) {
-      keys.add(entry.key);
-    }
-  }
-  return keys;
-}
+const itemKeys = (navArray) => navArray.filter((e) => e.type === 'item').map((e) => e.key);
 
 function getTabFromPath() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -185,7 +189,10 @@ export default function AppLayoutMobile() {
   const [suiteView, setSuiteView] = useState(() => (isSuiteUser ? getSuiteViewFromPath() : null));
   // Mode mirrors desktop's localStorage key. Non-admins are pinned to
   // 'work' below (admins still see whichever mode they last used).
-  const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
+  const [mode, setMode] = useState(() => {
+    const m = localStorage.getItem('studio-hub-mode');
+    return (m === 'admin' || m === 'production') ? m : 'work';
+  });
   const [navTarget, setNavTarget] = useState(() => getSubPathFromURL());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -267,18 +274,38 @@ export default function AppLayoutMobile() {
     // eslint-disable-next-line
   }, [activeTab, restrictedNavKeys, isContractor]);
 
-  // Pin non-admins to Work View; persist mode across reloads.
-  useEffect(() => { if (!isAdmin && mode !== 'work') setMode('work'); }, [isAdmin, mode]);
+  // Production Mode is open to all staff; contractors/clients get locked
+  // portals. Admin Mode stays admin-only. Persist mode across reloads.
+  const canUseProductionMode = !isContractor && !isClient;
+  useEffect(() => {
+    if (!isAdmin && mode !== 'work' && !(mode === 'production' && canUseProductionMode)) setMode('work');
+  }, [isAdmin, mode, canUseProductionMode]);
   useEffect(() => { localStorage.setItem('studio-hub-mode', mode); }, [mode]);
 
   const resolvedNav = stripExcludedFolders(
     getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isContractor, profile, restrictedNavKeys, isClient)
   );
-  const adminModeKeySet = getAdminModeKeySet(resolvedNav);
+
+  // General everyday list shared by the top of every mode: mobile-filtered,
+  // then production folders and admin-only pages stripped out.
+  const baseNav = filterNavForMobile(resolvedNav);
+  const generalNav = stripProductionFolders(baseNav)
+    .filter((e) => !(e.type === 'item' && DESKTOP_ADMIN_PAGE_KEYS.has(e.key)));
+  const productionSection = buildProductionSection(baseNav);
+  const adminPagesSection = buildAdminPagesSection();
+
+  // Production pages stay viewable in every mode; admin pages are the only
+  // mode-exclusive keys, so those are all Work/Production bounce off.
+  const adminModeKeySet = new Set([
+    ...itemKeys(generalNav),
+    ...itemKeys(productionSection),
+    ...MOBILE_ADMIN_PAGE_KEYS.filter((k) => !isExcludedOnMobile(k)),
+    'admin',
+  ]);
 
   // When the user flips to a mode their current tab doesn't belong to,
-  // bounce them somewhere sensible. Dashboard is the safe admin landing —
-  // it has a mobile build and lives in every admin keyset.
+  // bounce them somewhere sensible. Dashboard is the safe landing — it has a
+  // mobile build and lives in every keyset.
   useEffect(() => {
     if (mode === 'admin' && isAdmin) {
       if (!adminModeKeySet.has(activeTab)) setActiveTab('dashboard');
@@ -288,18 +315,23 @@ export default function AppLayoutMobile() {
     // eslint-disable-next-line
   }, [mode, isAdmin]);
 
-  // Work View strips every desktop-admin key so admin-only pages are
-  // siloed into Admin View. Admin View builds its own short list.
-  const baseNav = filterNavForMobile(resolvedNav);
   const mobileNav = isClient
     ? resolvedNav.filter((e) => e.type === 'item' && ['cl_dashboard', 'messages'].includes(e.key))
     : (mode === 'admin' && isAdmin)
-      ? buildAdminModeNav(resolvedNav)
-      : baseNav.filter((e) => !(e.type === 'item' && DESKTOP_ADMIN_PAGE_KEYS.has(e.key)));
+      ? [...generalNav, { type: 'divider' }, ...adminPagesSection]
+      : (mode === 'production' && canUseProductionMode && productionSection.length)
+        ? [...generalNav, { type: 'divider' }, ...productionSection]
+        : generalNav;
 
-  function toggleMode() {
+  // Modes the current user can switch between (drawer segmented control).
+  const availableModes = [
+    'work',
+    ...(canUseProductionMode && productionSection.length ? ['production'] : []),
+    ...(isAdmin ? ['admin'] : []),
+  ];
+  function selectMode(next) {
     // Keep the drawer open on mode flip — user is still navigating the nav.
-    setMode((m) => (m === 'admin' ? 'work' : 'admin'));
+    setMode(next);
   }
 
   function navigateTo(tab, target) {
@@ -442,7 +474,8 @@ export default function AppLayoutMobile() {
         onSignOut={signOut}
         isAdmin={isAdmin}
         mode={mode}
-        onToggleMode={toggleMode}
+        availableModes={availableModes}
+        onSelectMode={selectMode}
         suiteBrand={isSuiteUser}
         onOpenLauncher={isAdmin ? () => { setDrawerOpen(false); setSuiteView('launcher'); } : undefined}
       />

@@ -16,6 +16,8 @@ import { colors } from '../../lib/styleTokens';
 //   profile?: { full_name, title }
 //   onSignOut: () => void
 //   isAdmin?: boolean
+const MODE_LABELS = { work: 'Work', production: 'Production', admin: 'Admin' };
+
 export default function MobileDrawer({
   open,
   onClose,
@@ -26,7 +28,8 @@ export default function MobileDrawer({
   onSignOut,
   isAdmin,
   mode,
-  onToggleMode,
+  availableModes = [],
+  onSelectMode,
   suiteBrand,      // staff only: show "Bridge" + Mayday Studio suite mark
   onOpenLauncher,  // staff only: "Apps" row → suite launcher
 }) {
@@ -148,31 +151,23 @@ export default function MobileDrawer({
           </div>
         )}
 
-        {isAdmin && onToggleMode && (
+        {onSelectMode && availableModes.length > 1 && (
           <div style={styles.modeToggleArea}>
             <div style={styles.modeToggle} role="tablist">
-              <button
-                onClick={mode === 'admin' ? onToggleMode : undefined}
-                role="tab"
-                aria-selected={mode === 'work'}
-                style={{
-                  ...styles.modeBtn,
-                  ...(mode === 'work' ? styles.modeBtnActive : {}),
-                }}
-              >
-                Work
-              </button>
-              <button
-                onClick={mode === 'work' ? onToggleMode : undefined}
-                role="tab"
-                aria-selected={mode === 'admin'}
-                style={{
-                  ...styles.modeBtn,
-                  ...(mode === 'admin' ? styles.modeBtnActive : {}),
-                }}
-              >
-                Admin
-              </button>
+              {availableModes.map((m) => (
+                <button
+                  key={m}
+                  onClick={mode === m ? undefined : () => onSelectMode(m)}
+                  role="tab"
+                  aria-selected={mode === m}
+                  style={{
+                    ...styles.modeBtn,
+                    ...(mode === m ? styles.modeBtnActive : {}),
+                  }}
+                >
+                  {MODE_LABELS[m] || m}
+                </button>
+              ))}
             </div>
           </div>
         )}
