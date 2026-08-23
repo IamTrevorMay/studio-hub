@@ -315,6 +315,20 @@ const NAV_ICON_MAP = {
   cl_documents: DocumentsIcon,
   cl_profile: ProfileIcon,
   cl_notifications: NotificationsIcon,
+  ct_assignments: ResourcesIcon,
+  ct_hours: HoursIcon,
+  ct_documents: DocumentsIcon,
+  ct_team: ContractorsIcon,
+};
+
+// The four sidebar views, surfaced through a single mode dropdown. Availability
+// is role-gated where the dropdown is built (Work: all staff; Production: all
+// staff; Admin/Contractor: admins only).
+const MODE_META = {
+  work: { label: 'Work View', icon: WorkModeIcon },
+  production: { label: 'Production Mode', icon: ProductionModeIcon },
+  admin: { label: 'Admin Mode', icon: AdminIcon },
+  contractor: { label: 'Contractor Mode', icon: ContractorModeIcon },
 };
 
 export default function AppLayout() {
@@ -366,6 +380,8 @@ export default function AppLayout() {
   const { active: impersonating, contractor: impersonatedContractor, start: startImpersonation, stop: stopImpersonation } = useImpersonation();
   const [viewAsMenuOpen, setViewAsMenuOpen] = useState(false);
   const [viewAsContractors, setViewAsContractors] = useState([]);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const modeMenuRef = React.useRef(null);
   // Simulated Client Portal preview (chrome-only): renders the locked client
   // nav + cl_* pages as the admin's own identity, so every query comes back
   // empty. No impersonation edge fn — there's no client-side of it yet.
@@ -501,26 +517,21 @@ export default function AppLayout() {
   function resetTabToWork() {
     if (ADMIN_PAGE_KEYS.includes(activeTab) || CONTRACTOR_MODE_KEYS.includes(activeTab)) setActiveTab('dashboard');
   }
-  function toggleMode() {
-    const next = mode === 'admin' ? 'work' : 'admin';
+  // Unified mode switch behind the sidebar dropdown. Keeps the current page
+  // wherever it's valid in the target mode; otherwise lands somewhere sensible.
+  function selectMode(next) {
+    setModeMenuOpen(false);
+    if (next === mode) return;
     setMode(next);
-    if (next === 'admin') { if (!adminModeKeys.has(activeTab)) setActiveTab('workflows'); }
-    else resetTabToWork();
-  }
-  function toggleContractorMode() {
-    const next = mode === 'contractor' ? 'work' : 'contractor';
-    setMode(next);
-    // Contractor Mode now carries the general list, so only bounce off an
-    // admin-exclusive page (onto the first contractor tab) when entering.
-    if (next === 'contractor') { if (ADMIN_PAGE_KEYS.includes(activeTab)) setActiveTab('ct_assignments'); }
-    else resetTabToWork();
-  }
-  function toggleProductionMode() {
-    const next = mode === 'production' ? 'work' : 'production';
-    setMode(next);
-    // Production Mode carries the general list at top; entering keeps the
-    // current page. Leaving only bounces off mode-exclusive pages.
-    if (next === 'work') resetTabToWork();
+    if (next === 'admin') {
+      if (!adminModeKeys.has(activeTab)) setActiveTab('workflows');
+    } else if (next === 'contractor') {
+      // Contractor Mode carries the general list; only admin-exclusive pages bounce.
+      if (ADMIN_PAGE_KEYS.includes(activeTab)) setActiveTab('ct_assignments');
+    } else {
+      // Work / Production carry the general list; bounce off mode-exclusive pages.
+      resetTabToWork();
+    }
   }
 
   function toggleFolder(folderId) {
@@ -723,6 +734,17 @@ export default function AppLayout() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showNotifications]);
+
+  React.useEffect(() => {
+    if (!modeMenuOpen) return;
+    function handleClickOutside(e) {
+      if (modeMenuRef.current && !modeMenuRef.current.contains(e.target)) {
+        setModeMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [modeMenuOpen]);
 
 
   // ── Mayday Studio suite pages (staff only; full-screen, no sidebar) ──
@@ -993,58 +1015,64 @@ export default function AppLayout() {
           </svg>
         </button>
 
-        {/* Production Mode toggle - available to all staff (admins, directors,
-            members). Surfaces the Pre-Production / Filming / Post-Production
-            folders below a divider. */}
-        {canUseProductionMode && !previewingContractor && !previewingClient && (
-          <button
-            onClick={toggleProductionMode}
-            style={{
-              ...styles.navItem,
-              ...(mode === 'production' ? styles.navItemActive : {}),
-              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-              marginTop: '8px',
-            }}
-            title={sidebarCollapsed ? (mode === 'production' ? 'Exit Production Mode' : 'Production Mode') : undefined}
-          >
-            <ProductionModeIcon active={mode === 'production'} />
-            {!sidebarCollapsed && <span>{mode === 'production' ? 'Exit Production Mode' : 'Production Mode'}</span>}
-          </button>
-        )}
-
-        {/* Admin Mode toggle - between collapse toggle and user area */}
-        {isAdmin && !previewingContractor && !previewingClient && (
-          <button
-            onClick={toggleMode}
-            style={{
-              ...styles.navItem,
-              ...(mode === 'admin' ? styles.navItemActive : {}),
-              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-              marginTop: '8px',
-            }}
-            title={sidebarCollapsed ? (mode === 'admin' ? 'Exit Admin Mode' : 'Admin Mode') : undefined}
-          >
-            <AdminIcon active={mode === 'admin'} />
-            {!sidebarCollapsed && <span>{mode === 'admin' ? 'Exit Admin Mode' : 'Admin Mode'}</span>}
-          </button>
-        )}
-
-        {/* Contractor Mode toggle - manage contractors (admin-only). */}
-        {isAdmin && !previewingContractor && !previewingClient && (
-          <button
-            onClick={toggleContractorMode}
-            style={{
-              ...styles.navItem,
-              ...(mode === 'contractor' ? styles.navItemActive : {}),
-              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-              marginTop: '8px',
-            }}
-            title={sidebarCollapsed ? (mode === 'contractor' ? 'Exit Contractor Mode' : 'Contractor Mode') : undefined}
-          >
-            <ContractorModeIcon active={mode === 'contractor'} />
-            {!sidebarCollapsed && <span>{mode === 'contractor' ? 'Exit Contractor Mode' : 'Contractor Mode'}</span>}
-          </button>
-        )}
+        {/* View switcher — a single dropdown consolidating Work / Production /
+            Admin / Contractor. Work + Production for all staff; Admin +
+            Contractor for admins only. */}
+        {canUseProductionMode && !previewingContractor && !previewingClient && (() => {
+          const modeOptions = [
+            'work',
+            ...(canUseProductionMode ? ['production'] : []),
+            ...(isAdmin ? ['admin', 'contractor'] : []),
+          ];
+          if (modeOptions.length < 2) return null;
+          const current = MODE_META[mode] || MODE_META.work;
+          const CurrentIcon = current.icon;
+          return (
+            <div ref={modeMenuRef} style={{ position: 'relative', marginTop: '8px' }}>
+              <button
+                onClick={() => setModeMenuOpen((o) => !o)}
+                style={{
+                  ...styles.navItem,
+                  ...(mode !== 'work' ? styles.navItemActive : {}),
+                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                  width: '100%',
+                }}
+                title={sidebarCollapsed ? current.label : undefined}
+              >
+                <CurrentIcon active={mode !== 'work'} />
+                {!sidebarCollapsed && <span style={{ flex: 1, textAlign: 'left' }}>{current.label}</span>}
+                {!sidebarCollapsed && <ChevronToggleIcon open={modeMenuOpen} />}
+              </button>
+              {modeMenuOpen && (
+                <div style={styles.viewAsMenu}>
+                  <div style={styles.viewAsMenuHeader}>Switch view</div>
+                  {modeOptions.map((m) => {
+                    const meta = MODE_META[m];
+                    const OptIcon = meta.icon;
+                    const isCurrent = mode === m;
+                    return (
+                      <button
+                        key={m}
+                        onClick={() => selectMode(m)}
+                        style={{
+                          ...styles.viewAsMenuItem,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          ...(isCurrent ? { color: '#a5b4fc' } : {}),
+                        }}
+                      >
+                        <OptIcon active={isCurrent} />
+                        <span style={{ flex: 1 }}>{meta.label}</span>
+                        {isCurrent && <span aria-hidden>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* App switcher — Mayday Studio suite launcher (admin-only). Sits just
             above the user area (where Gerald used to be); Gerald now lives as a
@@ -1721,6 +1749,24 @@ function ProductionModeIcon({ active }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="2.5" y="7" width="15" height="10" rx="1.5" />
       <path d="M2.8 7l2.4-3.2 3.2 2.4M8 6.2l3.2-2.9 3 2.6M13.8 5.9l3-2.7" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function WorkModeIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
+      <rect x="3" y="6.5" width="14" height="9.5" rx="1.5" />
+      <path d="M7.5 6.5V5.5a1.5 1.5 0 011.5-1.5h2a1.5 1.5 0 011.5 1.5v1M3 10.5h14" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronToggleIcon({ open }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6b7280" strokeWidth="1.5"
+      style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }}>
+      <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
