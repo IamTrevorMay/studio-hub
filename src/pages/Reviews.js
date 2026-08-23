@@ -17,7 +17,7 @@ const SOURCE_FILTERS = [
   { key: 'client', label: 'Client' },
 ];
 
-export default function Reviews({ initialReviewId, onOpened }) {
+export default function Reviews({ initialReviewId, onOpened, compact = false }) {
   const { profile, isAdmin, refreshKey } = useAuth();
   const confirm = useConfirm();
   const [reviews, setReviews] = useState([]);
@@ -136,6 +136,7 @@ export default function Reviews({ initialReviewId, onOpened }) {
         onBack={() => { setActiveReview(null); fetchReviews(); }}
         profile={profile}
         isAdmin={isAdmin}
+        compact={compact}
       />
     );
   }
@@ -149,7 +150,7 @@ export default function Reviews({ initialReviewId, onOpened }) {
   });
 
   return (
-    <div style={styles.page}>
+    <div style={{ ...styles.page, ...(compact ? styles.pageCompact : {}) }}>
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Reviews</h1>
@@ -276,6 +277,7 @@ export default function Reviews({ initialReviewId, onOpened }) {
 
 const styles = {
   page: { padding: '32px 40px' },
+  pageCompact: { padding: '16px' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexShrink: 0 },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },

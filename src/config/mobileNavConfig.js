@@ -37,9 +37,9 @@ export const MOBILE_SUPPORT = {
   ops: 'full',
   analytics: 'full',
   tracking: 'readonly',
+  reviews: 'full',
 
   // Excluded — show DesktopOnlyScreen if visited
-  reviews: 'excluded',
   assets: 'excluded',
   write: 'excluded',
   tools: 'excluded',

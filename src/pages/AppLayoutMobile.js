@@ -37,6 +37,7 @@ import Contractors from './ContractorsMobile';
 import Ops from './OpsMobile';
 import Analytics from './AnalyticsMobile';
 import Tracking from './TrackingMobile';
+import Reviews from './ReviewsMobile';
 import SuiteLauncher from './SuiteLauncher';
 import SuiteComingSoon from './SuiteComingSoon';
 import HarborApp from './harbor/HarborApp';
@@ -509,6 +510,7 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isContrac
     case 'ops': return <Ops />;
     case 'analytics': return <Analytics />;
     case 'tracking': return <Tracking />;
+    case 'reviews': return <Reviews initialReviewId={navTarget} onOpened={() => setNavTarget(null)} />;
     case 'channels': return <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />;
     case 'messages': return <Messages onNavigate={navigateTo} />;
     case 'admin': return <AdminPanel />;

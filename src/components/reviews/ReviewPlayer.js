@@ -151,8 +151,10 @@ function VerdictChip({ verdict }) {
 //                verdict chips visible, no verdict buttons)
 //  - client:     no add-version form, details read-only (comments still usable),
 //                verdict bar under the player for the active version
+// compact: stack the video/comments columns vertically for narrow (mobile)
+//          viewports instead of the side-by-side desktop layout.
 
-function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo = false }) {
+function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo = false, compact = false }) {
   const isClient = mode === 'client';
   const isStaffMode = mode === 'staff';
   const canAddVersion = !isClient;
@@ -221,8 +223,11 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
     }
   }, [activeVersion?.id]);
 
-  // Measure video column height so comments panel matches it exactly
+  // Measure video column height so comments panel matches it exactly.
+  // Skipped when compact (stacked layout): the comments panel sits below the
+  // video and sizes to its own content instead of the video's height.
   useEffect(() => {
+    if (compact) { setVideoColHeight(null); return; }
     const el = videoColRef.current;
     if (!el) return;
     const observer = new ResizeObserver(([entry]) => {
@@ -230,7 +235,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [compact]);
 
   // Auto-scroll comments list to bottom only when new comments are added
   const prevCommentsLengthRef = useRef(0);
@@ -693,7 +698,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
         </form>
       )}
 
-      <div style={styles.playerLayout}>
+      <div style={{ ...styles.playerLayout, ...(compact ? styles.playerLayoutCompact : {}) }}>
         {/* Video */}
         <div ref={videoColRef} style={styles.videoCol}>
           {versions.length === 0 ? (
@@ -757,7 +762,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
         </div>
 
         {/* Comments Column */}
-        <div style={{ ...styles.commentsCol, ...(videoColHeight ? { height: videoColHeight } : {}) }}>
+        <div style={{ ...styles.commentsCol, ...(compact ? styles.commentsColCompact : {}), ...(videoColHeight ? { height: videoColHeight } : {}) }}>
           <div style={styles.commentsPanelHeader}>
             <h3 style={styles.commentsPanelTitle}>
               Notes
@@ -847,7 +852,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
       {/* ─── Details Section (tied to review.id, static across versions) ─── */}
       <div style={styles.detailsSection}>
         <h2 style={styles.detailsSectionTitle}>Details</h2>
-        <div style={styles.detailsGrid}>
+        <div style={{ ...styles.detailsGrid, ...(compact ? styles.detailsGridCompact : {}) }}>
 
         {/* Thumbnails */}
         <div style={styles.detailsBlock}>
@@ -1230,6 +1235,7 @@ const styles = {
 
   // Player layout
   playerLayout: { display: 'flex', gap: '24px', position: 'relative' },
+  playerLayoutCompact: { flexDirection: 'column', gap: '16px' },
   videoCol: { flex: 1, minWidth: 0 },
   videoWrap: { position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: '12px', overflow: 'hidden' },
   videoEmbed: { width: '100%', height: '100%' },
@@ -1251,6 +1257,7 @@ const styles = {
 
   // Comments panel
   commentsCol: { width: '340px', minWidth: '340px', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 },
+  commentsColCompact: { width: '100%', minWidth: 0, maxHeight: '60vh' },
   commentsPanelHeader: { padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 },
   commentsPanelTitle: { fontSize: '14px', fontWeight: 700, color: '#e2e8f0', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '8px' },
   commentCount: { background: colors.accentA15, color: colors.accentFg, fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px' },
@@ -1288,6 +1295,7 @@ const styles = {
   detailsSection: { marginTop: '32px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' },
   detailsSectionTitle: { fontSize: '20px', fontWeight: 700, color: '#e2e8f0', margin: '0 0 20px', letterSpacing: '-0.3px' },
   detailsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' },
+  detailsGridCompact: { gridTemplateColumns: '1fr' },
   detailsBlock: { padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', display: 'flex', flexDirection: 'column' },
   detailsBlockHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
   detailsBlockTitle: { fontSize: '14px', fontWeight: 700, color: colors.accentFg, margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' },
