@@ -8,7 +8,6 @@ import { canAccessBroadcast, canManageClients } from '../lib/rolePermissions';
 import { useImpersonation } from '../lib/impersonation';
 import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
-import SidebarEditMode from '../components/SidebarEditMode';
 import Dashboard from './Dashboard';
 import Projects from './Projects';
 import Deliverables from './Deliverables';
@@ -116,12 +115,11 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', '
 // of Admin Mode and visible only to the owner account below — no other role
 // (or admin) sees them anywhere in the nav.
 const BETA_OWNER_EMAIL = 'trevormayofficial@gmail.com';
-const BETA_PAGE_KEYS = ['broadcast', 'timeline', 'graphics', 'mailer'];
+const BETA_PAGE_KEYS = ['broadcast', 'timeline', 'mailer'];
 const BETA_PAGE_NAV = [
   { type: 'folder', id: 'beta', label: 'Beta', collapsed: true },
   { type: 'item', key: 'broadcast', label: 'Broadcast', folderId: 'beta' },
   { type: 'item', key: 'timeline', label: 'Timeline', folderId: 'beta' },
-  { type: 'item', key: 'graphics', label: 'Graphics', folderId: 'beta' },
   { type: 'item', key: 'mailer', label: 'Mailer', folderId: 'beta' },
 ];
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
@@ -344,7 +342,7 @@ export default function AppLayout() {
   // `!isContractor && !isPartner` to reopen the suite to all staff.
   const isSuiteUser = isAdmin;
   const { unreadAnnouncementCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, newApplicationCount, refreshNotifications } = useNotifications();
-  const { getResolvedNav, saveConfig, saving } = useNavConfig();
+  const { getResolvedNav } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => {
     const fromPath = getTabFromPath();
     if (fromPath === 'my_tasks') return 'dashboard';
@@ -370,7 +368,6 @@ export default function AppLayout() {
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const notifPanelRef = React.useRef(null);
   const mainContentRef = React.useRef(null);
-  const [editMode, setEditMode] = useState(false);
   const [folderCollapseState, setFolderCollapseState] = useState(() =>
     JSON.parse(localStorage.getItem('nav-folder-state') || '{}')
   );
@@ -797,22 +794,6 @@ export default function AppLayout() {
 
         {/* Navigation */}
         <nav style={styles.nav}>
-          {editMode && isAdmin && !sidebarCollapsed ? (
-            <SidebarEditMode
-              resolvedNav={resolvedNav}
-              navIconMap={NAV_ICON_MAP}
-              onSave={async (items) => {
-                await saveConfig({ version: 1, items }, profile?.id);
-                setEditMode(false);
-              }}
-              onReset={async () => {
-                await saveConfig({}, profile?.id);
-                setEditMode(false);
-              }}
-              onCancel={() => setEditMode(false)}
-              saving={saving}
-            />
-          ) : (
             <>
               {(() => {
                 // Build folder structure for rendering
@@ -976,28 +957,6 @@ export default function AppLayout() {
                 });
               })()}
             </>
-          )}
-
-          {/* Edit mode toggle - admin only, Work View, expanded sidebar only */}
-          {isAdmin && mode === 'work' && !sidebarCollapsed && !editMode && (
-            <button
-              onClick={() => setEditMode(true)}
-              style={{
-                ...styles.navItem,
-                justifyContent: 'center',
-                color: 'rgba(255,255,255,0.25)',
-                fontSize: '11px',
-                marginTop: '4px',
-                padding: '6px 12px',
-              }}
-              title="Customize navigation"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2">
-                <path d="M10 1.5l2.5 2.5L4.5 12H2v-2.5L10 1.5z" />
-              </svg>
-              <span>Edit nav</span>
-            </button>
-          )}
         </nav>
 
         {/* Collapse toggle */}

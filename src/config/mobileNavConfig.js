@@ -54,6 +54,7 @@ export const MOBILE_SUPPORT = {
   post_show: 'excluded',
   teleprompter: 'excluded',
   telestration: 'excluded',
+  graphics: 'excluded',
   organize: 'excluded',
   broadcast: 'excluded',
 };

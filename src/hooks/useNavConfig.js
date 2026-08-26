@@ -19,8 +19,6 @@ function itemAllowedForUser(item, isAdmin, profile) {
  */
 export default function useNavConfig() {
   const [config, setConfig] = useState(null); // null = loading, {} = default
-  const [rowId, setRowId] = useState(null);
-  const [saving, setSaving] = useState(false);
   const channelRef = useRef(null);
 
   // Rebuild the realtime subscription whenever the app-wide refreshKey bumps
@@ -40,7 +38,6 @@ export default function useNavConfig() {
         .single();
       if (!cancelled && !error && data) {
         setConfig(data.config || {});
-        setRowId(data.id);
       } else if (!cancelled) {
         setConfig({});
       }
@@ -52,7 +49,6 @@ export default function useNavConfig() {
       .channel('nav_config_changes')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'nav_config' }, (payload) => {
         setConfig(payload.new.config || {});
-        setRowId(payload.new.id);
       })
       .subscribe();
     channelRef.current = channel;
@@ -64,20 +60,6 @@ export default function useNavConfig() {
       }
     };
   }, [refreshKey]);
-
-  // Save config to DB
-  const saveConfig = useCallback(async (newConfig, profileId) => {
-    if (!rowId) return;
-    setSaving(true);
-    try {
-      await supabase
-        .from('nav_config')
-        .update({ config: newConfig, updated_by: profileId, updated_at: new Date().toISOString() })
-        .eq('id', rowId);
-    } finally {
-      setSaving(false);
-    }
-  }, [rowId]);
 
   /**
    * Merges DB config with hardcoded NAV_ITEMS.
@@ -185,5 +167,5 @@ export default function useNavConfig() {
     return result;
   }, [config]);
 
-  return { config, getResolvedNav, saveConfig, saving, loading: config === null };
+  return { config, getResolvedNav, loading: config === null };
 }
