@@ -88,7 +88,7 @@ const NAV_ITEMS = [
   { key: 'post_show', label: 'Video Tools', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon, adminOnly: true },
   { key: 'mailer', label: 'Mailer', icon: MailerIcon, adminOnly: true },
-  { key: 'graphics', label: 'Graphics', icon: GraphicsIcon, adminOnly: true },
+  { key: 'graphics', label: 'Graphics', icon: GraphicsIcon },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
   { key: 'deliverables', label: 'Deliverables', icon: DeliverablesIcon },
