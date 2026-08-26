@@ -114,19 +114,30 @@ type Source = {
   // Tiller doc (source='tiller_v1', see import-tiller-v1); the live sheet only
   // owns dates after the cutover.
   minDate?: string;
+  // Account names (case-insensitive) to drop. The Mayday sheet carries a
+  // couple of Neptune rows, and this source stamps business='mayday_media'
+  // on everything it imports, so without this they'd be misfiled.
+  excludeAccounts?: string[];
 };
 
 const SOURCES: Source[] = [
   {
-    // New unified Mayday sheet (2026-07): Tiller pulls the bank feeds
-    // (3 Amex + City National), this app owns all categorization.
+    // Unified Mayday sheet: Tiller pulls the bank feeds (3 Amex + City
+    // National), this app owns all categorization.
+    //
+    // Swapped 2026-08-26 from 1K56_Bj6z… after that doc lost its Tiller
+    // connection and went stale. Safe to swap because Tiller's Transaction ID
+    // is carried over unchanged between the two docs, and transaction_id is
+    // derived from it (`tillerv2_<id>`) — so re-syncing matches the existing
+    // rows and updates them instead of inserting a second copy.
     business: "mayday_media",
-    spreadsheetId: "1K56_Bj6zX-zd-BKJhrG56bKd1WXYnZjTNdMB7dE_UYg",
+    spreadsheetId: "1ZPOdPFGkyu5TMqNLrmy55OTr_miHfP0CRNffUB66nRA",
     sheetName: "Transactions",
     categoryMode: "app",
     columns: "detect",
     idPrefix: "tillerv2",
     minDate: "2026-06-26",
+    excludeAccounts: ["Neptune Performance"],
   },
   {
     business: "neptune_performance",
@@ -507,6 +518,7 @@ Deno.serve(async (req: Request) => {
           const category = (cols.category >= 0 ? row[cols.category] || "" : "").trim();
           const description = (cols.description >= 0 ? row[cols.description] || "" : "").trim();
           const account = (cols.account >= 0 ? row[cols.account] || "" : "").trim();
+          if (src.excludeAccounts?.some((a) => a.toLowerCase() === account.toLowerCase())) continue;
 
           let isIncome: boolean, isExpense: boolean;
           if (src.categoryMode === "whitelist") {
