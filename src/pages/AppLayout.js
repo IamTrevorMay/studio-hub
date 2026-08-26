@@ -1213,7 +1213,7 @@ export default function AppLayout() {
           {isAdmin && activeTab === 'invoicing' && <PageErrorBoundary key="invoicing"><Invoicing /></PageErrorBoundary>}
 
           {activeTab === 'channels' && <PageErrorBoundary key="channels"><Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
-          {activeTab === 'messages' && <PageErrorBoundary key="messages"><Messages onNavigate={navigateTo} simulateClient={previewingClient} /></PageErrorBoundary>}
+          {activeTab === 'messages' && <PageErrorBoundary key="messages"><Messages onNavigate={navigateTo} simulateClient={previewingClient} initialConversationId={navTarget} onConversationOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'admin' && <PageErrorBoundary key="admin"><AdminPanel initialTab={adminInitialTab} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'freelancers' && <PageErrorBoundary key="freelancers"><Contractors initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {isAdmin && CONTRACTOR_MODE_KEYS.includes(activeTab) && <PageErrorBoundary key="contractor-mode"><Contractors chromeless activeTabKey={CONTRACTOR_TAB_FOR_KEY[activeTab]} initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}

@@ -6,6 +6,8 @@ import Placeholder from '@tiptap/extension-placeholder';
 import DOMPurify from 'dompurify';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
+import { toast } from '../contexts/ToastContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { ptDayKey } from '../lib/ptDate';
@@ -131,6 +133,10 @@ function sortByPriority(items, completedKey = 'checked') {
 export default function Dashboard({ onNavigate }) {
   const { profile, updateProfile, isAdmin, isAssistant, isPartner, refreshKey } = useAuth();
   const { safeQuery } = useSupabaseQuery();
+  // The global DM count already refreshes on every direct_messages INSERT and
+  // on the read-cursor UPDATE, so it doubles as the trigger for re-pulling the
+  // per-sender breakdown — no second realtime subscription needed.
+  const { unreadMessageCount } = useNotifications();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -193,6 +199,11 @@ export default function Dashboard({ onNavigate }) {
   // Team presence state
   const [teamProfiles, setTeamProfiles] = useState([]);
   const [teamLoading, setTeamLoading] = useState(false);
+  // sender_id -> { conversationId, count } for unread DMs, so a teammate's row
+  // can show a badge and open the thread it points at.
+  const [dmUnreadBySender, setDmUnreadBySender] = useState({});
+  const [hoveredMemberId, setHoveredMemberId] = useState(null);
+  const [openingDmFor, setOpeningDmFor] = useState(null);
   const [editingStatusNote, setEditingStatusNote] = useState(false);
   const [statusNoteDraft, setStatusNoteDraft] = useState(profile?.status_note || '');
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
@@ -325,6 +336,48 @@ export default function Dashboard({ onNavigate }) {
       setTeamLoading(false);
     }
   }, [profile?.id]);
+
+  // Per-sender unread DM counts (1:1 threads only — the badge sits on a
+  // person's row and clicking it opens the DM with them).
+  const fetchDmUnread = useCallback(async () => {
+    if (!profile?.id) return;
+    const { data, error } = await supabase.rpc('get_unread_dm_by_sender');
+    if (error) {
+      console.error('Error fetching unread DMs by sender:', error);
+      return;
+    }
+    const map = {};
+    for (const row of data || []) {
+      map[row.sender_id] = { conversationId: row.conversation_id, count: row.unread_count };
+    }
+    setDmUnreadBySender(map);
+  }, [profile?.id]);
+
+  useEffect(() => { fetchDmUnread(); }, [fetchDmUnread, unreadMessageCount]);
+
+  // Open (or start) the DM with a teammate. When there are unread messages we
+  // already know the thread id, so skip the round trip.
+  const openDmWith = useCallback(async (member) => {
+    if (!member?.id || member.id === profile?.id || openingDmFor) return;
+    const known = dmUnreadBySender[member.id]?.conversationId;
+    if (known) {
+      if (onNavigate) onNavigate('messages', known);
+      return;
+    }
+    setOpeningDmFor(member.id);
+    try {
+      const { data, error } = await supabase.rpc('get_or_create_dm', { other_user_id: member.id });
+      if (error) throw error;
+      if (onNavigate) onNavigate('messages', data);
+    } catch (err) {
+      console.error('Error opening DM:', err);
+      // get_or_create_dm raises for pairings that aren't allowed to message
+      // (the client-portal rules), so surface it rather than failing silently.
+      toast.error(err?.message || `Couldn't open a message with ${member.full_name || 'this person'}.`);
+    } finally {
+      setOpeningDmFor(null);
+    }
+  }, [profile?.id, dmUnreadBySender, onNavigate, openingDmFor]);
 
   const fetchOooRequests = useCallback(async () => {
     if (!profile?.id) return;
@@ -1712,11 +1765,31 @@ export default function Dashboard({ onNavigate }) {
                       const effectiveStatus = getEffectiveStatus(member);
                       const dotColor = isOoo ? '#f97316' : effectiveStatus === 'online' ? '#22c55e' : effectiveStatus === 'busy' ? '#f59e0b' : '#6b7280';
                       const isMe = member.id === profile?.id;
+                      const unread = dmUnreadBySender[member.id];
+                      // Your own row is the one that can't be messaged.
+                      const messageable = !isMe;
+                      const isHovered = hoveredMemberId === member.id;
                       return (
-                        <div key={member.id} style={{
-                          ...styles.teamMember,
-                          opacity: isOoo ? 0.7 : effectiveStatus === 'offline' ? 0.5 : 1,
-                        }}>
+                        <div
+                          key={member.id}
+                          onClick={messageable ? () => openDmWith(member) : undefined}
+                          onMouseEnter={messageable ? () => setHoveredMemberId(member.id) : undefined}
+                          onMouseLeave={messageable ? () => setHoveredMemberId(null) : undefined}
+                          onKeyDown={messageable ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDmWith(member); }
+                          } : undefined}
+                          role={messageable ? 'button' : undefined}
+                          tabIndex={messageable ? 0 : undefined}
+                          title={messageable ? `Message ${member.full_name}` : undefined}
+                          style={{
+                            ...styles.teamMember,
+                            // An unread badge shouldn't be dimmed to near-invisible
+                            // just because the sender has since gone offline.
+                            opacity: unread ? 1 : isOoo ? 0.7 : effectiveStatus === 'offline' ? 0.5 : 1,
+                            ...(messageable ? styles.teamMemberClickable : null),
+                            ...(isHovered ? styles.teamMemberHover : null),
+                          }}
+                        >
                           <div style={styles.teamMemberAvatar}>
                             {member.avatar_url ? (
                               <img src={member.avatar_url} alt="" style={styles.teamMemberAvatarImg} />
@@ -1726,6 +1799,14 @@ export default function Dashboard({ onNavigate }) {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={styles.teamMemberName}>
                               {member.full_name}{isMe && <span style={styles.youBadge}>you</span>}
+                              {unread && (
+                                <span
+                                  style={styles.dmUnreadBadge}
+                                  title={`${unread.count} unread message${unread.count === 1 ? '' : 's'} from ${member.full_name}`}
+                                >
+                                  {unread.count > 9 ? '9+' : unread.count}
+                                </span>
+                              )}
                             </div>
                             <div style={styles.teamMemberMeta}>
                               {member.title && <span>{member.title}</span>}
@@ -1736,9 +1817,15 @@ export default function Dashboard({ onNavigate }) {
                               )}
                             </div>
                           </div>
-                          <span style={{ ...styles.statusLabel, color: dotColor }}>
-                            {isOoo ? 'Out of Office' : effectiveStatus === 'online' ? 'Online' : effectiveStatus === 'busy' ? 'Busy' : 'Offline'}
-                          </span>
+                          {isHovered ? (
+                            <span style={styles.teamMemberMessageHint}>
+                              {openingDmFor === member.id ? 'Opening…' : 'Message'}
+                            </span>
+                          ) : (
+                            <span style={{ ...styles.statusLabel, color: dotColor }}>
+                              {isOoo ? 'Out of Office' : effectiveStatus === 'online' ? 'Online' : effectiveStatus === 'busy' ? 'Busy' : 'Offline'}
+                            </span>
+                          )}
                         </div>
                       );
                         })}
@@ -2963,6 +3050,38 @@ const styles = {
     borderRadius: '10px',
     transition: 'background 0.1s',
   },
+  // Every row but your own opens a DM on click.
+  teamMemberClickable: {
+    cursor: 'pointer',
+    userSelect: 'none',
+  },
+  teamMemberHover: {
+    background: 'rgba(255,255,255,0.05)',
+  },
+  // Replaces the status label while hovering, so the row says what a click does.
+  teamMemberMessageHint: {
+    fontSize: '11px',
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.3px',
+    color: colors.accentFg,
+    flexShrink: 0,
+  },
+  // Unread DM count from that person; clicking the row opens the thread.
+  dmUnreadBadge: {
+    fontSize: '10px',
+    fontWeight: 700,
+    color: '#ffffff',
+    background: '#6366f1',
+    minWidth: '16px',
+    height: '16px',
+    padding: '0 5px',
+    borderRadius: '999px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
   teamMemberAvatar: {
     width: '36px',
     height: '36px',
@@ -3037,9 +3156,9 @@ const styles = {
     fontFamily: 'inherit',
   },
   scheduleSection: {
+    // No bottom rule — the To Do list below draws its own top rule, and two
+    // borders here read as a double divider.
     marginBottom: '16px',
-    paddingBottom: '16px',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
   },
   scheduleList: {
     display: 'flex',

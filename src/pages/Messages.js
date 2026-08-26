@@ -67,7 +67,7 @@ const DEMO_CLIENT_RECIPIENTS = [
   { id: 'demo-e2', full_name: 'Sam Rivera', nickname: 'Sam', title: 'Short Form Editor', role: 'contractor', sub_role: 'Short Form Editor', avatar_url: null },
 ];
 
-export default function Messages({ onNavigate, simulateClient = false }) {
+export default function Messages({ onNavigate, simulateClient = false, initialConversationId = null, onConversationOpened }) {
   const { profile: realProfile, refreshKey, isClient, isContractor } = useAuth();
   const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
   // While an admin "views as" a contractor, the effective profile's role is
@@ -115,8 +115,12 @@ export default function Messages({ onNavigate, simulateClient = false }) {
   // deep link or an actual reload); localStorage carries the tab-switch case,
   // where the path has already been reset to a bare /messages. Read once on
   // mount, before the sync effect below rewrites either.
+  // An explicit deep-link target (AppLayout's navTarget — e.g. clicking a
+  // teammate on the Dashboard) outranks both: it's the intent from *this*
+  // navigation, where the path segment may still belong to the page we left.
   const pendingConvoIdRef = useRef(
-    window.location.pathname.replace(/^\/+/, '').split('/')[1]
+    initialConversationId
+      || window.location.pathname.replace(/^\/+/, '').split('/')[1]
       || localStorage.getItem(LAST_DM_KEY)
       || null,
   );
@@ -279,16 +283,22 @@ export default function Messages({ onNavigate, simulateClient = false }) {
   // Reopen the remembered thread once the list has loaded. One-shot: the ref
   // clears either way, so a thread that was since deleted (or that this account
   // can't see) is dropped instead of retried forever.
+  // `initialConversationId` is also read here, not just at mount, so a deep
+  // link that lands while this page is already open still opens the thread.
   useEffect(() => {
-    if (loading || !pendingConvoIdRef.current) return;
-    const wanted = pendingConvoIdRef.current;
+    const wanted = initialConversationId || pendingConvoIdRef.current;
+    if (loading || !wanted) return;
     pendingConvoIdRef.current = null;
     const convo = conversations.find(c => c.id === wanted);
     if (convo) setActiveConversation(convo);
     // The sim preview has no real threads, so a miss there says nothing about
-    // the admin's own remembered one — leave it alone.
-    else if (!simulateClient) localStorage.removeItem(LAST_DM_KEY);
-  }, [loading, conversations, simulateClient]);
+    // the admin's own remembered one — leave it alone. A miss on an explicit
+    // deep link says nothing about it either.
+    else if (!simulateClient && !initialConversationId) localStorage.removeItem(LAST_DM_KEY);
+    // Always release the target, hit or miss, so a thread that can't be found
+    // doesn't pin the page on a retry loop.
+    if (initialConversationId && onConversationOpened) onConversationOpened();
+  }, [loading, conversations, simulateClient, initialConversationId, onConversationOpened]);
 
   // Mirror the open thread into the URL + localStorage. Held off until the
   // restore above has run so it can't wipe the id we're about to reopen.
