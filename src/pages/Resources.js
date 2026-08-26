@@ -4,13 +4,46 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import CanvasBoard from './editors/CanvasBoard';
-import { clickableKeyProps } from '../lib/styleRecipes';
+import { clickableKeyProps, modalOverlay, modal as modalShell } from '../lib/styleRecipes';
+import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 
 const FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-drive-resources`;
 
+// Pull the 11-char video id out of any of the shapes people actually paste:
+// watch?v=, youtu.be/, /embed/, /shorts/, /live/, or the bare id. Extra query
+// params (?t=, ?si=, playlist ids) are ignored. Returns null if there's no id,
+// which is what gates the save button.
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+export function parseYouTubeId(input) {
+  const raw = (input || '').trim();
+  if (!raw) return null;
+  if (YOUTUBE_ID.test(raw)) return raw;
+  let url;
+  try {
+    url = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./, '');
+  if (host === 'youtu.be') {
+    const id = url.pathname.split('/')[1];
+    return YOUTUBE_ID.test(id) ? id : null;
+  }
+  if (host !== 'youtube.com' && host !== 'm.youtube.com' && host !== 'youtube-nocookie.com') return null;
+  const v = url.searchParams.get('v');
+  if (v && YOUTUBE_ID.test(v)) return v;
+  const segments = url.pathname.split('/').filter(Boolean);
+  if (['embed', 'shorts', 'live', 'v'].includes(segments[0]) && YOUTUBE_ID.test(segments[1])) {
+    return segments[1];
+  }
+  return null;
+}
+
 export default function Resources() {
-  const { profile } = useAuth();
+  // isAdmin is the admin tier — admin + director — which is exactly who gets
+  // the New Guide button (and what the RLS policies check).
+  const { profile, isAdmin } = useAuth();
   const confirm = useConfirm();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +62,15 @@ export default function Resources() {
   const [showCreateCanvas, setShowCreateCanvas] = useState(false);
   const [canvasTitle, setCanvasTitle] = useState('');
   const [openCanvas, setOpenCanvas] = useState(null); // { id, title }
+
+  // Guides — admin-tier posts a titled YouTube link, all staff can watch.
+  const [guides, setGuides] = useState([]);
+  const [showGuideModal, setShowGuideModal] = useState(false);
+  const [guideTitle, setGuideTitle] = useState('');
+  const [guideUrl, setGuideUrl] = useState('');
+  const [guideError, setGuideError] = useState(null);
+  const [playingGuide, setPlayingGuide] = useState(null); // the guide row being watched
+  const [hoveredGuideId, setHoveredGuideId] = useState(null);
 
   const [contextMenu, setContextMenu] = useState(null); // { x, y, item }
   const [renamingId, setRenamingId] = useState(null);
@@ -98,6 +140,61 @@ export default function Resources() {
   useEffect(() => {
     if (profile?.id) fetchCanvases();
   }, [profile?.id, fetchCanvases]);
+
+  // A video filling most of the screen should close on Escape, not just on a
+  // backdrop click.
+  useEffect(() => {
+    if (!playingGuide) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setPlayingGuide(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [playingGuide]);
+
+  const fetchGuides = useCallback(async () => {
+    const { data, error: err } = await supabase
+      .from('resource_guides')
+      .select('id, title, youtube_url, youtube_id, created_at')
+      .order('position', { ascending: true })
+      .order('created_at', { ascending: false });
+    if (err) { console.error('Error fetching guides:', err); return; }
+    setGuides(data || []);
+  }, []);
+
+  useEffect(() => {
+    if (profile?.id) fetchGuides();
+  }, [profile?.id, fetchGuides]);
+
+  async function handleCreateGuide(e) {
+    e.preventDefault();
+    if (busy) return;
+    const title = guideTitle.trim();
+    const youtubeId = parseYouTubeId(guideUrl);
+    if (!title) { setGuideError('Give the guide a title.'); return; }
+    if (!youtubeId) { setGuideError("That doesn't look like a YouTube link."); return; }
+    setBusy(true);
+    setGuideError(null);
+    const { error: err } = await supabase
+      .from('resource_guides')
+      .insert({ title, youtube_url: guideUrl.trim(), youtube_id: youtubeId });
+    setBusy(false);
+    if (err) { setGuideError(err.message); return; }
+    closeGuideModal();
+    fetchGuides();
+  }
+
+  function closeGuideModal() {
+    setShowGuideModal(false);
+    setGuideTitle('');
+    setGuideUrl('');
+    setGuideError(null);
+  }
+
+  async function handleDeleteGuide(guide) {
+    if (!(await confirm(`Remove the guide "${guide.title}"?`))) return;
+    const { error: err } = await supabase.from('resource_guides').delete().eq('id', guide.id);
+    if (err) { alert('Failed to delete guide: ' + err.message); return; }
+    fetchGuides();
+  }
 
   async function handleCreateCanvas(e) {
     e.preventDefault();
@@ -254,6 +351,11 @@ export default function Resources() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {isAdmin && (
+            <button onClick={() => setShowGuideModal(true)} style={styles.secondaryBtn}>
+              + New Guide
+            </button>
+          )}
           <button onClick={() => { setShowCreateCanvas(!showCreateCanvas); setShowCreateFolder(false); setShowCreateDoc(false); }} style={styles.secondaryBtn}>
             {showCreateCanvas ? '✕ Cancel' : '+ New Canvas'}
           </button>
@@ -317,6 +419,64 @@ export default function Resources() {
       {error && (
         <div style={styles.errorCard}>
           <p style={styles.errorText}>Error: {error}</p>
+        </div>
+      )}
+
+      {/* Guides — page-level, so root only, same as Canvases. Empty state shows
+          for admin-tier only; there's nothing for everyone else to act on. */}
+      {path.length === 0 && (guides.length > 0 || isAdmin) && (
+        <div style={{ marginBottom: '28px' }}>
+          <h2 style={styles.sectionTitle}>Guides</h2>
+          {guides.length === 0 ? (
+            <div style={styles.emptyCard}>
+              <p style={styles.emptyText}>No guides yet. Add one with “+ New Guide”.</p>
+            </div>
+          ) : (
+            <div style={styles.guideGrid}>
+              {guides.map((g) => (
+                <div
+                  key={g.id}
+                  {...clickableKeyProps(() => setPlayingGuide(g))}
+                  onClick={() => setPlayingGuide(g)}
+                  onMouseEnter={() => setHoveredGuideId(g.id)}
+                  onMouseLeave={() => setHoveredGuideId(null)}
+                  style={styles.guideCard}
+                  title={g.title}
+                >
+                  <div style={styles.guideThumbWrap}>
+                    <img
+                      src={`https://i.ytimg.com/vi/${g.youtube_id}/hqdefault.jpg`}
+                      alt=""
+                      style={styles.guideThumb}
+                      loading="lazy"
+                    />
+                    {/* Scrim + delete stay out of the way until hover, so a
+                        wall of thumbnails reads as artwork, not chrome. */}
+                    <span style={{
+                      ...styles.guideScrim,
+                      opacity: hoveredGuideId === g.id ? 1 : 0,
+                    }} />
+                    <span style={{
+                      ...styles.guidePlayBadge,
+                      transform: hoveredGuideId === g.id ? 'scale(1.08)' : 'scale(1)',
+                    }}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                        <path d="M5 3.5v9l7.5-4.5L5 3.5z" />
+                      </svg>
+                    </span>
+                    {isAdmin && hoveredGuideId === g.id && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteGuide(g); }}
+                        style={styles.guideDeleteBtn}
+                        title="Remove guide"
+                      >✕</button>
+                    )}
+                  </div>
+                  <div style={styles.guideTitle}>{g.title}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -404,6 +564,80 @@ export default function Resources() {
             </ListSection>
           )}
         </>
+      )}
+
+      {/* New Guide modal */}
+      {showGuideModal && (
+        <div style={modalOverlay()} {...backdropDismiss(closeGuideModal)}>
+          <form onSubmit={handleCreateGuide} style={styles.guideModal}>
+            <h2 style={styles.guideModalTitle}>New Guide</h2>
+            <label style={styles.guideLabel}>
+              Title
+              <input
+                autoFocus
+                value={guideTitle}
+                onChange={(e) => { setGuideTitle(e.target.value); setGuideError(null); }}
+                placeholder="How we ship a short"
+                style={styles.input}
+              />
+            </label>
+            <label style={styles.guideLabel}>
+              YouTube link
+              <input
+                value={guideUrl}
+                onChange={(e) => { setGuideUrl(e.target.value); setGuideError(null); }}
+                placeholder="https://www.youtube.com/watch?v=..."
+                style={styles.input}
+              />
+            </label>
+            {/* Preview doubles as validation feedback — if the thumbnail
+                resolves, the link parsed. */}
+            {parseYouTubeId(guideUrl) && (
+              <img
+                src={`https://i.ytimg.com/vi/${parseYouTubeId(guideUrl)}/mqdefault.jpg`}
+                alt=""
+                style={styles.guidePreview}
+              />
+            )}
+            {guideError && <p style={styles.errorText}>{guideError}</p>}
+            <div style={styles.guideModalActions}>
+              <button type="button" onClick={closeGuideModal} style={styles.secondaryBtn}>Cancel</button>
+              <button
+                type="submit"
+                disabled={busy || !guideTitle.trim() || !parseYouTubeId(guideUrl)}
+                style={{
+                  ...styles.submitBtn,
+                  alignSelf: 'auto',
+                  opacity: (busy || !guideTitle.trim() || !parseYouTubeId(guideUrl)) ? 0.45 : 1,
+                }}
+              >
+                {busy ? 'Saving…' : 'Save Guide'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Player modal */}
+      {playingGuide && (
+        <div style={modalOverlay()} {...backdropDismiss(() => setPlayingGuide(null))}>
+          <div style={styles.playerModal}>
+            <div style={styles.playerHeader}>
+              <span style={styles.playerTitle}>{playingGuide.title}</span>
+              <button onClick={() => setPlayingGuide(null)} style={styles.playerCloseBtn} aria-label="Close video">✕</button>
+            </div>
+            <div style={styles.playerFrameWrap}>
+              <iframe
+                key={playingGuide.id}
+                src={`https://www.youtube-nocookie.com/embed/${playingGuide.youtube_id}?autoplay=1&rel=0`}
+                title={playingGuide.title}
+                style={styles.playerFrame}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                allowFullScreen
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {contextMenu && (
@@ -542,5 +776,58 @@ const styles = {
   contextOverlay: { position: 'fixed', inset: 0, zIndex: 999 },
   contextMenu: { position: 'fixed', zIndex: 1000, background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', padding: '4px', minWidth: '180px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' },
   contextMenuItem: { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px', background: 'none', border: 'none', borderRadius: '6px', color: '#e2e8f0', fontSize: '13px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' },
+  // ── Guides ──
+  guideGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' },
+  guideCard: { cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px' },
+  guideThumbWrap: {
+    position: 'relative', borderRadius: '12px', overflow: 'hidden',
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+    aspectRatio: '16 / 9',
+  },
+  guideThumb: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+  guideScrim: {
+    position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)',
+    transition: 'opacity 0.12s', pointerEvents: 'none',
+  },
+  guidePlayBadge: {
+    position: 'absolute', top: '50%', left: '50%', marginTop: '-20px', marginLeft: '-20px',
+    width: '40px', height: '40px', borderRadius: '50%',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.35)',
+    color: '#ffffff', transition: 'transform 0.12s', pointerEvents: 'none',
+  },
+  guideDeleteBtn: {
+    position: 'absolute', top: '6px', right: '6px', width: '24px', height: '24px',
+    borderRadius: '7px', border: 'none', background: 'rgba(0,0,0,0.55)',
+    color: 'rgba(255,255,255,0.8)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+  },
+  guideTitle: { fontSize: '14px', fontWeight: 600, color: '#e2e8f0', lineHeight: 1.35 },
+  guideModal: {
+    ...modalShell({ width: 460 }),
+    display: 'flex', flexDirection: 'column', gap: '14px',
+    fontFamily: 'inherit',
+  },
+  guideModalTitle: { fontSize: '18px', fontWeight: 700, color: '#ffffff', margin: 0 },
+  guideLabel: {
+    display: 'flex', flexDirection: 'column', gap: '6px',
+    fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.55)',
+  },
+  guidePreview: { width: '100%', borderRadius: '10px', display: 'block' },
+  guideModalActions: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '2px' },
+  playerModal: {
+    ...modalShell({ width: 900 }),
+    padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+  },
+  playerHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+    padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  playerTitle: { fontSize: '15px', fontWeight: 600, color: '#ffffff', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  playerCloseBtn: {
+    background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.6)',
+    width: '30px', height: '30px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', flexShrink: 0,
+  },
+  playerFrameWrap: { width: '100%', aspectRatio: '16 / 9', background: '#000' },
+  playerFrame: { width: '100%', height: '100%', border: 'none', display: 'block' },
   renameInput: { width: '100%', padding: '4px 8px', background: colors.border, border: '1px solid rgba(91, 143, 199,0.5)', borderRadius: '6px', color: colors.white, fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
 };
