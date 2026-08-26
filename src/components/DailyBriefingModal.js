@@ -7,12 +7,36 @@ import { ptDayKey, ptRangeToUtc } from '../lib/ptDate';
 import { modalOverlay, modal as modalShell } from '../lib/styleRecipes';
 import backdropDismiss from '../lib/backdropDismiss';
 
+// Side-by-side needs more room than the app's 640px mobile breakpoint — below
+// this the modal (90vw) can't give two columns a readable measure, so the
+// blocks stack and the whole body scrolls as one instead.
+const WIDE_LAYOUT_QUERY = '(min-width: 900px)';
+
+function useWideLayout() {
+  const [wide, setWide] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(WIDE_LAYOUT_QUERY).matches,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia(WIDE_LAYOUT_QUERY);
+    const handler = (e) => setWide(e.matches);
+    if (mq.addEventListener) mq.addEventListener('change', handler);
+    else mq.addListener(handler);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', handler);
+      else mq.removeListener(handler);
+    };
+  }, []);
+  return wide;
+}
+
 // Scrollable "Daily Briefing" modal auto-shown once each morning from the
 // Dashboard. Two independently-optional blocks driven by
 // profile.daily_briefing_prefs: Around Baseball (Triton brief) + Upcoming Day
 // (today's tasks + calendar itinerary). Read-only; pure display.
 export default function DailyBriefingModal({ onClose }) {
   const { profile } = useAuth();
+  const wide = useWideLayout();
   const prefs = profile?.daily_briefing_prefs || {};
   const showBaseball = prefs.around_baseball !== false;
   const showUpcoming = prefs.upcoming_day !== false;
@@ -125,6 +149,22 @@ export default function DailyBriefingModal({ onClose }) {
     }
   }
 
+  // Layout: on a wide viewport the two blocks sit side by side — the brief on
+  // the left, the day's tasks + itinerary on the right. With only one block
+  // enabled the grid collapses to a single column: Upcoming Day then splits
+  // its own two lists across the width, while a solo brief stays capped at a
+  // readable measure instead of stretching the full 1120px.
+  const twoUp = wide && showBaseball && showUpcoming;
+  const upcomingSplit = wide && showUpcoming && !showBaseball;
+  // Narrow + both blocks is the one case that stacks into two rows. Per-column
+  // scrolling only works while the sections share a single full-height row, so
+  // that case hands the scrolling back to the body.
+  const stacked = !wide && showBaseball && showUpcoming;
+  const bodyStyle = stacked
+    ? { ...st.body, display: 'block', overflowY: 'auto' }
+    : { ...st.body, gridTemplateColumns: twoUp ? 'minmax(0, 1.35fr) minmax(0, 1fr)' : 'minmax(0, 1fr)' };
+  const columnStyle = stacked ? st.stackedSection : st.column;
+
   return (
     <div style={modalOverlay()} {...backdropDismiss(onClose)}>
       <div style={st.card}>
@@ -137,69 +177,77 @@ export default function DailyBriefingModal({ onClose }) {
           <button onClick={onClose} style={st.closeBtn} aria-label="Close briefing">✕</button>
         </div>
 
-        <div style={st.body}>
+        <div style={bodyStyle}>
           {/* ── Around Baseball ── */}
           {showBaseball && (
-            <section style={st.section}>
-              <div style={st.sectionTitle}>Around Baseball</div>
-              {briefLoading ? (
-                <div style={st.muted}>Loading brief…</div>
-              ) : brief ? (
-                <div style={st.briefCard}>
-                  <h2 style={st.briefTitle}>{brief.title}</h2>
-                  {brief.summary && <p style={st.briefSummary}>{brief.summary}</p>}
-                  <div
-                    style={st.briefContent}
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(brief.content || '') }}
-                  />
-                </div>
-              ) : (
-                <div style={st.emptyCard}>No brief available yet today.</div>
-              )}
+            <section style={{ ...columnStyle, ...(twoUp ? st.columnDivider : null) }}>
+              <div style={twoUp ? undefined : st.soloMeasure}>
+                <div style={st.sectionTitle}>Around Baseball</div>
+                {briefLoading ? (
+                  <div style={st.muted}>Loading brief…</div>
+                ) : brief ? (
+                  <div style={st.briefCard}>
+                    <h2 style={st.briefTitle}>{brief.title}</h2>
+                    {brief.summary && <p style={st.briefSummary}>{brief.summary}</p>}
+                    <div
+                      style={st.briefContent}
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(brief.content || '') }}
+                    />
+                  </div>
+                ) : (
+                  <div style={st.emptyCard}>No brief available yet today.</div>
+                )}
+              </div>
             </section>
           )}
 
           {/* ── Upcoming Day ── */}
           {showUpcoming && (
-            <section style={st.section}>
+            <section style={columnStyle}>
               <div style={st.sectionTitle}>Upcoming Day</div>
 
-              <div style={st.subTitle}>Today's Tasks</div>
-              {upcomingLoading ? (
-                <div style={st.muted}>Loading tasks…</div>
-              ) : tasks.length === 0 ? (
-                <div style={st.emptyCard}>No tasks due today. You're clear.</div>
-              ) : (
-                <div style={st.list}>
-                  {tasks.map((t) => (
-                    <div key={t.id} style={st.taskRow}>
-                      <span style={st.checkbox} />
-                      <span style={st.taskLabel}>{t.label}</span>
+              <div style={{ ...st.lists, gridTemplateColumns: upcomingSplit ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={st.subTitle}>Today's Tasks</div>
+                  {upcomingLoading ? (
+                    <div style={st.muted}>Loading tasks…</div>
+                  ) : tasks.length === 0 ? (
+                    <div style={st.emptyCard}>No tasks due today. You're clear.</div>
+                  ) : (
+                    <div style={st.list}>
+                      {tasks.map((t) => (
+                        <div key={t.id} style={st.taskRow}>
+                          <span style={st.checkbox} />
+                          <span style={st.taskLabel}>{t.label}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
 
-              <div style={{ ...st.subTitle, marginTop: '18px' }}>Today's Itinerary</div>
-              {upcomingLoading ? (
-                <div style={st.muted}>Loading itinerary…</div>
-              ) : itinerary.length === 0 ? (
-                <div style={st.emptyCard}>Nothing on the calendar today.</div>
-              ) : (
-                <div style={st.list}>
-                  {itinerary.map((ev) => (
-                    <div key={ev.id} style={st.eventRow}>
-                      <span style={st.eventTime}>{eventTime(ev)}</span>
-                      <span style={st.eventTitle}>{ev.title || 'Untitled event'}</span>
+                <div style={{ minWidth: 0, marginTop: upcomingSplit ? 0 : '18px' }}>
+                  <div style={st.subTitle}>Today's Itinerary</div>
+                  {upcomingLoading ? (
+                    <div style={st.muted}>Loading itinerary…</div>
+                  ) : itinerary.length === 0 ? (
+                    <div style={st.emptyCard}>Nothing on the calendar today.</div>
+                  ) : (
+                    <div style={st.list}>
+                      {itinerary.map((ev) => (
+                        <div key={ev.id} style={st.eventRow}>
+                          <span style={st.eventTime}>{eventTime(ev)}</span>
+                          <span style={st.eventTitle}>{ev.title || 'Untitled event'}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
+              </div>
             </section>
           )}
 
           {!showBaseball && !showUpcoming && (
-            <div style={st.emptyCard}>
+            <div style={{ ...st.emptyCard, alignSelf: 'start' }}>
               No briefing sections are enabled. Turn some on in settings.
             </div>
           )}
@@ -215,7 +263,7 @@ export default function DailyBriefingModal({ onClose }) {
 
 const st = {
   card: {
-    ...modalShell({ width: 560 }),
+    ...modalShell({ width: 1120 }),
     padding: 0,
     display: 'flex',
     flexDirection: 'column',
@@ -225,21 +273,32 @@ const st = {
   },
   header: {
     display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-    gap: '12px', padding: '22px 26px 16px',
+    gap: '12px', padding: '24px 32px 18px',
     borderBottom: '1px solid rgba(255,255,255,0.06)',
   },
-  greeting: { fontSize: '20px', fontWeight: 700, color: '#ffffff' },
+  greeting: { fontSize: '22px', fontWeight: 700, color: '#ffffff' },
   date: { fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '3px' },
   closeBtn: {
     background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.6)',
     width: '30px', height: '30px', borderRadius: '8px', cursor: 'pointer',
     fontSize: '14px', flexShrink: 0,
   },
-  body: { padding: '18px 26px 8px', overflowY: 'auto', flex: 1 },
-  section: { marginBottom: '24px' },
+  // Grid of section columns. `minHeight: 0` lets the columns — not the modal —
+  // own the overflow, so a long brief scrolls without pushing the day's
+  // itinerary out of view.
+  body: {
+    display: 'grid', gap: '0 32px', gridTemplateRows: 'minmax(0, 1fr)',
+    padding: '22px 32px 14px', flex: 1, minHeight: 0, overflow: 'hidden',
+  },
+  column: { minWidth: 0, minHeight: 0, overflowY: 'auto', paddingBottom: '8px' },
+  stackedSection: { minWidth: 0, marginBottom: '24px' },
+  columnDivider: { borderRight: '1px solid rgba(255,255,255,0.06)', paddingRight: '32px' },
+  // A brief on its own would run to ~1050px of line length; cap the measure.
+  soloMeasure: { maxWidth: '760px', margin: '0 auto' },
+  lists: { display: 'grid', gap: '0 32px', alignItems: 'start' },
   sectionTitle: {
     fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
-    color: '#8b8ff0', marginBottom: '10px',
+    color: '#8b8ff0', marginBottom: '12px',
   },
   subTitle: {
     fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.55)', marginBottom: '8px',
@@ -251,16 +310,17 @@ const st = {
     overflow: 'hidden',
   },
   briefTitle: {
-    fontSize: '17px', fontWeight: 700, color: '#ffffff',
-    margin: 0, padding: '16px 18px 4px', lineHeight: 1.3,
+    fontSize: '18px', fontWeight: 700, color: '#ffffff',
+    margin: 0, padding: '18px 20px 4px', lineHeight: 1.3,
   },
   briefSummary: {
     fontSize: '13px', color: 'rgba(255,255,255,0.5)',
-    margin: 0, padding: '0 18px 14px', lineHeight: 1.6,
+    margin: 0, padding: '0 20px 16px', lineHeight: 1.6,
   },
   briefContent: {
-    padding: '16px 18px', fontSize: '14px', lineHeight: 1.7,
+    padding: '18px 20px', fontSize: '14px', lineHeight: 1.7,
     color: 'rgba(255,255,255,0.75)', borderTop: '1px solid rgba(255,255,255,0.06)',
+    overflowWrap: 'anywhere',
   },
   list: { display: 'flex', flexDirection: 'column', gap: '2px' },
   taskRow: {
@@ -288,7 +348,7 @@ const st = {
     borderRadius: '10px', padding: '14px 16px',
   },
   footer: {
-    padding: '14px 26px', borderTop: '1px solid rgba(255,255,255,0.06)',
+    padding: '14px 32px', borderTop: '1px solid rgba(255,255,255,0.06)',
     display: 'flex', justifyContent: 'flex-end',
   },
   doneBtn: {
