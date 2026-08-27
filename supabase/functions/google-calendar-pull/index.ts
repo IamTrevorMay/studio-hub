@@ -3,11 +3,18 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── google-calendar-pull ──────────────────────────────────────────────────────
 // Reverse of google-calendar-sync. Reads the mapped Google calendars and applies
-// changes back onto calendar_events — but ONLY for rows Studio itself pushed
-// (rows that already carry a google_event_id). A Google event with no matching
-// Studio row is skipped entirely: this job never creates new Studio events.
+// changes back onto calendar_events. Rows Studio pushed are updated/deleted in
+// place; a Google event with no matching Studio row is IMPORTED as a new event
+// (2026-08-27 — previously those were skipped and the pull only echoed Studio's
+// own writes). Imported rows carry google_event_id, so subsequent edits and
+// deletions on the Google side flow through the same paths as pushed ones.
+//
+// Recurring events are still skipped in both directions: Studio's recurrence_rule
+// is a JSON shape that does not round-trip from RRULE.
 //
 // Runs on pg_cron every 10 min with X-Cron-Secret, or on demand with an admin JWT.
+// A one-time { "full": true } run backfills everything inside the lookback window;
+// incremental runs only see what has changed since the stored sync token.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const corsHeaders = {
@@ -20,6 +27,21 @@ const PT = "America/Los_Angeles";
 const VIDEO_EVENT_TYPES = ["video_post", "tmbb_video"];
 // How far back a first-time (tokenless) sync looks. Incremental runs ignore this.
 const FULL_SYNC_LOOKBACK_DAYS = 90;
+
+// A calendar can be the push target for several event types (the personal
+// calendar takes six of them). Imports need one type per calendar, so pick the
+// most representative of whatever that calendar is mapped to.
+const IMPORT_TYPE_PRIORITY = [
+  "video_post", "tmbb_video", "meeting", "filming",
+  "live_recording", "sponsor", "deadline", "unavailable",
+];
+
+function importEventType(mappedTypes: string[]): string {
+  for (const t of IMPORT_TYPE_PRIORITY) {
+    if (mappedTypes.includes(t)) return t;
+  }
+  return mappedTypes[0] || "meeting";
+}
 
 // ── PT wall-clock helpers ────────────────────────────────────────────────────
 // The Studio calendar is PT-pinned (see CLAUDE.md / Calendar.js ptToDate), so
@@ -187,12 +209,35 @@ async function listChanges(
 
 // ── Apply one Google event onto its Studio row ───────────────────────────────
 
-type Outcome = "updated" | "deleted" | "skipped";
+type Outcome = "created" | "updated" | "deleted" | "skipped";
+
+/** Google start/end → Studio's PT-pinned timestamps. null when unusable. */
+function resolveTimes(item: any): { allDay: boolean; startISO: string; endISO: string } | null {
+  const allDay = !!item.start?.date;
+  if (allDay) {
+    const [sy, sm, sd] = parseYmd(item.start.date);
+    // Google's all-day end date is exclusive; Studio stores the last day at 23:59 PT.
+    const [ey, em, ed] = shiftYmd(item.end?.date || item.start.date, -1);
+    return {
+      allDay: true,
+      startISO: ptWallToUtc(sy, sm, sd, 0, 0).toISOString(),
+      endISO: ptWallToUtc(ey, em, ed, 23, 59).toISOString(),
+    };
+  }
+  if (!item.start?.dateTime || !item.end?.dateTime) return null;
+  return {
+    allDay: false,
+    startISO: new Date(item.start.dateTime).toISOString(),
+    endISO: new Date(item.end.dateTime).toISOString(),
+  };
+}
 
 async function applyItem(
   admin: any,
   item: any,
   calendarId: string,
+  importType: string,
+  ownerId: string,
   deletedSnapshots: any[],
   changePreview: any[],
   dryRun: boolean,
@@ -207,8 +252,57 @@ async function applyItem(
     .eq("google_event_id", item.id)
     .maybeSingle();
 
-  // Not a Studio-created event (or created against a different calendar) — ignore.
-  if (!row) return "skipped";
+  // No Studio row yet — this event was born in Google. Import it.
+  if (!row) {
+    // A cancellation for something we never had is nothing to do.
+    if (item.status === "cancelled") return "skipped";
+    // Invitations the connected account turned down aren't on the schedule.
+    const declined = (item.attendees || []).some(
+      (a: any) => a.self && a.responseStatus === "declined",
+    );
+    if (declined) return "skipped";
+
+    const times = resolveTimes(item);
+    if (!times) return "skipped";
+
+    const insertRow = {
+      title: item.summary || "(No title)",
+      description: item.description || "",
+      location: item.location || "",
+      event_type: importType,
+      all_day: times.allDay,
+      start_date: times.startISO,
+      end_date: times.endISO,
+      created_by: ownerId,
+      google_event_id: item.id,
+      google_calendar_id: calendarId,
+      google_synced_at: (item.updated ? new Date(item.updated) : new Date()).toISOString(),
+    };
+
+    if (dryRun) {
+      changePreview.push({
+        action: "create",
+        google_event_id: item.id,
+        calendar_id: calendarId,
+        title: insertRow.title,
+        event_type: importType,
+        start: times.startISO,
+        end: times.endISO,
+        all_day: times.allDay,
+      });
+      return "created";
+    }
+
+    // onConflict on the partial unique index makes concurrent runs idempotent
+    // instead of double-importing the same Google event.
+    const { error: insErr } = await admin
+      .from("calendar_events")
+      .upsert(insertRow, { onConflict: "google_event_id", ignoreDuplicates: true });
+    if (insErr) throw new Error(`calendar_events insert failed: ${insErr.message}`);
+    return "created";
+  }
+
+  // Pushed from a different calendar than the one we're reading — ignore.
   if (row.google_calendar_id && row.google_calendar_id !== calendarId) return "skipped";
   if (row.recurrence_rule) return "skipped";
 
@@ -225,21 +319,9 @@ async function applyItem(
   const lastPush = row.google_synced_at ? new Date(row.google_synced_at) : null;
   if (googleUpdated && lastPush && googleUpdated <= lastPush) return "skipped";
 
-  const isAllDay = !!item.start?.date;
-  let startISO: string;
-  let endISO: string;
-
-  if (isAllDay) {
-    const [sy, sm, sd] = parseYmd(item.start.date);
-    startISO = ptWallToUtc(sy, sm, sd, 0, 0).toISOString();
-    // Google's all-day end date is exclusive; Studio stores the last day at 23:59 PT.
-    const [ey, em, ed] = shiftYmd(item.end?.date || item.start.date, -1);
-    endISO = ptWallToUtc(ey, em, ed, 23, 59).toISOString();
-  } else {
-    if (!item.start?.dateTime || !item.end?.dateTime) return "skipped";
-    startISO = new Date(item.start.dateTime).toISOString();
-    endISO = new Date(item.end.dateTime).toISOString();
-  }
+  const times = resolveTimes(item);
+  if (!times) return "skipped";
+  const { allDay: isAllDay, startISO, endISO } = times;
 
   const patch = {
     title: item.summary || "(No title)",
@@ -374,7 +456,7 @@ Deno.serve(async (req: Request) => {
   const summary: any[] = [];
   const deletedSnapshots: any[] = [];
   const changePreview: any[] = [];
-  let updated = 0, deleted = 0, skipped = 0, failed = 0;
+  let created = 0, updated = 0, deleted = 0, skipped = 0, failed = 0;
 
   try {
     let connQuery = admin.from("google_calendar_connections").select("user_id");
@@ -386,10 +468,18 @@ Deno.serve(async (req: Request) => {
 
       const { data: mappings } = await admin
         .from("google_calendar_mappings")
-        .select("google_calendar_id")
+        .select("google_calendar_id, event_type")
         .eq("user_id", userId);
 
-      const calendarIds = [...new Set((mappings || []).map((m: any) => m.google_calendar_id))];
+      // calendar → every event_type that pushes to it, collapsed to one type for imports.
+      const typesByCalendar = new Map<string, string[]>();
+      for (const m of mappings || []) {
+        const list = typesByCalendar.get(m.google_calendar_id) || [];
+        list.push(m.event_type);
+        typesByCalendar.set(m.google_calendar_id, list);
+      }
+
+      const calendarIds = [...typesByCalendar.keys()];
       if (!calendarIds.length) continue;
 
       const accessToken = await getValidToken(admin, userId);
@@ -414,14 +504,21 @@ Deno.serve(async (req: Request) => {
             forceFull ? null : (state?.sync_token ?? null),
           );
 
-          let calUpdated = 0, calDeleted = 0, calSkipped = 0;
+          const importType = importEventType(typesByCalendar.get(calendarId) || []);
+
+          let calCreated = 0, calUpdated = 0, calDeleted = 0, calSkipped = 0;
           for (const item of items) {
-            const outcome = await applyItem(admin, item, calendarId, deletedSnapshots, changePreview, dryRun);
-            if (outcome === "updated") calUpdated++;
+            const outcome = await applyItem(
+              admin, item, calendarId, importType, userId,
+              deletedSnapshots, changePreview, dryRun,
+            );
+            if (outcome === "created") calCreated++;
+            else if (outcome === "updated") calUpdated++;
             else if (outcome === "deleted") calDeleted++;
             else calSkipped++;
           }
 
+          created += calCreated;
           updated += calUpdated;
           deleted += calDeleted;
           skipped += calSkipped;
@@ -443,9 +540,11 @@ Deno.serve(async (req: Request) => {
             calendar_id: calendarId,
             full_sync: usedFullSync,
             seen: items.length,
+            created: calCreated,
             updated: calUpdated,
             deleted: calDeleted,
             skipped: calSkipped,
+            import_type: importType,
           });
         } catch (err) {
           failed++;
@@ -467,23 +566,29 @@ Deno.serve(async (req: Request) => {
     if (dryRun) {
       return new Response(JSON.stringify({
         ok: true, dry_run: true,
-        would_update: updated, would_delete: deleted, skipped,
+        would_create: created, would_update: updated, would_delete: deleted, skipped,
         changes: changePreview, deletions: deletedSnapshots, calendars: summary,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     await admin.from("ingestion_logs").insert({
       job_type: "google_calendar_pull",
-      status: failed > 0 ? (updated + deleted > 0 ? "partial" : "failed") : "success",
-      records_processed: updated + deleted + skipped,
+      status: failed > 0 ? (created + updated + deleted > 0 ? "partial" : "failed") : "success",
+      records_processed: created + updated + deleted + skipped,
+      records_created: created,
       records_updated: updated,
       started_at: startedAt,
       completed_at: new Date().toISOString(),
       // Deleted rows are snapshotted here so a Google-side delete is recoverable.
-      metadata: { calendars: summary, deleted_count: deleted, deleted_events: deletedSnapshots },
+      metadata: {
+        calendars: summary,
+        created_count: created,
+        deleted_count: deleted,
+        deleted_events: deletedSnapshots,
+      },
     });
 
-    return new Response(JSON.stringify({ ok: true, updated, deleted, skipped, calendars: summary }), {
+    return new Response(JSON.stringify({ ok: true, created, updated, deleted, skipped, calendars: summary }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
