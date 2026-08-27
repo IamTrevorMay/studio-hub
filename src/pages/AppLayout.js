@@ -7,6 +7,7 @@ import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { canAccessBroadcast, canManageClients } from '../lib/rolePermissions';
 import { useImpersonation } from '../lib/impersonation';
 import { startViewAs } from '../lib/viewAs';
+import SettingsModal from '../components/SettingsModal';
 import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
 import Dashboard from './Dashboard';
@@ -377,6 +378,9 @@ export default function AppLayout() {
   // Admin "View as…" — true-impersonation preview of a contractor's portal.
   const { active: impersonating, contractor: impersonatedContractor, start: startImpersonation, stop: stopImpersonation } = useImpersonation();
   const [viewAsMenuOpen, setViewAsMenuOpen] = useState(false);
+  // Settings moved out of the Dashboard so every role can reach it — the
+  // contractor and client portals never render that page.
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [viewAsContractors, setViewAsContractors] = useState([]);
   // "View as… staff" opens a separate tab running under that member's own
   // session — a real read of their data, not the chrome-only portal preview.
@@ -1120,6 +1124,19 @@ export default function AppLayout() {
           </div>
         )}
 
+        {/* Settings — sits directly above the user block, for every role. */}
+        <button
+          onClick={() => setShowSettingsModal(true)}
+          style={{
+            ...styles.settingsBtn,
+            justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+          }}
+          title="Settings"
+        >
+          <span style={styles.settingsBtnIcon}>&#9881;</span>
+          {!sidebarCollapsed && <span>Settings</span>}
+        </button>
+
         {/* User area */}
         <div style={{
           ...styles.userArea,
@@ -1280,6 +1297,9 @@ export default function AppLayout() {
       )}
       {showSubmitModal && (
         <SubmitModal onClose={() => setShowSubmitModal(false)} />
+      )}
+      {showSettingsModal && (
+        <SettingsModal onClose={() => setShowSettingsModal(false)} />
       )}
     </div>
   );
@@ -2095,6 +2115,30 @@ const styles = {
     gap: '10px',
     padding: '14px 16px',
     borderTop: '1px solid rgba(255,255,255,0.06)',
+  },
+  settingsBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    width: 'calc(100% - 24px)',
+    margin: '0 12px 4px',
+    padding: '10px 12px',
+    border: 'none',
+    borderRadius: '10px',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: '14px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+  },
+  settingsBtnIcon: {
+    fontSize: '16px',
+    lineHeight: 1,
+    width: '18px',
+    textAlign: 'center',
+    flexShrink: 0,
   },
   avatar: {
     width: '34px',
