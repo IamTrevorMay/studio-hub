@@ -130,6 +130,23 @@ function sortByPriority(items, completedKey = 'checked') {
   });
 }
 
+// Trim trailing zeros so 6 reads "6" and 6.25 reads "6.25".
+function formatHours(value) {
+  const n = Number(value) || 0;
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
+
+// "Aug 16\u201331" from the RPC's period bounds. The date strings are plain
+// YYYY-MM-DD, so they're split by hand — new Date('2026-08-16') would parse as
+// UTC midnight and render as the 15th west of Greenwich.
+function formatPeriod(row) {
+  if (!row?.period_start || !row?.period_end) return '';
+  const [y, m, d1] = row.period_start.split('-').map(Number);
+  const d2 = Number(row.period_end.split('-')[2]);
+  const month = new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short' });
+  return `${month} ${d1}\u2013${d2}`;
+}
+
 export default function Dashboard({ onNavigate }) {
   const { profile, updateProfile, isAdmin, isAssistant, isPartner, refreshKey } = useAuth();
   const { safeQuery } = useSupabaseQuery();
@@ -149,6 +166,14 @@ export default function Dashboard({ onNavigate }) {
 
   // Settings modal (cogwheel on profile card)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  // Hourly-pay users get a pay-period hours readout on the profile card.
+  // Mirrors Payroll.js: hourly = an active payroll_salaries row, hours = the
+  // "Report Hours to Complete" tasks they closed this period. It's a SECURITY
+  // DEFINER RPC because payroll_salaries is admin-only and the contractor_*
+  // tables are fenced to role='contractor'; it returns the caller's own totals
+  // and never a rate or an amount.
+  const [payPeriodHours, setPayPeriodHours] = useState(null);
 
   // Daily Briefing modal (auto-shown once each morning after 6am)
   const [showBriefing, setShowBriefing] = useState(false);
@@ -594,6 +619,20 @@ export default function Dashboard({ onNavigate }) {
     if (!profile?.id) return;
     fetchTeamProfiles();
   }, [profile?.id, fetchTeamProfiles]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    let cancelled = false;
+    supabase.rpc('my_pay_period_hours').then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        console.error('Pay period hours fetch failed:', error);
+        return;
+      }
+      setPayPeriodHours(Array.isArray(data) ? data[0] || null : data);
+    });
+    return () => { cancelled = true; };
+  }, [profile?.id, refreshKey]);
 
   useEffect(() => {
     if (profile?.id) {
@@ -1533,6 +1572,26 @@ export default function Dashboard({ onNavigate }) {
           )}
           <p style={styles.profileEmail}>{profile?.email}</p>
         </div>
+        {payPeriodHours?.is_hourly && (
+          <div style={styles.hoursCard}>
+            <div style={styles.hoursLabel}>Hours this pay period</div>
+            <div style={styles.hoursValue}>
+              {formatHours(payPeriodHours.hours)}
+              <span style={styles.hoursUnit}>h</span>
+            </div>
+            <div style={styles.hoursPeriod}>{formatPeriod(payPeriodHours)}</div>
+            {/* Staff report hours by completing "Report Hours to Complete"
+                tasks — there is no separate submit step, so only a contractor
+                ever has a submitted_at to show. */}
+            <div style={payPeriodHours.submitted_at ? styles.hoursSubmitted : styles.hoursPending}>
+              {payPeriodHours.submitted_at
+                ? 'Submitted'
+                : payPeriodHours.entry_count
+                  ? `from ${payPeriodHours.entry_count} task${payPeriodHours.entry_count === 1 ? '' : 's'}`
+                  : 'No hours reported yet'}
+            </div>
+          </div>
+        )}
         <button
           onClick={() => setShowSettingsModal(true)}
           style={styles.settingsCog}
@@ -2471,6 +2530,50 @@ const styles = {
     fontWeight: 700,
     color: '#ffffff',
     margin: '0 0 2px 0',
+  },
+  // Pay-period hours readout — sits beside the name/title block on the profile
+  // card, only for hourly-pay users.
+  hoursCard: {
+    alignSelf: 'center',
+    padding: `${spacing.sm}px ${spacing.lg}px`,
+    background: 'rgba(99,102,241,0.08)',
+    border: '1px solid rgba(99,102,241,0.22)',
+    borderRadius: '12px',
+    minWidth: '150px',
+  },
+  hoursLabel: {
+    fontSize: '11px',
+    color: colors.textDim,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    marginBottom: '2px',
+  },
+  hoursValue: {
+    fontSize: '26px',
+    fontWeight: 700,
+    color: '#ffffff',
+    lineHeight: 1.1,
+  },
+  hoursUnit: {
+    fontSize: '14px',
+    fontWeight: 600,
+    color: colors.textDim,
+    marginLeft: '3px',
+  },
+  hoursPeriod: {
+    fontSize: '12px',
+    color: colors.textMuted,
+    marginTop: '2px',
+  },
+  hoursSubmitted: {
+    fontSize: '11px',
+    color: '#4ade80',
+    marginTop: '4px',
+  },
+  hoursPending: {
+    fontSize: '11px',
+    color: colors.textDim,
+    marginTop: '4px',
   },
   profileTitle: {
     fontSize: '14px',
