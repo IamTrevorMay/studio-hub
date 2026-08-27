@@ -187,11 +187,12 @@ export default function AppLayoutMobile() {
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   // 'launcher' | 'harbor' | null (null = Bridge, the classic tab world).
   const [suiteView, setSuiteView] = useState(() => (isSuiteUser ? getSuiteViewFromPath() : null));
-  // Mode mirrors desktop's localStorage key. Non-admins are pinned to
-  // 'work' below (admins still see whichever mode they last used).
+  // Mode mirrors desktop's localStorage key — they share it, so the accepted
+  // values have to match. Work View was retired 2026-08-27; Production is the
+  // default and non-admins are pinned to it below.
   const [mode, setMode] = useState(() => {
     const m = localStorage.getItem('studio-hub-mode');
-    return (m === 'admin' || m === 'production') ? m : 'work';
+    return (m === 'admin' || m === 'production') ? m : 'production';
   });
   const [navTarget, setNavTarget] = useState(() => getSubPathFromURL());
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -278,7 +279,8 @@ export default function AppLayoutMobile() {
   // portals. Admin Mode stays admin-only. Persist mode across reloads.
   const canUseProductionMode = !isContractor && !isClient;
   useEffect(() => {
-    if (!isAdmin && mode !== 'work' && !(mode === 'production' && canUseProductionMode)) setMode('work');
+    if (isAdmin || !canUseProductionMode) return;
+    if (mode !== 'production') setMode('production');
   }, [isAdmin, mode, canUseProductionMode]);
   useEffect(() => { localStorage.setItem('studio-hub-mode', mode); }, [mode]);
 
@@ -325,7 +327,6 @@ export default function AppLayoutMobile() {
 
   // Modes the current user can switch between (drawer segmented control).
   const availableModes = [
-    'work',
     ...(canUseProductionMode && productionSection.length ? ['production'] : []),
     ...(isAdmin ? ['admin'] : []),
   ];

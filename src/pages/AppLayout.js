@@ -124,7 +124,7 @@ const BETA_PAGE_NAV = [
   { type: 'item', key: 'timeline', label: 'Timeline', folderId: 'beta' },
   { type: 'item', key: 'mailer', label: 'Mailer', folderId: 'beta' },
 ];
-// Admin-only pages that live in Admin Mode and are hidden from the Work View.
+// Admin-only pages that live in Admin Mode and are hidden from Production Mode.
 const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'clients', 'workflows', 'jobs', 'invoicing', 'ops', ...BETA_PAGE_KEYS];
 // Production folders: everything nested under these lives in Production Mode
 // (below the divider) instead of the everyday/general list.
@@ -324,8 +324,9 @@ const NAV_ICON_MAP = {
 // The four sidebar views, surfaced through a single mode dropdown. Availability
 // is role-gated where the dropdown is built (Work: all staff; Production: all
 // staff; Admin/Contractor: admins only).
+// Work View was retired 2026-08-27 — Production Mode is the default view now.
+// A stored 'work' from before then falls back to 'production' on read.
 const MODE_META = {
-  work: { label: 'Work View', icon: WorkModeIcon },
   production: { label: 'Production Mode', icon: ProductionModeIcon },
   admin: { label: 'Admin Mode', icon: AdminIcon },
   contractor: { label: 'Contractor Mode', icon: ContractorModeIcon },
@@ -356,7 +357,7 @@ export default function AppLayout() {
   });
   const [mode, setMode] = useState(() => {
     const m = localStorage.getItem('studio-hub-mode');
-    return (m === 'admin' || m === 'contractor' || m === 'production') ? m : 'work';
+    return (m === 'admin' || m === 'contractor' || m === 'production') ? m : 'production';
   });
   // Suite surface: 'launcher' | 'harbor' | null (null = Bridge, the classic
   // tab world). Resolved from the URL before tab resolution; bare '/' goes to
@@ -381,6 +382,9 @@ export default function AppLayout() {
   // Settings moved out of the Dashboard so every role can reach it — the
   // contractor and client portals never render that page.
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  // Collapsed-sidebar hover labels. { label, top, left } measured off the
+  // hovered button, rendered fixed outside the aside so overflow can't clip it.
+  const [navTip, setNavTip] = useState(null);
   const [viewAsContractors, setViewAsContractors] = useState([]);
   // "View as… staff" opens a separate tab running under that member's own
   // session — a real read of their data, not the chrome-only portal preview.
@@ -399,10 +403,11 @@ export default function AppLayout() {
 
   // Production Mode is open to all staff (admins, directors, members);
   // contractors/clients get their own locked portals. Admin & Contractor Mode
-  // stay admin-only — bounce a non-admin out of those back to Work View.
+  // stay admin-only — bounce a non-admin out of those back to Production.
   const canUseProductionMode = !isContractor && !isClient;
   useEffect(() => {
-    if (!isAdmin && mode !== 'work' && !(mode === 'production' && canUseProductionMode)) setMode('work');
+    if (isAdmin || !canUseProductionMode) return;
+    if (mode !== 'production') setMode('production');
   }, [isAdmin, mode, canUseProductionMode]);
 
   useEffect(() => {
@@ -454,7 +459,7 @@ export default function AppLayout() {
   }, [activeTab, restrictedNavKeys, isAdmin, isPartner, isContractor, isClient, profile]);
 
   // Mode-filtered nav. Admin-only pages live in Admin Mode and disappear from
-  // the default Work View; flipping the bottom button swaps the sidebar.
+  // the default Production view; flipping the bottom button swaps the sidebar.
   const adminNav = buildAdminNav(resolvedNav, isBetaOwner).filter(
     (e) => e.type !== 'item'
       || (!restrictedNavKeys?.has(e.key)
@@ -553,9 +558,18 @@ export default function AppLayout() {
       // Contractor Mode carries the general list; only admin-exclusive pages bounce.
       if (ADMIN_PAGE_KEYS.includes(activeTab)) setActiveTab('ct_assignments');
     } else {
-      // Work / Production carry the general list; bounce off mode-exclusive pages.
+      // Production carries the general list; bounce off mode-exclusive pages.
       resetTabToWork();
     }
+  }
+
+  function showNavTip(e, label) {
+    if (!sidebarCollapsed || !label) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    setNavTip({ label, top: r.top + r.height / 2, left: r.right + 8 });
+  }
+  function hideNavTip() {
+    setNavTip(null);
   }
 
   function toggleFolder(folderId) {
@@ -862,6 +876,8 @@ export default function AppLayout() {
                               position: 'relative',
                             }}
                             title={child.label}
+                            onMouseEnter={(e) => showNavTip(e, child.label)}
+                            onMouseLeave={hideNavTip}
                           >
                             {Icon && <Icon active={activeTab === child.key} />}
                             {child.key === 'dashboard' && dashboardNotifCount > 0 && (
@@ -952,6 +968,8 @@ export default function AppLayout() {
                         position: 'relative',
                       }}
                       title={sidebarCollapsed ? entry.label : undefined}
+                      onMouseEnter={(e) => showNavTip(e, entry.label)}
+                      onMouseLeave={hideNavTip}
                     >
                       {Icon && <Icon active={activeTab === entry.key} />}
                       {!sidebarCollapsed && <span>{entry.label}</span>}
@@ -991,6 +1009,8 @@ export default function AppLayout() {
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           style={styles.collapseBtn}
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          onMouseEnter={(e) => showNavTip(e, 'Expand sidebar')}
+          onMouseLeave={hideNavTip}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             {sidebarCollapsed ? (
@@ -1006,26 +1026,27 @@ export default function AppLayout() {
             Contractor for admins only. */}
         {canUseProductionMode && !previewingContractor && !previewingClient && (() => {
           const modeOptions = [
-            'work',
             ...(canUseProductionMode ? ['production'] : []),
             ...(isAdmin ? ['admin', 'contractor'] : []),
           ];
           if (modeOptions.length < 2) return null;
-          const current = MODE_META[mode] || MODE_META.work;
+          const current = MODE_META[mode] || MODE_META.production;
           const CurrentIcon = current.icon;
           return (
-            <div ref={modeMenuRef} style={{ position: 'relative', marginTop: '8px' }}>
+            <div ref={modeMenuRef} style={{ position: 'relative', margin: '8px 10px 0' }}>
               <button
                 onClick={() => setModeMenuOpen((o) => !o)}
                 style={{
                   ...styles.navItem,
-                  ...(mode !== 'work' ? styles.navItemActive : {}),
+                  ...(mode !== 'production' ? styles.navItemActive : {}),
                   justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                   width: '100%',
                 }}
                 title={sidebarCollapsed ? current.label : undefined}
+                onMouseEnter={(e) => showNavTip(e, current.label)}
+                onMouseLeave={hideNavTip}
               >
-                <CurrentIcon active={mode !== 'work'} />
+                <CurrentIcon active={mode !== 'production'} />
                 {!sidebarCollapsed && <span style={{ flex: 1, textAlign: 'left' }}>{current.label}</span>}
                 {!sidebarCollapsed && <ChevronToggleIcon open={modeMenuOpen} />}
               </button>
@@ -1060,82 +1081,85 @@ export default function AppLayout() {
           );
         })()}
 
-        {/* App switcher — Mayday Studio suite launcher (admin-only). Sits just
-            above the user area (where Gerald used to be); Gerald now lives as a
+        {/* Bottom row of icon buttons — Settings for everyone, plus View as…
+            and the Apps launcher for admins. They split the row evenly, so a
+            non-admin sees one full-width Settings button. Collapsed, the
+            sidebar is too narrow for a row and they stack. Gerald lives as a
             card on the Apps launcher itself. */}
-        {isAdmin && !previewingContractor && !previewingClient && (
-          <button
-            onClick={() => setSuiteView('launcher')}
-            style={{
-              ...styles.navItem,
-              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-              marginTop: '8px',
-            }}
-            title={sidebarCollapsed ? 'Apps — Mayday Studio suite' : 'Open the app launcher'}
+        <div style={{
+          position: 'relative',
+          display: 'flex',
+          flexDirection: sidebarCollapsed ? 'column' : 'row',
+          alignItems: 'stretch',
+          gap: '6px',
+          margin: '8px 10px 0',
+        }}>
+          <IconNavButton
+            label="Settings"
+            onClick={() => setShowSettingsModal(true)}
+            collapsed={sidebarCollapsed}
+            onShowTip={showNavTip}
+            onHideTip={hideNavTip}
           >
-            <AppsIcon active={false} />
-            {!sidebarCollapsed && <span>Apps</span>}
-          </button>
-        )}
+            <SettingsIcon active={false} />
+          </IconNavButton>
 
-        {/* "View as…" — preview the contractor portal by sub-role (admin only). */}
-        {isAdmin && !previewingContractor && !previewingClient && (
-          <div style={{ position: 'relative', marginTop: '8px' }}>
-            <button
-              onClick={openViewAsMenu}
-              style={{
-                ...styles.navItem,
-                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                width: '100%',
-              }}
-              title={sidebarCollapsed ? 'View as… (contractor portal preview)' : 'Preview a contractor portal'}
-            >
-              <ViewAsIcon active={false} />
-              {!sidebarCollapsed && <span>View as…</span>}
-            </button>
-            {viewAsMenuOpen && (
-              <div style={styles.viewAsMenu}>
-                <div style={styles.viewAsMenuHeader}>Preview a portal</div>
-                <button style={{ ...styles.viewAsMenuItem, color: '#a5b4fc' }} onClick={viewAsClientSim}>
-                  Client Portal · simulated
+          {isAdmin && !previewingContractor && !previewingClient && (
+            <>
+              <IconNavButton
+                label="View as…"
+                title="View as… — preview another account"
+                onClick={openViewAsMenu}
+                collapsed={sidebarCollapsed}
+                onShowTip={showNavTip}
+                onHideTip={hideNavTip}
+              >
+                <ViewAsIcon active={false} />
+              </IconNavButton>
+              <IconNavButton
+                label="Apps"
+                title="Apps — Mayday Studio suite"
+                onClick={() => setSuiteView('launcher')}
+                collapsed={sidebarCollapsed}
+                onShowTip={showNavTip}
+                onHideTip={hideNavTip}
+              >
+                <AppsIcon active={false} />
+              </IconNavButton>
+            </>
+          )}
+
+          {/* Anchored to the row, not to its 40px button — the sidebar clips
+              overflow, so a menu hung off the icon would be cut off. */}
+          {viewAsMenuOpen && (
+            <div style={{ ...styles.viewAsMenu, left: 0, right: 0, minWidth: 0 }}>
+              <div style={styles.viewAsMenuHeader}>Preview a portal</div>
+              <button style={{ ...styles.viewAsMenuItem, color: '#a5b4fc' }} onClick={viewAsClientSim}>
+                Client Portal · simulated
+              </button>
+              {isStrictAdmin && (
+                <>
+                  <div style={styles.viewAsMenuHeader}>As staff · opens a new tab</div>
+                  {viewAsStaff.length === 0 ? (
+                    <div style={{ ...styles.viewAsMenuItem, color: 'rgba(255,255,255,0.4)', cursor: 'default' }}>No members</div>
+                  ) : viewAsStaff.map(m => (
+                    <button key={m.id} style={styles.viewAsMenuItem} onClick={() => viewAsStaffMember(m.id)}>
+                      {m.full_name || 'Unnamed'}{m.title ? ` · ${m.title}` : ''}
+                    </button>
+                  ))}
+                </>
+              )}
+              <div style={styles.viewAsMenuHeader}>As contractor</div>
+              {viewAsContractors.length === 0 ? (
+                <div style={{ ...styles.viewAsMenuItem, color: 'rgba(255,255,255,0.4)', cursor: 'default' }}>No contractors</div>
+              ) : viewAsContractors.map(c => (
+                <button key={c.id} style={styles.viewAsMenuItem} onClick={() => viewAsContractor(c.id)}>
+                  {c.full_name || 'Unnamed'}{(c.sub_role || c.title) ? ` · ${c.sub_role || c.title}` : ''}
                 </button>
-                {isStrictAdmin && (
-                  <>
-                    <div style={styles.viewAsMenuHeader}>As staff · opens a new tab</div>
-                    {viewAsStaff.length === 0 ? (
-                      <div style={{ ...styles.viewAsMenuItem, color: 'rgba(255,255,255,0.4)', cursor: 'default' }}>No members</div>
-                    ) : viewAsStaff.map(m => (
-                      <button key={m.id} style={styles.viewAsMenuItem} onClick={() => viewAsStaffMember(m.id)}>
-                        {m.full_name || 'Unnamed'}{m.title ? ` · ${m.title}` : ''}
-                      </button>
-                    ))}
-                  </>
-                )}
-                <div style={styles.viewAsMenuHeader}>As contractor</div>
-                {viewAsContractors.length === 0 ? (
-                  <div style={{ ...styles.viewAsMenuItem, color: 'rgba(255,255,255,0.4)', cursor: 'default' }}>No contractors</div>
-                ) : viewAsContractors.map(c => (
-                  <button key={c.id} style={styles.viewAsMenuItem} onClick={() => viewAsContractor(c.id)}>
-                    {c.full_name || 'Unnamed'}{(c.sub_role || c.title) ? ` · ${c.sub_role || c.title}` : ''}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Settings — sits directly above the user block, for every role. */}
-        <button
-          onClick={() => setShowSettingsModal(true)}
-          style={{
-            ...styles.settingsBtn,
-            justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-          }}
-          title="Settings"
-        >
-          <span style={styles.settingsBtnIcon}>&#9881;</span>
-          {!sidebarCollapsed && <span>Settings</span>}
-        </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* User area */}
         <div style={{
@@ -1300,6 +1324,11 @@ export default function AppLayout() {
       )}
       {showSettingsModal && (
         <SettingsModal onClose={() => setShowSettingsModal(false)} />
+      )}
+      {navTip && sidebarCollapsed && (
+        <div style={{ ...styles.collapsedTip, top: navTip.top, left: navTip.left }}>
+          {navTip.label}
+        </div>
       )}
     </div>
   );
@@ -1749,6 +1778,38 @@ function ContractorModeIcon({ active }) {
   );
 }
 
+function SettingsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
+// Icon-only buttons need a visible label on hover — the native title attribute
+// is slow and unstyled. Each owns its hover state so the row stays declarative.
+function IconNavButton({ label, title, onClick, children, collapsed, onShowTip, onHideTip }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      style={{ position: 'relative', flex: 1, minWidth: 0, display: 'flex' }}
+      onMouseEnter={(e) => { if (collapsed) onShowTip?.(e, label); else setHovered(true); }}
+      onMouseLeave={() => { setHovered(false); onHideTip?.(); }}
+    >
+      <button
+        onClick={onClick}
+        style={{ ...styles.navItem, ...styles.iconOnlyNavItem, width: '100%' }}
+        title={title || label}
+        aria-label={label}
+      >
+        {children}
+      </button>
+      {hovered && <div style={styles.iconTooltip}>{label}</div>}
+    </div>
+  );
+}
+
 function ViewAsIcon({ active }) {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
@@ -1763,15 +1824,6 @@ function ProductionModeIcon({ active }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="2.5" y="7" width="15" height="10" rx="1.5" />
       <path d="M2.8 7l2.4-3.2 3.2 2.4M8 6.2l3.2-2.9 3 2.6M13.8 5.9l3-2.7" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function WorkModeIcon({ active }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
-      <rect x="3" y="6.5" width="14" height="9.5" rx="1.5" />
-      <path d="M7.5 6.5V5.5a1.5 1.5 0 011.5-1.5h2a1.5 1.5 0 011.5 1.5v1M3 10.5h14" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -1977,6 +2029,52 @@ const styles = {
     padding: '12px 10px',
     gap: '2px',
   },
+  // Icon-only buttons on the bottom row. They share the row equally — one
+  // button fills it, three split it in thirds — and the row itself is inset to
+  // the same width as a nav item, so the group always matches the tabs above.
+  // Hover label for a collapsed sidebar icon. Fixed rather than absolute: the
+  // aside sets overflow: hidden, which would clip anything beside an icon.
+  collapsedTip: {
+    position: 'fixed',
+    transform: 'translateY(-50%)',
+    padding: '5px 9px',
+    borderRadius: '6px',
+    background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.14)',
+    boxShadow: '0 6px 18px rgba(0,0,0,0.45)',
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: '12px',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+    zIndex: 400,
+  },
+  // Hover label for the icon-only buttons. Sits above the button and ignores
+  // pointer events so it can't swallow the click it's describing.
+  iconTooltip: {
+    position: 'absolute',
+    bottom: 'calc(100% + 6px)',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    padding: '4px 8px',
+    borderRadius: '6px',
+    background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.14)',
+    boxShadow: '0 6px 18px rgba(0,0,0,0.45)',
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: '11px',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+    zIndex: 60,
+  },
+  iconOnlyNavItem: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+    gap: 0,
+    padding: '10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+  },
   navItem: {
     display: 'flex',
     alignItems: 'center',
@@ -2115,30 +2213,6 @@ const styles = {
     gap: '10px',
     padding: '14px 16px',
     borderTop: '1px solid rgba(255,255,255,0.06)',
-  },
-  settingsBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    width: 'calc(100% - 24px)',
-    margin: '0 12px 4px',
-    padding: '10px 12px',
-    border: 'none',
-    borderRadius: '10px',
-    background: 'transparent',
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: '14px',
-    fontWeight: 500,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    whiteSpace: 'nowrap',
-  },
-  settingsBtnIcon: {
-    fontSize: '16px',
-    lineHeight: 1,
-    width: '18px',
-    textAlign: 'center',
-    flexShrink: 0,
   },
   avatar: {
     width: '34px',

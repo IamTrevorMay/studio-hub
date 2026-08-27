@@ -16,7 +16,8 @@ import { colors } from '../../lib/styleTokens';
 //   profile?: { full_name, title }
 //   onSignOut: () => void
 //   isAdmin?: boolean
-const MODE_LABELS = { work: 'Work', production: 'Production', admin: 'Admin' };
+// 'work' retired 2026-08-27 — Production is the default view.
+const MODE_LABELS = { production: 'Production', admin: 'Admin' };
 
 export default function MobileDrawer({
   open,
