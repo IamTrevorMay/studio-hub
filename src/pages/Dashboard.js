@@ -204,6 +204,9 @@ export default function Dashboard({ onNavigate }) {
   const [pendingOooRequests, setPendingOooRequests] = useState([]);
   const [oooProcessingId, setOooProcessingId] = useState(null);
   const [approvedOooToday, setApprovedOooToday] = useState([]);
+  // user_id -> { start_date, end_date } for their next/current approved leave,
+  // shown inline beside the member's name in the Team list.
+  const [oooDatesByUser, setOooDatesByUser] = useState({});
   const [upcomingOoo, setUpcomingOoo] = useState([]);
 
   // Stage tasks state
@@ -377,14 +380,24 @@ export default function Dashboard({ onNavigate }) {
         .order('created_at', { ascending: true });
       setPendingOooRequests(pending || []);
 
-      // Fetch approved requests overlapping today
+      // Approved leave that hasn't finished yet: drives both the "Out of Office"
+      // status dot (those overlapping today) and the dates shown in the row.
       const { data: approved } = await supabase
         .from('ooo_requests')
-        .select('user_id')
+        .select('user_id, start_date, end_date')
         .eq('status', 'approved')
-        .lte('start_date', todayStr)
-        .gte('end_date', todayStr);
-      setApprovedOooToday((approved || []).map(r => r.user_id));
+        .gte('end_date', todayStr)
+        .order('start_date', { ascending: true });
+      setApprovedOooToday(
+        (approved || []).filter(r => r.start_date <= todayStr).map(r => r.user_id),
+      );
+      // First match wins — the query is start_date ascending, so each member
+      // keeps their current leave, or their soonest upcoming one.
+      const byUser = {};
+      (approved || []).forEach(r => {
+        if (!byUser[r.user_id]) byUser[r.user_id] = r;
+      });
+      setOooDatesByUser(byUser);
     } catch (err) {
       console.error('Error fetching OOO requests:', err);
     }
@@ -1387,6 +1400,25 @@ export default function Dashboard({ onNavigate }) {
     );
   }
 
+  // "Aug 26 – 28" / "Aug 26 – Sep 2" / "Sep 2" from an ooo_requests row.
+  function formatOooRange(req) {
+    if (!req?.start_date) return '';
+    const parse = (ymd) => {
+      const [y, m, d] = ymd.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    };
+    const start = parse(req.start_date);
+    const end = parse(req.end_date || req.start_date);
+    const monthDay = { month: 'short', day: 'numeric' };
+    if (req.start_date === req.end_date) {
+      return start.toLocaleDateString('en-US', monthDay);
+    }
+    const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
+    return `${start.toLocaleDateString('en-US', monthDay)} \u2013 ${
+      end.toLocaleDateString('en-US', sameMonth ? { day: 'numeric' } : monthDay)
+    }`;
+  }
+
   // ── Today's Schedule renderer ──
   function renderTodaySchedule() {
     const isGoogleSource = isAdmin && todayEvents.length > 0 && todayEvents[0]?.source === 'google';
@@ -1821,6 +1853,14 @@ export default function Dashboard({ onNavigate }) {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={styles.teamMemberName}>
                               {member.full_name}{isMe && <span style={styles.youBadge}>you</span>}
+                              {oooDatesByUser[member.id] && (
+                                <span
+                                  style={styles.oooDateChip}
+                                  title={isOoo ? 'Out of office now' : 'Upcoming time off'}
+                                >
+                                  {formatOooRange(oooDatesByUser[member.id])}
+                                </span>
+                              )}
                               {unread && (
                                 <span
                                   style={styles.dmUnreadBadge}
@@ -2021,93 +2061,6 @@ export default function Dashboard({ onNavigate }) {
 
         </div>
       </div>
-
-      {/* Admin: Upcoming Out of Office */}
-      {isAdmin && (
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Upcoming Out of Office</h2>
-          <div style={{
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: '12px',
-            padding: '16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px',
-          }}>
-            {upcomingOoo.length === 0 ? (
-              <div style={{
-                color: 'rgba(255,255,255,0.45)',
-                fontSize: '13px',
-                fontStyle: 'italic',
-                padding: '6px 4px',
-              }}>
-                No upcoming time off.
-              </div>
-            ) : upcomingOoo.map(ev => {
-              const start = new Date(ev.start_date);
-              const end = new Date(ev.end_date);
-              const now = new Date();
-              const isCurrentlyOut = start <= now && now <= end;
-              const startDayKey = start.toISOString().slice(0, 10);
-              const endDayKey = end.toISOString().slice(0, 10);
-              const isSingleDay = startDayKey === endDayKey;
-              const startFmt = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              const endFmt = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-              let timeStr = null;
-              if (ev.all_day === false) {
-                const fmtTime = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-                timeStr = `${fmtTime(start)} \u2013 ${fmtTime(end)}`;
-              }
-
-              const displayTitle = ev.title || 'Unavailable';
-              const initial = displayTitle.trim().charAt(0).toUpperCase() || '?';
-
-              return (
-                <div key={ev.id} style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '10px 12px',
-                  background: isCurrentlyOut ? 'rgba(249,115,22,0.06)' : 'rgba(255,255,255,0.02)',
-                  border: `1px solid ${isCurrentlyOut ? 'rgba(249,115,22,0.15)' : 'rgba(255,255,255,0.06)'}`,
-                  borderRadius: '8px',
-                }}>
-                  <div style={{
-                    width: '32px', height: '32px', borderRadius: '50%',
-                    background: 'rgba(249,115,22,0.15)', color: '#f97316',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '13px', fontWeight: 700, flexShrink: 0,
-                  }}>
-                    {initial}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
-                        {displayTitle}
-                      </span>
-                      {isCurrentlyOut && (
-                        <span style={{
-                          fontSize: '10px', fontWeight: 700, color: '#f97316',
-                          background: 'rgba(249,115,22,0.12)',
-                          padding: '2px 6px', borderRadius: '4px',
-                        }}>
-                          Currently Out
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginTop: '2px' }}>
-                      {isSingleDay ? startFmt : `${startFmt} \u2013 ${endFmt}`}
-                      {timeStr && <span style={{ marginLeft: '6px' }}>{timeStr}</span>}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Sponsored Deliverables */}
       {!isPartner && (sponsorDeliverables.length > 0 || sponsorDelLoading) && (
@@ -3182,6 +3135,19 @@ const styles = {
     display: 'flex',
     gap: '20px',
     alignItems: 'stretch',
+  },
+  // Inline leave dates beside a team member's name — orange whether the leave
+  // is current or still upcoming.
+  oooDateChip: {
+    marginLeft: '6px',
+    padding: '1px 6px',
+    borderRadius: '4px',
+    background: 'rgba(249,115,22,0.12)',
+    color: '#f97316',
+    fontSize: '10px',
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+    verticalAlign: 'middle',
   },
   teamCol: {
     flex: 2,
