@@ -152,6 +152,10 @@ export default function Payroll() {
   const [payMethodForm, setPayMethodForm] = useState({ method: '', detail: '' });
 
   // One-off item form (scoped to the current pay period)
+  // Retainer/overtime breakdown per hourly member, from the same
+  // compute_freelancer_pay the contractor list uses. Client-side
+  // hours × rate silently skipped their retainer floor and overtime.
+  const [memberPayBreakdowns, setMemberPayBreakdowns] = useState({});
   const [addingOneOff, setAddingOneOff] = useState(false);
   const [oneOffForm, setOneOffForm] = useState({ label: '', payee: '', amount: '' });
   const [savingOneOff, setSavingOneOff] = useState(false);
@@ -204,6 +208,29 @@ export default function Payroll() {
   }, [selectedPeriod]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Hourly members: pull the server-side retainer/overtime breakdown. Runs off
+  // salaries so it doesn't wait on the memberPayroll memo below.
+  useEffect(() => {
+    const hourlyIds = (salaries || [])
+      .filter(sal => sal.salary_type === 'hourly' && !sal.ended_at)
+      .map(sal => sal.profile_id);
+    if (hourlyIds.length === 0) { setMemberPayBreakdowns({}); return undefined; }
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(hourlyIds.map(async (id) => {
+        const { data, error } = await supabase.rpc('compute_freelancer_pay', {
+          p_freelancer: id,
+          p_start: selectedPeriod.start,
+          p_end: selectedPeriod.end,
+        });
+        if (error) console.error('compute_freelancer_pay failed for', id, error);
+        return [id, error ? null : data];
+      }));
+      if (!cancelled) setMemberPayBreakdowns(Object.fromEntries(results));
+    })();
+    return () => { cancelled = true; };
+  }, [salaries, selectedPeriod]);
 
   // ── Computed payroll ────────────────────────────────────────────
 
@@ -259,10 +286,18 @@ export default function Payroll() {
     const hoursTotal = myHourTasks.reduce((sum, t) => sum + Number(t.hours_spent || 0), 0);
     // Salaried members' hours are tracked but don't move their pay — only an
     // hourly member's period total is built from them.
-    const hoursPay = rateCents ? Math.round(hoursTotal * rateCents) : 0;
+    //
+    // The server breakdown is authoritative for hourly members: it applies the
+    // retainer floor and the overtime multiplier, which hours × rate can't.
+    // Falling back to the flat figure keeps the row populated if the RPC fails.
+    const breakdown = isHourly ? memberPayBreakdowns[m.id] : null;
+    const hoursPay = breakdown
+      ? Math.round(Number(breakdown.total_pay || 0) * 100)
+      : (rateCents ? Math.round(hoursTotal * rateCents) : 0);
     return {
       ...m, salary, salaryPay, rateCents, isHourly,
       hourTasks: myHourTasks, hoursTotal, hoursPay,
+      payBreakdown: breakdown,
       periodPay: salaryPay + hoursPay,
     };
   });
@@ -765,6 +800,33 @@ export default function Payroll() {
                           : m.salary ? 'tracked only — not hourly' : 'no pay type set'}
                       </span>
                     </div>
+                    {/* Why the total isn't just hours × rate: retainer floors
+                        and overtime are applied per retainer window. */}
+                    {m.isHourly && m.payBreakdown?.windows?.length > 0
+                      && (m.payBreakdown.retainer_enabled || m.payBreakdown.overtime_enabled) && (
+                      <div style={styles.otWindows}>
+                        {m.payBreakdown.windows.map((w, i) => (
+                          <div key={i} style={styles.otWindowRow}>
+                            <span style={styles.otWindowDates}>
+                              {formatPeriodShort(w.window_start)}–{formatPeriodShort(w.window_end)}
+                            </span>
+                            <span style={styles.otWindowHours}>{Number(w.hours)}h</span>
+                            {w.floor_applied && (
+                              <span style={styles.otFloorTag}>retainer floor {Number(w.retainer_min)}h</span>
+                            )}
+                            {Number(w.overtime_hours) > 0 && (
+                              <span style={styles.otTag}>
+                                {Number(w.overtime_hours)}h OT × {Number(w.overtime_multiplier)}
+                              </span>
+                            )}
+                            {w.overtime_max != null && Number(w.hours) > Number(w.overtime_max) && !w.approved && (
+                              <span style={styles.otPendingTag}>over cap — OT not approved</span>
+                            )}
+                            <span style={styles.otWindowPay}>{formatCents(Math.round(Number(w.pay) * 100))}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {m.hourTasks.map(t => (
                       <div key={t.id} style={styles.hoursRow}>
                         <span style={styles.hoursRowTitle}>{t.title}</span>
@@ -979,6 +1041,14 @@ export default function Payroll() {
 }
 
 // ── Styles ────────────────────────────────────────────────────────
+
+// 'Aug 16' from a YYYY-MM-DD. new Date('2026-08-16') parses as UTC midnight
+// and renders as the 15th west of Greenwich, hence the manual split.
+function formatPeriodShort(ymd) {
+  if (!ymd) return '';
+  const [y, m, d] = String(ymd).slice(0, 10).split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 const styles = {
   page: {
@@ -1343,6 +1413,43 @@ const styles = {
     flexShrink: 0,
   },
   // Reported task hours (tasks.requires_hours)
+  // Per-retainer-window breakdown under an hourly member's hours.
+  otWindows: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    padding: '6px 0 8px',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    marginBottom: '4px',
+  },
+  otWindowRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.45)',
+  },
+  otWindowDates: { minWidth: '92px' },
+  otWindowHours: { color: 'rgba(255,255,255,0.6)' },
+  otWindowPay: { marginLeft: 'auto', color: 'rgba(255,255,255,0.6)', fontWeight: 600 },
+  otFloorTag: {
+    padding: '1px 6px',
+    borderRadius: '4px',
+    background: 'rgba(99,102,241,0.12)',
+    color: '#a5b4fc',
+  },
+  otTag: {
+    padding: '1px 6px',
+    borderRadius: '4px',
+    background: 'rgba(34,197,94,0.12)',
+    color: '#4ade80',
+  },
+  otPendingTag: {
+    padding: '1px 6px',
+    borderRadius: '4px',
+    background: 'rgba(249,115,22,0.12)',
+    color: '#f97316',
+  },
   hoursBlock: {
     padding: '10px 18px 12px',
     borderTop: '1px solid rgba(255,255,255,0.06)',
