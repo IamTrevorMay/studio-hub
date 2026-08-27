@@ -42,6 +42,12 @@ export const CONTRACTOR_SUB_ROLES = [
   'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
 ];
 
+// Member sub-roles (internal staff job functions). Display/organizational only,
+// same as the contractor list — no feature gating hangs off these yet.
+export const MEMBER_SUB_ROLES = [
+  'Editor', 'Executive Producer', 'Associate Producer', 'Writer', 'Researcher',
+];
+
 export const DIRECTOR_SUB_ROLE_LABELS = {
   communications: 'Director of Communications',
   creative: 'Director of Creative',

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
-import { isDirectorRole } from '../lib/rolePermissions';
+import { isDirectorRole, MEMBER_SUB_ROLES } from '../lib/rolePermissions';
 
 // Admin-only detail drawer for a team member, opened from Admin Panel → Team.
 // Everything here is editable by an admin.
@@ -36,6 +36,7 @@ const isStaff = (r) => STAFF_ROLES.includes(r);
 function subRoleOptions(role) {
   if (isDirectorRole(role)) return DIRECTOR_SUB_ROLES;
   if (isContractor(role)) return CONTRACTOR_SUB_ROLES.map(t => ({ value: t, label: t }));
+  if (role === 'member') return MEMBER_SUB_ROLES.map(t => ({ value: t, label: t }));
   return [];
 }
 

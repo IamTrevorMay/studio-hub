@@ -5,7 +5,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { colors } from '../lib/styleTokens';
-import { isDirectorRole, DIRECTOR_SUB_ROLE_LABELS } from '../lib/rolePermissions';
+import { isDirectorRole, DIRECTOR_SUB_ROLE_LABELS, MEMBER_SUB_ROLES } from '../lib/rolePermissions';
 import UserDetailModal from '../components/UserDetailModal';
 
 
@@ -25,6 +25,7 @@ const DIRECTOR_SUB_ROLE_OPTIONS = [
 function subRoleOptionsForRole(role) {
   if (isDirectorRole(role)) return DIRECTOR_SUB_ROLE_OPTIONS;
   if (role === 'contractor') return CONTRACTOR_TITLES.map(t => ({ value: t, label: t }));
+  if (role === 'member') return MEMBER_SUB_ROLES.map(t => ({ value: t, label: t }));
   return [];
 }
 
@@ -143,7 +144,7 @@ export default function AdminPanel({ initialTab }) {
   }
 
   async function handleRoleChange(userId, newRole) {
-    const takesSubRole = newRole === 'director' || newRole === 'contractor';
+    const takesSubRole = newRole === 'director' || newRole === 'contractor' || newRole === 'member';
     // Clear any stale sub_role (and legacy title) when moving to a role that
     // has no sub-role; otherwise open the sub-role picker.
     const patch = takesSubRole ? { role: newRole } : { role: newRole, sub_role: null, title: null };
