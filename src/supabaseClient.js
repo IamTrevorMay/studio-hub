@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { readViewAsBoot, createReadOnlyFetch } from './lib/viewAs';
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
 const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -16,14 +17,60 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // supabase.from() while the auth lock was still held.
 const noOpLock = async (_name, _acquireTimeout, fn) => fn();
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    flowType: 'implicit',
-    lock: noOpLock,
-    storageKey: `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`,
-    storage: window.localStorage,
-  },
-});
+const defaultStorageKey = `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`;
+
+// ── "View as…" preview tabs ──────────────────────────────────────────────────
+// A preview tab boots the whole app under someone else's minted token, so the
+// singleton every page imports IS the impersonated client. See lib/viewAs.js.
+const viewAsBoot = readViewAsBoot();
+
+/** Public flag for the banner + any UI that should know it's a preview. */
+export const VIEW_AS = {
+  active: !!viewAsBoot,
+  target: viewAsBoot?.target || null,
+  expiresAt: viewAsBoot?.session?.expires_at || null,
+};
+
+// Session lives in memory only — never localStorage, so the preview cannot
+// leak into another tab or outlive this one.
+function memoryStorage(seedKey, seedValue) {
+  const map = new Map([[seedKey, seedValue]]);
+  return {
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => { map.set(k, v); },
+    removeItem: (k) => { map.delete(k); },
+  };
+}
+
+const readOnlyFetch = createReadOnlyFetch();
+
+export const supabase = viewAsBoot
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      flowType: 'implicit',
+      lock: noOpLock,
+      storageKey: defaultStorageKey,
+      storage: memoryStorage(defaultStorageKey, JSON.stringify(viewAsBoot.session)),
+      // No refresh token was minted, so there is nothing to refresh — the
+      // preview simply expires with the token.
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    global: { fetch: readOnlyFetch },
+  })
+  : createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      flowType: 'implicit',
+      lock: noOpLock,
+      storageKey: defaultStorageKey,
+      storage: window.localStorage,
+    },
+  });
+
+if (viewAsBoot) {
+  // Realtime authorizes off its own token — point it at the preview identity.
+  try { supabase.realtime.setAuth(viewAsBoot.session.access_token); } catch (e) { /* noop */ }
+}
 
 /**
  * Force-reconnect the Realtime WebSocket.

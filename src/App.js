@@ -8,6 +8,8 @@ import { ImpersonationProvider } from './lib/impersonation';
 import { ToastProvider } from './contexts/ToastContext';
 import { useUsageTracking } from './hooks/useUsageTracking'; // TEMP: front-end usage study, remove after 2026-07-07
 import { colors, focusRing } from './lib/styleTokens';
+import { VIEW_AS } from './supabaseClient';
+import ViewAsBanner, { VIEW_AS_BAR_HEIGHT } from './components/ViewAsBanner';
 
 // Pick the layout + auth chunks once at boot. Cross-breakpoint resize requires reload.
 // Reload when the viewport crosses the mobile breakpoint after boot
@@ -144,7 +146,7 @@ export default function App() {
       </Suspense>
     );
   }
-  return (
+  const tree = (
     <AuthProvider>
       <PresenceProvider>
         <NotificationProvider>
@@ -158,6 +160,16 @@ export default function App() {
         </NotificationProvider>
       </PresenceProvider>
     </AuthProvider>
+  );
+
+  // A "View as…" tab runs the entire app under the target's session (see
+  // lib/viewAs.js), so the whole tree gets pushed down under a standing banner.
+  if (!VIEW_AS.active) return tree;
+  return (
+    <>
+      <ViewAsBanner />
+      <div style={{ paddingTop: `${VIEW_AS_BAR_HEIGHT}px` }}>{tree}</div>
+    </>
   );
 }
 

@@ -2,10 +2,16 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Admin "View as…" true-impersonation. Mints a short-lived, scoped access
-// token for a target contractor so the admin's preview reads EXACTLY what that
-// contractor's RLS allows. Strict-admin only, audited, read-only by intent
-// (the client renders the portal read-only and we never return a refresh
-// token, so the access token cannot be renewed or persisted).
+// token for a target account so the admin's preview reads EXACTLY what that
+// account's RLS allows. Audited, read-only by intent (the client renders the
+// preview read-only and we never return a refresh token, so the access token
+// cannot be renewed or persisted).
+//
+// Targets: contractors (admin-tier callers, the original portal preview) and
+// staff members (STRICT admin callers only — 2026-08-27, so an admin can see
+// the app exactly as a member does). Admin-tier targets are never allowed:
+// that is the self-promotion path the profiles RLS guards against, and a
+// director could otherwise mint an admin token for themselves.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,9 +52,10 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Strict admin access required" }, 403);
     }
 
-    // 2. Validate the target is a contractor.
-    const { contractor_id } = await req.json();
-    if (!contractor_id) return json({ error: "contractor_id is required" }, 400);
+    // 2. Validate the target.
+    const body = await req.json();
+    const targetId = body?.target_id || body?.contractor_id;
+    if (!targetId) return json({ error: "target_id is required" }, 400);
 
     const admin = createClient(url, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -56,13 +63,21 @@ Deno.serve(async (req: Request) => {
     const { data: target, error: targetErr } = await admin
       .from("profiles")
       .select("id, email, full_name, role, sub_role")
-      .eq("id", contractor_id)
+      .eq("id", targetId)
       .single();
-    if (targetErr || !target) return json({ error: "Contractor not found" }, 404);
-    if (!["contractor", "freelancer"].includes(target.role)) {
-      return json({ error: "Target is not a contractor" }, 400);
+    if (targetErr || !target) return json({ error: "User not found" }, 404);
+
+    const isContractorTarget = ["contractor", "freelancer"].includes(target.role);
+    const isStaffTarget = target.role === "member";
+    if (!isContractorTarget && !isStaffTarget) {
+      // Covers admin/director (escalation) and client (no client-side preview).
+      return json({ error: `Cannot view as a ${target.role || "user"} account` }, 400);
     }
-    if (!target.email) return json({ error: "Contractor has no email" }, 400);
+    // Viewing as staff reads the whole app, not a locked portal — strict admin only.
+    if (isStaffTarget && callerProfile?.role !== "admin") {
+      return json({ error: "Strict admin access required to view as staff" }, 403);
+    }
+    if (!target.email) return json({ error: "User has no email" }, 400);
 
     // 3. Mint a session for the target via a magic-link token (no email is
     //    sent — generateLink only returns the token), then exchange it for a
@@ -95,14 +110,29 @@ Deno.serve(async (req: Request) => {
       target_sub_role: target.sub_role,
     });
 
+    const targetInfo = {
+      id: target.id,
+      full_name: target.full_name,
+      role: target.role,
+      sub_role: target.sub_role,
+    };
+
     return json({
       access_token: sess.session.access_token,
       expires_at: sess.session.expires_at,
-      contractor: {
-        id: target.id,
-        full_name: target.full_name,
-        sub_role: target.sub_role,
+      // The staff preview boots a whole app tree under this identity, so it
+      // needs the user object Supabase would normally have cached. Still no
+      // refresh token — the preview dies with the tab or the token's hour.
+      session: {
+        access_token: sess.session.access_token,
+        refresh_token: "",
+        expires_at: sess.session.expires_at,
+        expires_in: sess.session.expires_in,
+        token_type: sess.session.token_type,
+        user: sess.session.user,
       },
+      target: targetInfo,
+      contractor: targetInfo, // legacy key — the contractor portal preview reads this
     });
   } catch (err) {
     return json({ error: (err as Error).message }, 500);

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { supabase, reconnectRealtime } from '../supabaseClient';
+import { supabase, reconnectRealtime, VIEW_AS } from '../supabaseClient';
 import { isAdminTier, isDirectorRole, getRestrictedNavKeys } from '../lib/rolePermissions';
 
 const AuthContext = createContext({});
@@ -32,16 +32,21 @@ export function AuthProvider({ children }) {
     setProfile(null);
     setAuthError(null);
     setIsPasswordRecovery(false);
-    // Clear Supabase's localStorage entries directly
-    try {
-      const keys = Object.keys(localStorage);
-      keys.forEach(key => {
-        if (key.startsWith('sb-') && (key.includes('auth-token') || key.includes('code-verifier'))) {
-          localStorage.removeItem(key);
-        }
-      });
-    } catch (e) {
-      // localStorage might not be available
+    // Clear Supabase's localStorage entries directly.
+    // NOT in a "View as…" preview tab: its own session lives in memory, and
+    // localStorage is shared across tabs — sweeping it here would sign the
+    // admin out of their real session everywhere else.
+    if (!VIEW_AS.active) {
+      try {
+        const keys = Object.keys(localStorage);
+        keys.forEach(key => {
+          if (key.startsWith('sb-') && (key.includes('auth-token') || key.includes('code-verifier'))) {
+            localStorage.removeItem(key);
+          }
+        });
+      } catch (e) {
+        // localStorage might not be available
+      }
     }
     // Also tell Supabase to sign out (ignore errors)
     try { await supabase.auth.signOut({ scope: 'local' }); } catch (e) {}

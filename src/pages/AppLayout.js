@@ -6,6 +6,7 @@ import useNavConfig from '../hooks/useNavConfig';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { canAccessBroadcast, canManageClients } from '../lib/rolePermissions';
 import { useImpersonation } from '../lib/impersonation';
+import { startViewAs } from '../lib/viewAs';
 import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
 import Dashboard from './Dashboard';
@@ -377,6 +378,9 @@ export default function AppLayout() {
   const { active: impersonating, contractor: impersonatedContractor, start: startImpersonation, stop: stopImpersonation } = useImpersonation();
   const [viewAsMenuOpen, setViewAsMenuOpen] = useState(false);
   const [viewAsContractors, setViewAsContractors] = useState([]);
+  // "View as… staff" opens a separate tab running under that member's own
+  // session — a real read of their data, not the chrome-only portal preview.
+  const [viewAsStaff, setViewAsStaff] = useState([]);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = React.useRef(null);
   // Simulated Client Portal preview (chrome-only): renders the locked client
@@ -485,6 +489,25 @@ export default function AppLayout() {
         .in('role', ['contractor', 'freelancer'])
         .order('full_name');
       setViewAsContractors(data || []);
+    }
+    // Members only — the edge function refuses admin-tier targets (escalation
+    // path) and clients (no client-side preview exists).
+    if (next && isStrictAdmin && viewAsStaff.length === 0) {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, title')
+        .eq('role', 'member')
+        .neq('id', profile?.id)
+        .order('full_name');
+      setViewAsStaff(data || []);
+    }
+  }
+  async function viewAsStaffMember(userId) {
+    setViewAsMenuOpen(false);
+    try {
+      await startViewAs(supabase, userId);
+    } catch (e) {
+      window.alert(`Could not start preview: ${e.message}`);
     }
   }
   async function viewAsContractor(contractorId) {
@@ -1072,6 +1095,18 @@ export default function AppLayout() {
                 <button style={{ ...styles.viewAsMenuItem, color: '#a5b4fc' }} onClick={viewAsClientSim}>
                   Client Portal · simulated
                 </button>
+                {isStrictAdmin && (
+                  <>
+                    <div style={styles.viewAsMenuHeader}>As staff · opens a new tab</div>
+                    {viewAsStaff.length === 0 ? (
+                      <div style={{ ...styles.viewAsMenuItem, color: 'rgba(255,255,255,0.4)', cursor: 'default' }}>No members</div>
+                    ) : viewAsStaff.map(m => (
+                      <button key={m.id} style={styles.viewAsMenuItem} onClick={() => viewAsStaffMember(m.id)}>
+                        {m.full_name || 'Unnamed'}{m.title ? ` · ${m.title}` : ''}
+                      </button>
+                    ))}
+                  </>
+                )}
                 <div style={styles.viewAsMenuHeader}>As contractor</div>
                 {viewAsContractors.length === 0 ? (
                   <div style={{ ...styles.viewAsMenuItem, color: 'rgba(255,255,255,0.4)', cursor: 'default' }}>No contractors</div>
