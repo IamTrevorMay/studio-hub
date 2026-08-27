@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -667,9 +667,115 @@ export default function BusinessDev() {
   }
 
   // ─────────────────────────────────────────────
-  // Drag-and-drop reorder (within-parent only; admin only)
-  // Optimistic reorder + reindex the affected siblings' position columns.
+  // Drag-and-drop (admin only). Milestones reorder inside a roadmap and move
+  // between roadmaps; tasks do the same across milestones. Cross-container
+  // drags only work when both Droppables share one DragDropContext, so the
+  // context wraps the whole roadmap list rather than each card.
+  //
+  // Every handler reindexes the affected sibling group(s), applies the result
+  // optimistically, and refetches if any write fails.
   // ─────────────────────────────────────────────
+  const expandedBeforeDragRef = useRef(null);
+
+  // A collapsed roadmap renders no milestone Droppable, and a collapsed
+  // milestone renders no task Droppable — so there would be nothing to drop
+  // onto. onBeforeCapture runs before dnd measures the page, which is the one
+  // safe moment to mount the missing drop targets.
+  function handleBeforeCapture({ draggableId }) {
+    expandedBeforeDragRef.current = { roadmaps: expandedRoadmaps, milestones: expandedMilestones };
+    setExpandedRoadmaps(Object.fromEntries(roadmaps.map(r => [r.id, true])));
+    const draggingMilestone = milestones.some(m => m.id === draggableId);
+    if (!draggingMilestone) {
+      setExpandedMilestones(Object.fromEntries(milestones.map(m => [m.id, true])));
+    }
+  }
+
+  // Put the tree back how the user had it, but leave the destination open so
+  // the moved row stays visible where it landed.
+  function restoreExpansion(destRoadmapId, destMilestoneId) {
+    const snap = expandedBeforeDragRef.current;
+    expandedBeforeDragRef.current = null;
+    if (!snap) return;
+    setExpandedRoadmaps(destRoadmapId ? { ...snap.roadmaps, [destRoadmapId]: true } : snap.roadmaps);
+    setExpandedMilestones(destMilestoneId ? { ...snap.milestones, [destMilestoneId]: true } : snap.milestones);
+  }
+
+  function handleRoadmapDragEnd(result) {
+    const { destination, source, type, draggableId } = result;
+    if (!destination) { restoreExpansion(null, null); return; }
+
+    if (type === 'milestone') {
+      const from = source.droppableId.slice('ms-'.length);
+      const to = destination.droppableId.slice('ms-'.length);
+      restoreExpansion(to, null);
+      if (from === to) {
+        if (destination.index !== source.index) handleReorderMilestones(from, source.index, destination.index);
+      } else {
+        handleMoveMilestone(draggableId, from, to, destination.index);
+      }
+    } else if (type === 'task') {
+      const from = source.droppableId.slice('task-'.length);
+      const to = destination.droppableId.slice('task-'.length);
+      restoreExpansion(milestones.find(m => m.id === to)?.roadmap_id || null, to);
+      if (from === to) {
+        if (destination.index !== source.index) handleReorderTasks(from, source.index, destination.index);
+      } else {
+        handleMoveTask(draggableId, from, to, destination.index);
+      }
+    }
+  }
+
+  async function handleMoveMilestone(milestoneId, fromRoadmapId, toRoadmapId, toIdx) {
+    const moved = milestones.find(m => m.id === milestoneId);
+    if (!moved) return;
+    const src = milestones.filter(m => m.roadmap_id === fromRoadmapId && m.id !== milestoneId);
+    const dst = milestones.filter(m => m.roadmap_id === toRoadmapId);
+    dst.splice(toIdx, 0, { ...moved, roadmap_id: toRoadmapId });
+    const srcReindexed = src.map((m, i) => ({ ...m, position: i }));
+    const dstReindexed = dst.map((m, i) => ({ ...m, position: i }));
+    // Keep each roadmap's rows contiguous — milestonesByRoadmap groups in array order.
+    setMilestones(prev => [
+      ...prev.filter(m => m.roadmap_id !== fromRoadmapId && m.roadmap_id !== toRoadmapId),
+      ...srcReindexed,
+      ...dstReindexed,
+    ]);
+    const stamp = new Date().toISOString();
+    const results = await Promise.all([
+      ...srcReindexed.map(m =>
+        supabase.from('roadmap_milestones').update({ position: m.position }).eq('id', m.id)),
+      ...dstReindexed.map(m => m.id === milestoneId
+        ? supabase.from('roadmap_milestones')
+          .update({ roadmap_id: toRoadmapId, position: m.position, updated_at: stamp }).eq('id', m.id)
+        : supabase.from('roadmap_milestones').update({ position: m.position }).eq('id', m.id)),
+    ]);
+    if (results.find(r => r.error)) { toast.error('Could not move that milestone.'); fetchAll(); }
+  }
+
+  async function handleMoveTask(taskId, fromMilestoneId, toMilestoneId, toIdx) {
+    const moved = tasks.find(t => t.id === taskId);
+    if (!moved) return;
+    const src = tasks.filter(t => t.milestone_id === fromMilestoneId && t.id !== taskId);
+    const dst = tasks.filter(t => t.milestone_id === toMilestoneId);
+    dst.splice(toIdx, 0, { ...moved, milestone_id: toMilestoneId });
+    const srcReindexed = src.map((t, i) => ({ ...t, position: i }));
+    const dstReindexed = dst.map((t, i) => ({ ...t, position: i }));
+    setTasks(prev => [
+      ...prev.filter(t => t.milestone_id !== fromMilestoneId && t.milestone_id !== toMilestoneId),
+      ...srcReindexed,
+      ...dstReindexed,
+    ]);
+    const stamp = new Date().toISOString();
+    const results = await Promise.all([
+      ...srcReindexed.map(t =>
+        supabase.from('roadmap_tasks').update({ position: t.position }).eq('id', t.id)),
+      ...dstReindexed.map(t => t.id === taskId
+        ? supabase.from('roadmap_tasks')
+          .update({ milestone_id: toMilestoneId, position: t.position, updated_at: stamp }).eq('id', t.id)
+        : supabase.from('roadmap_tasks').update({ position: t.position }).eq('id', t.id)),
+    ]);
+    if (results.find(r => r.error)) { toast.error('Could not move that task.'); fetchAll(); }
+  }
+
   async function handleReorderMilestones(roadmapId, fromIdx, toIdx) {
     const group = milestones.filter(m => m.roadmap_id === roadmapId);
     const reordered = Array.from(group);
@@ -733,7 +839,8 @@ export default function BusinessDev() {
               {isAdmin ? 'No roadmaps yet. Click + Roadmap to create one.' : 'No roadmaps yet.'}
             </div>
           ) : (
-            roadmaps.map(rm => (
+            <DragDropContext onBeforeCapture={handleBeforeCapture} onDragEnd={handleRoadmapDragEnd}>
+            {roadmaps.map(rm => (
               <RoadmapCard
                 key={rm.id}
                 roadmap={rm}
@@ -768,10 +875,9 @@ export default function BusinessDev() {
                 onCancelTaskForm={cancelTaskForm}
                 onToggleTask={handleToggleTask}
                 onDeleteTask={handleDeleteTask}
-                onReorderMilestones={handleReorderMilestones}
-                onReorderTasks={handleReorderTasks}
               />
-            ))
+            ))}
+            </DragDropContext>
           )}
         </div>
 
@@ -861,7 +967,6 @@ function RoadmapCard(props) {
     taskFormFor, editingTaskId, taskForm, setTaskForm,
     onOpenCreateTask, onOpenEditTask, onTaskSubmit, onCancelTaskForm,
     onToggleTask, onDeleteTask,
-    onReorderMilestones, onReorderTasks,
   } = props;
 
   const total = milestones.length;
@@ -870,22 +975,12 @@ function RoadmapCard(props) {
   const deadline = formatDeadline(roadmap.deadline_date);
   const addingMilestone = milestoneFormFor === roadmap.id && !editingMilestoneId;
 
-  // One DnD context per roadmap card handles both the milestone list (type
-  // 'milestone') and each milestone's task list (type 'task'). The distinct
-  // types keep them isolated; we reject cross-milestone task moves.
-  function handleDragEnd(result) {
-    const { destination, source, type } = result;
-    if (!destination) return;
-    if (type === 'milestone') {
-      if (destination.index === source.index) return;
-      onReorderMilestones(roadmap.id, source.index, destination.index);
-    } else if (type === 'task') {
-      if (destination.droppableId !== source.droppableId) return; // within-milestone only
-      if (destination.index === source.index) return;
-      const milestoneId = source.droppableId.slice('task-'.length);
-      onReorderTasks(milestoneId, source.index, destination.index);
-    }
-  }
+  // The DragDropContext lives on the roadmap list in BusinessDev, not here —
+  // milestones move between roadmaps and tasks between milestones, and dnd only
+  // allows that when every Droppable shares one context. This card just
+  // contributes its milestone Droppable ('milestone' type); each MilestoneRow
+  // contributes its task Droppable ('task' type). The distinct types keep a
+  // milestone from being dropped into a task list and vice versa.
 
   return (
     <div style={styles.roadmapCard}>
@@ -919,54 +1014,58 @@ function RoadmapCard(props) {
 
       {expanded && (
         <div style={styles.roadmapBody}>
-          {milestones.length === 0 && !addingMilestone && (
-            <div style={styles.empty}>No milestones yet.</div>
-          )}
-          <DragDropContext onDragEnd={handleDragEnd}>
-            <Droppable droppableId={`ms-${roadmap.id}`} type="milestone">
-              {(dp) => (
-                <div ref={dp.innerRef} {...dp.droppableProps} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {milestones.map((ms, idx) => (
-                    <Draggable key={ms.id} draggableId={ms.id} index={idx} isDragDisabled={!isAdmin || editingMilestoneId === ms.id}>
-                      {(prov, snap) => (
-                        <div ref={prov.innerRef} {...prov.draggableProps}
-                          style={{ ...prov.draggableProps.style, ...(snap.isDragging ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.97 } : {}) }}>
-                          <MilestoneRow
-                            milestone={ms}
-                            tasks={tasksByMilestone[ms.id] || []}
-                            isAdmin={isAdmin}
-                            expanded={!!expandedMilestones[ms.id]}
-                            onToggleExpand={() => setExpandedMilestones(prev => ({ ...prev, [ms.id]: !prev[ms.id] }))}
-                            onToggle={() => onToggleMilestone(ms)}
-                            onEdit={() => onOpenEditMilestone(ms)}
-                            onDelete={() => onDeleteMilestone(ms)}
-                            isEditingMilestone={editingMilestoneId === ms.id}
-                            milestoneForm={milestoneForm}
-                            setMilestoneForm={setMilestoneForm}
-                            onMilestoneSubmit={onMilestoneSubmit}
-                            onCancelMilestoneForm={onCancelMilestoneForm}
-                            dragHandleProps={isAdmin ? prov.dragHandleProps : null}
-                            // task
-                            taskFormFor={taskFormFor}
-                            editingTaskId={editingTaskId}
-                            taskForm={taskForm}
-                            setTaskForm={setTaskForm}
-                            onOpenCreateTask={onOpenCreateTask}
-                            onOpenEditTask={onOpenEditTask}
-                            onTaskSubmit={onTaskSubmit}
-                            onCancelTaskForm={onCancelTaskForm}
-                            onToggleTask={onToggleTask}
-                            onDeleteTask={onDeleteTask}
-                          />
-                        </div>
-                      )}
-                    </Draggable>
-                  ))}
-                  {dp.placeholder}
-                </div>
-              )}
-            </Droppable>
-          </DragDropContext>
+          <Droppable droppableId={`ms-${roadmap.id}`} type="milestone">
+            {(dp, dsnap) => (
+              <div ref={dp.innerRef} {...dp.droppableProps}
+                style={{
+                  display: 'flex', flexDirection: 'column', gap: '6px',
+                  ...(dsnap.isDraggingOver ? { borderRadius: '6px', outline: '1px dashed rgba(99,102,241,0.6)' } : {}),
+                }}>
+                {/* The empty state lives inside the Droppable so an empty roadmap
+                    still has a measurable hit area to drop a milestone onto. */}
+                {milestones.length === 0 && !addingMilestone && (
+                  <div style={styles.empty}>No milestones yet.</div>
+                )}
+                {milestones.map((ms, idx) => (
+                  <Draggable key={ms.id} draggableId={ms.id} index={idx} isDragDisabled={!isAdmin || editingMilestoneId === ms.id}>
+                    {(prov, snap) => (
+                      <div ref={prov.innerRef} {...prov.draggableProps}
+                        style={{ ...prov.draggableProps.style, ...(snap.isDragging ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.97 } : {}) }}>
+                        <MilestoneRow
+                          milestone={ms}
+                          tasks={tasksByMilestone[ms.id] || []}
+                          isAdmin={isAdmin}
+                          expanded={!!expandedMilestones[ms.id]}
+                          onToggleExpand={() => setExpandedMilestones(prev => ({ ...prev, [ms.id]: !prev[ms.id] }))}
+                          onToggle={() => onToggleMilestone(ms)}
+                          onEdit={() => onOpenEditMilestone(ms)}
+                          onDelete={() => onDeleteMilestone(ms)}
+                          isEditingMilestone={editingMilestoneId === ms.id}
+                          milestoneForm={milestoneForm}
+                          setMilestoneForm={setMilestoneForm}
+                          onMilestoneSubmit={onMilestoneSubmit}
+                          onCancelMilestoneForm={onCancelMilestoneForm}
+                          dragHandleProps={isAdmin ? prov.dragHandleProps : null}
+                          // task
+                          taskFormFor={taskFormFor}
+                          editingTaskId={editingTaskId}
+                          taskForm={taskForm}
+                          setTaskForm={setTaskForm}
+                          onOpenCreateTask={onOpenCreateTask}
+                          onOpenEditTask={onOpenEditTask}
+                          onTaskSubmit={onTaskSubmit}
+                          onCancelTaskForm={onCancelTaskForm}
+                          onToggleTask={onToggleTask}
+                          onDeleteTask={onDeleteTask}
+                        />
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {dp.placeholder}
+              </div>
+            )}
+          </Droppable>
 
           {/* Add-milestone inline form */}
           {addingMilestone ? (
@@ -1086,8 +1185,14 @@ function MilestoneRow(props) {
 
       {expanded && (
         <Droppable droppableId={`task-${ms.id}`} type="task">
-          {(dp) => (
-            <div ref={dp.innerRef} {...dp.droppableProps} style={styles.taskList}>
+          {(dp, dsnap) => (
+            <div ref={dp.innerRef} {...dp.droppableProps}
+              style={{
+                ...styles.taskList,
+                // The "+ Task" button keeps an empty list measurable, so every
+                // milestone can receive a drop once it is expanded.
+                ...(dsnap.isDraggingOver ? { borderRadius: '6px', outline: '1px dashed rgba(99,102,241,0.6)' } : {}),
+              }}>
               {tasks.map((t, i) => (
                 <Draggable key={t.id} draggableId={t.id} index={i} isDragDisabled={!isAdmin || editingTaskId === t.id}>
                   {(pr, sn) => (
