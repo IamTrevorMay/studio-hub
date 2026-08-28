@@ -8,7 +8,8 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
-import { colors } from '../lib/styleTokens';
+import { colors, spacing, radii, fontSizes } from '../lib/styleTokens';
+import { ROADMAP_COLORS, roadmapPalette, nextRoadmapColor } from '../lib/roadmapColors';
 
 // ════════════════════════════════════════════════════════════
 // Constants — BD Goals (preserved from the previous page)
@@ -112,7 +113,7 @@ function formatDeadline(dateStr) {
   return { sub: `${diff}d left`, color: 'rgba(255,255,255,0.4)' };
 }
 
-const EMPTY_ROADMAP = { name: '', deadline_name: '', deadline_date: '' };
+const EMPTY_ROADMAP = { name: '', deadline_name: '', deadline_date: '', color: ROADMAP_COLORS[0].key };
 const EMPTY_MILESTONE = { title: '', target_date: '' };
 const EMPTY_TASK = { title: '', description: '', due_date: '' };
 const EMPTY_BD_GOAL = { title: '', description: '', current_value: '', target_value: '', category: 'quarterly', goal_type: 'manual', metrics: [], platform_account_ids: [] };
@@ -507,12 +508,12 @@ export default function BusinessDev() {
   // ─────────────────────────────────────────────
   function openCreateRoadmap() {
     setEditingRoadmapId(null);
-    setRoadmapForm(EMPTY_ROADMAP);
+    setRoadmapForm({ ...EMPTY_ROADMAP, color: nextRoadmapColor(roadmaps) });
     setShowRoadmapForm(true);
   }
   function openEditRoadmap(rm) {
     setEditingRoadmapId(rm.id);
-    setRoadmapForm({ name: rm.name, deadline_name: rm.deadline_name || '', deadline_date: rm.deadline_date || '' });
+    setRoadmapForm({ name: rm.name, deadline_name: rm.deadline_name || '', deadline_date: rm.deadline_date || '', color: roadmapPalette(rm, roadmaps.indexOf(rm)).key });
     setShowRoadmapForm(true);
   }
   function cancelRoadmapForm() {
@@ -528,6 +529,7 @@ export default function BusinessDev() {
       name,
       deadline_name: roadmapForm.deadline_name.trim() || null,
       deadline_date: roadmapForm.deadline_date || null,
+      color: roadmapForm.color || ROADMAP_COLORS[0].key,
     };
     if (editingRoadmapId) {
       const { error } = await supabase.from('roadmaps').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingRoadmapId);
@@ -832,7 +834,8 @@ export default function BusinessDev() {
         gap: '16px',
         alignItems: 'flex-start',
       }}>
-        {/* ── Left: Roadmaps ── */}
+        {/* ── Left: Roadmaps + Calendar ── */}
+        <div style={styles.leftColumn}>
         <div style={styles.roadmapList}>
           {roadmaps.length === 0 ? (
             <div style={styles.empty}>
@@ -840,10 +843,11 @@ export default function BusinessDev() {
             </div>
           ) : (
             <DragDropContext onBeforeCapture={handleBeforeCapture} onDragEnd={handleRoadmapDragEnd}>
-            {roadmaps.map(rm => (
+            {roadmaps.map((rm, rmIdx) => (
               <RoadmapCard
                 key={rm.id}
                 roadmap={rm}
+                palette={roadmapPalette(rm, rmIdx)}
                 milestones={milestonesByRoadmap[rm.id] || []}
                 tasksByMilestone={tasksByMilestone}
                 isAdmin={isAdmin}
@@ -879,6 +883,10 @@ export default function BusinessDev() {
             ))}
             </DragDropContext>
           )}
+        </div>
+
+        {/* ── Calendar view (below the roadmaps) ── */}
+        <RoadmapCalendar roadmaps={roadmaps} milestones={milestones} tasks={tasks} />
         </div>
 
         {/* ── Right: Goals + Notes (admin only) ── */}
@@ -958,7 +966,7 @@ export default function BusinessDev() {
 // ════════════════════════════════════════════════════════════
 function RoadmapCard(props) {
   const {
-    roadmap, milestones, tasksByMilestone, isAdmin,
+    roadmap, palette, milestones, tasksByMilestone, isAdmin,
     expanded, onToggleExpand, expandedMilestones, setExpandedMilestones,
     onEditRoadmap, onDeleteRoadmap,
     milestoneFormFor, editingMilestoneId, milestoneForm, setMilestoneForm,
@@ -983,13 +991,16 @@ function RoadmapCard(props) {
   // milestone from being dropped into a task list and vice versa.
 
   return (
-    <div style={styles.roadmapCard}>
-      <div style={styles.roadmapHeader}>
-        <button onClick={onToggleExpand} style={styles.caretBtn} title={expanded ? 'Collapse' : 'Expand'}>
+    <div style={{ ...styles.roadmapCard, borderLeft: `3px solid ${palette.fg}` }}>
+      <div style={{ ...styles.roadmapHeader, background: palette.soft, borderBottom: `1px solid ${palette.border}` }}>
+        <button onClick={onToggleExpand} style={{ ...styles.caretBtn, color: palette.fg }} title={expanded ? 'Collapse' : 'Expand'}>
           <span style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>{'▶'}</span>
         </button>
         <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={onToggleExpand}>
-          <div style={styles.roadmapName}>{roadmap.name}</div>
+          <div style={styles.roadmapNameRow}>
+            <span style={{ ...styles.roadmapDot, background: palette.fg }} />
+            <span style={styles.roadmapName}>{roadmap.name}</span>
+          </div>
           {(roadmap.deadline_name || roadmap.deadline_date) && (
             <div style={styles.roadmapDeadlineRow}>
               {roadmap.deadline_name && <span style={styles.roadmapDeadlineName}>{roadmap.deadline_name}</span>}
@@ -1019,7 +1030,7 @@ function RoadmapCard(props) {
               <div ref={dp.innerRef} {...dp.droppableProps}
                 style={{
                   display: 'flex', flexDirection: 'column', gap: '6px',
-                  ...(dsnap.isDraggingOver ? { borderRadius: '6px', outline: '1px dashed rgba(99,102,241,0.6)' } : {}),
+                  ...(dsnap.isDraggingOver ? { borderRadius: '6px', outline: `1px dashed ${palette.fg}` } : {}),
                 }}>
                 {/* The empty state lives inside the Droppable so an empty roadmap
                     still has a measurable hit area to drop a milestone onto. */}
@@ -1033,6 +1044,7 @@ function RoadmapCard(props) {
                         style={{ ...prov.draggableProps.style, ...(snap.isDragging ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.97 } : {}) }}>
                         <MilestoneRow
                           milestone={ms}
+                          palette={palette}
                           tasks={tasksByMilestone[ms.id] || []}
                           isAdmin={isAdmin}
                           expanded={!!expandedMilestones[ms.id]}
@@ -1088,7 +1100,7 @@ function RoadmapCard(props) {
             </form>
           ) : (
             isAdmin && (
-              <button onClick={() => onOpenCreateMilestone(roadmap.id)} style={styles.addRowBtn}>+ Milestone</button>
+              <button onClick={() => onOpenCreateMilestone(roadmap.id)} style={{ ...styles.addRowBtn, color: palette.fg, borderColor: palette.border }}>+ Milestone</button>
             )
           )}
         </div>
@@ -1102,7 +1114,7 @@ function RoadmapCard(props) {
 // ════════════════════════════════════════════════════════════
 function MilestoneRow(props) {
   const {
-    milestone: ms, tasks, isAdmin, expanded, onToggleExpand,
+    milestone: ms, palette, tasks, isAdmin, expanded, onToggleExpand,
     onToggle, onEdit, onDelete,
     isEditingMilestone, milestoneForm, setMilestoneForm, onMilestoneSubmit, onCancelMilestoneForm,
     taskFormFor, editingTaskId, taskForm, setTaskForm,
@@ -1138,7 +1150,7 @@ function MilestoneRow(props) {
   }
 
   return (
-    <div style={styles.milestoneWrap}>
+    <div style={{ ...styles.milestoneWrap, borderLeft: `2px solid ${isDone ? colors.whiteA06 : palette.border}` }}>
       <div style={styles.milestoneRow}>
         {dragHandleProps && (
           <div {...dragHandleProps} style={styles.dragHandle} title="Drag to reorder">{'⠿'}</div>
@@ -1170,7 +1182,7 @@ function MilestoneRow(props) {
           {ms.title}
         </span>
         {tasks.length > 0 && (
-          <span style={styles.taskCounter}>{doneTasks}/{tasks.length}</span>
+          <span style={{ ...styles.taskCounter, color: palette.fg, background: palette.soft }}>{doneTasks}/{tasks.length}</span>
         )}
         {ms.target_date && dl && (
           <span style={{ ...styles.dateChip, color: dl.color }} title={formatDate(ms.target_date)}>{formatDateShort(ms.target_date)}</span>
@@ -1191,7 +1203,7 @@ function MilestoneRow(props) {
                 ...styles.taskList,
                 // The "+ Task" button keeps an empty list measurable, so every
                 // milestone can receive a drop once it is expanded.
-                ...(dsnap.isDraggingOver ? { borderRadius: '6px', outline: '1px dashed rgba(99,102,241,0.6)' } : {}),
+                ...(dsnap.isDraggingOver ? { borderRadius: '6px', outline: `1px dashed ${palette.fg}` } : {}),
               }}>
               {tasks.map((t, i) => (
                 <Draggable key={t.id} draggableId={t.id} index={i} isDragDisabled={!isAdmin || editingTaskId === t.id}>
@@ -1211,7 +1223,7 @@ function MilestoneRow(props) {
               {addingTask ? (
                 <TaskInlineForm form={taskForm} setForm={setTaskForm} onSubmit={onTaskSubmit} onCancel={onCancelTaskForm} />
               ) : (
-                isAdmin && <button onClick={() => onOpenCreateTask(ms.id)} style={styles.addRowBtnSm}>+ Task</button>
+                isAdmin && <button onClick={() => onOpenCreateTask(ms.id)} style={{ ...styles.addRowBtnSm, color: palette.fg }}>+ Task</button>
               )}
             </div>
           )}
@@ -1225,7 +1237,7 @@ function MilestoneRow(props) {
           </div>
         ) : (
           <div style={{ paddingLeft: '30px' }}>
-            <button onClick={() => onOpenCreateTask(ms.id)} style={styles.addRowBtnSm}>+ Task</button>
+            <button onClick={() => onOpenCreateTask(ms.id)} style={{ ...styles.addRowBtnSm, color: palette.fg }}>+ Task</button>
           </div>
         )
       )}
@@ -1343,12 +1355,229 @@ function RoadmapFormModal({ form, setForm, editing, onSubmit, onCancel }) {
               />
             </div>
           </div>
+          <div>
+            <label style={styles.formLabel}>Color</label>
+            <div style={styles.swatchRow}>
+              {ROADMAP_COLORS.map(c => {
+                const selected = (form.color || ROADMAP_COLORS[0].key) === c.key;
+                return (
+                  <button
+                    key={c.key}
+                    type="button"
+                    onClick={() => setForm({ ...form, color: c.key })}
+                    title={c.label}
+                    aria-label={c.label}
+                    style={{
+                      ...styles.swatch,
+                      background: c.soft,
+                      borderColor: selected ? c.fg : 'transparent',
+                      boxShadow: selected ? `0 0 0 1px ${c.fg}` : 'none',
+                    }}
+                  >
+                    <span style={{ ...styles.swatchDot, background: c.fg }} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
             <button type="button" onClick={onCancel} style={styles.subtleBtn}>Cancel</button>
             <button type="submit" style={styles.primaryBtn}>{editing ? 'Save' : 'Create'}</button>
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// Calendar view — every dated roadmap item on a month grid,
+// each pill inheriting its roadmap's color.
+// ════════════════════════════════════════════════════════════
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const KIND_ICON = { deadline: '★', milestone: '◆', task: '•' };
+
+function toDateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function RoadmapCalendar({ roadmaps, milestones, tasks }) {
+  const [expanded, setExpanded] = useState(true);
+  const [cursor, setCursor] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
+  const [hidden, setHidden] = useState({}); // roadmapId -> true when filtered out
+
+  const paletteById = useMemo(() => {
+    const m = {};
+    roadmaps.forEach((rm, i) => { m[rm.id] = roadmapPalette(rm, i); });
+    return m;
+  }, [roadmaps]);
+
+  const roadmapIdByMilestone = useMemo(() => {
+    const m = {};
+    for (const ms of milestones) m[ms.id] = ms.roadmap_id;
+    return m;
+  }, [milestones]);
+
+  // date key -> entries. Deadlines first, then milestones, then tasks.
+  const eventsByDate = useMemo(() => {
+    const map = {};
+    const push = (date, ev) => {
+      if (!date) return;
+      (map[date] = map[date] || []).push(ev);
+    };
+    for (const rm of roadmaps) {
+      push(rm.deadline_date, {
+        id: `rm-${rm.id}`, kind: 'deadline', roadmapId: rm.id,
+        title: rm.deadline_name || rm.name, done: false,
+      });
+    }
+    for (const ms of milestones) {
+      push(ms.target_date, {
+        id: `ms-${ms.id}`, kind: 'milestone', roadmapId: ms.roadmap_id,
+        title: ms.title, done: !!ms.completed_at,
+      });
+    }
+    for (const t of tasks) {
+      push(t.due_date, {
+        id: `t-${t.id}`, kind: 'task', roadmapId: roadmapIdByMilestone[t.milestone_id],
+        title: t.title, done: !!t.completed_at,
+      });
+    }
+    const order = { deadline: 0, milestone: 1, task: 2 };
+    for (const key of Object.keys(map)) map[key].sort((a, b) => order[a.kind] - order[b.kind]);
+    return map;
+  }, [roadmaps, milestones, tasks, roadmapIdByMilestone]);
+
+  // Six-week grid starting on the Sunday on or before the 1st.
+  const cells = useMemo(() => {
+    const first = new Date(cursor.year, cursor.month, 1);
+    const start = new Date(first);
+    start.setDate(first.getDate() - first.getDay());
+    return Array.from({ length: 42 }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      return { date: d, key: toDateKey(d), inMonth: d.getMonth() === cursor.month };
+    });
+  }, [cursor]);
+
+  const todayKey = toDateKey(new Date());
+  const monthLabel = new Date(cursor.year, cursor.month, 1)
+    .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  function shiftMonth(delta) {
+    setCursor(prev => {
+      const d = new Date(prev.year, prev.month + delta, 1);
+      return { year: d.getFullYear(), month: d.getMonth() };
+    });
+  }
+  function goToday() {
+    const now = new Date();
+    setCursor({ year: now.getFullYear(), month: now.getMonth() });
+  }
+
+  const visible = ev => !hidden[ev.roadmapId];
+
+  return (
+    <div style={styles.calendarCard}>
+      <div style={styles.calendarHeader}>
+        <button onClick={() => setExpanded(e => !e)} style={styles.caretBtn} title={expanded ? 'Collapse' : 'Expand'}>
+          <span style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>{'▶'}</span>
+        </button>
+        <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setExpanded(e => !e)}>
+          <div style={styles.calendarTitle}>Calendar View</div>
+          <div style={styles.calendarSubtitle}>Deadlines, milestones & task due dates</div>
+        </div>
+        {expanded && (
+          <div style={styles.calendarNav}>
+            <button onClick={() => shiftMonth(-1)} style={styles.navBtn} title="Previous month">{'‹'}</button>
+            <span style={styles.calendarMonth}>{monthLabel}</span>
+            <button onClick={() => shiftMonth(1)} style={styles.navBtn} title="Next month">{'›'}</button>
+            <button onClick={goToday} style={styles.subtleBtn}>Today</button>
+          </div>
+        )}
+      </div>
+
+      {expanded && (
+        <div style={styles.calendarBody}>
+          {roadmaps.length > 0 && (
+            <div style={styles.legendRow}>
+              {roadmaps.map((rm, i) => {
+                const pal = roadmapPalette(rm, i);
+                const off = !!hidden[rm.id];
+                return (
+                  <button
+                    key={rm.id}
+                    onClick={() => setHidden(prev => ({ ...prev, [rm.id]: !prev[rm.id] }))}
+                    title={off ? 'Show on calendar' : 'Hide from calendar'}
+                    style={{
+                      ...styles.legendChip,
+                      background: off ? 'transparent' : pal.soft,
+                      borderColor: off ? colors.border : pal.border,
+                      color: off ? colors.textDim : pal.fg,
+                    }}
+                  >
+                    <span style={{ ...styles.legendDot, background: off ? colors.textDim : pal.fg }} />
+                    {rm.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div style={styles.weekdayRow}>
+            {WEEKDAYS.map(w => <div key={w} style={styles.weekdayCell}>{w}</div>)}
+          </div>
+          <div style={styles.calendarGrid}>
+            {cells.map(cell => {
+              const events = (eventsByDate[cell.key] || []).filter(visible);
+              const isToday = cell.key === todayKey;
+              return (
+                <div
+                  key={cell.key}
+                  style={{
+                    ...styles.dayCell,
+                    ...(cell.inMonth ? {} : styles.dayCellOutside),
+                    ...(isToday ? { borderColor: colors.accentBorder, background: colors.accentA06 } : {}),
+                  }}
+                >
+                  <div style={{ ...styles.dayNumber, ...(isToday ? { color: colors.accentFg, fontWeight: 700 } : {}) }}>
+                    {cell.date.getDate()}
+                  </div>
+                  <div style={styles.dayEvents}>
+                    {events.map(ev => {
+                      const pal = paletteById[ev.roadmapId] || ROADMAP_COLORS[0];
+                      return (
+                        <div
+                          key={ev.id}
+                          title={ev.title}
+                          style={{
+                            ...styles.eventPill,
+                            background: pal.soft,
+                            borderLeft: `2px solid ${pal.fg}`,
+                            color: ev.done ? colors.textDim : pal.fg,
+                            textDecoration: ev.done ? 'line-through' : 'none',
+                            fontWeight: ev.kind === 'deadline' ? 700 : 600,
+                          }}
+                        >
+                          <span style={{ opacity: 0.8 }}>{KIND_ICON[ev.kind]}</span> {ev.title}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={styles.calendarKey}>
+            <span>{'★'} Roadmap deadline</span>
+            <span>{'◆'} Milestone</span>
+            <span>{'•'} Task</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1814,6 +2043,7 @@ const styles = {
   pageSubtitle: { margin: '4px 0 0', fontSize: '13px', color: 'rgba(255,255,255,0.45)' },
 
   // Roadmap list
+  leftColumn: { display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 },
   roadmapList: { display: 'flex', flexDirection: 'column', gap: '12px' },
   roadmapCard: {
     background: 'rgba(255,255,255,0.02)',
@@ -1825,6 +2055,8 @@ const styles = {
     display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 18px',
     background: 'rgba(255,255,255,0.025)',
   },
+  roadmapNameRow: { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 },
+  roadmapDot: { width: '8px', height: '8px', borderRadius: radii.circle, flexShrink: 0 },
   roadmapName: { fontSize: '15px', fontWeight: 700, color: '#fff', letterSpacing: '-0.2px' },
   roadmapDeadlineRow: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px', flexWrap: 'wrap' },
   roadmapDeadlineName: { fontSize: '12px', color: 'rgba(255,255,255,0.6)', fontWeight: 600 },
@@ -2014,4 +2246,67 @@ const styles = {
     background: colors.accentA15, borderColor: colors.accentA40, color: colors.accentFg,
   },
   workstreamCaret: { fontSize: '10px', color: 'rgba(255,255,255,0.4)', transition: 'transform 0.15s', display: 'inline-block' },
+
+  // Color picker (roadmap modal)
+  swatchRow: { display: 'flex', gap: spacing.sm, flexWrap: 'wrap', marginTop: spacing.xs },
+  swatch: {
+    width: '32px', height: '32px', borderRadius: radii.md,
+    border: '1.5px solid transparent', cursor: 'pointer', padding: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  swatchDot: { width: '12px', height: '12px', borderRadius: radii.circle, display: 'block' },
+
+  // Calendar view
+  calendarCard: {
+    background: colors.whiteA02,
+    border: `1px solid ${colors.border}`,
+    borderRadius: radii.xl,
+    overflow: 'hidden',
+  },
+  calendarHeader: {
+    display: 'flex', alignItems: 'center', gap: spacing.md,
+    padding: '14px 18px', background: colors.whiteA03, flexWrap: 'wrap',
+  },
+  calendarTitle: { fontSize: fontSizes.md, fontWeight: 700, color: colors.white, letterSpacing: '-0.2px' },
+  calendarSubtitle: { fontSize: fontSizes.xs, color: colors.textDim, marginTop: '2px' },
+  calendarNav: { display: 'flex', alignItems: 'center', gap: spacing.sm, flexShrink: 0 },
+  calendarMonth: { fontSize: fontSizes.sm, fontWeight: 700, color: colors.text, minWidth: '130px', textAlign: 'center' },
+  navBtn: {
+    background: colors.bgInput, border: `1px solid ${colors.border}`, borderRadius: radii.sm,
+    color: colors.textMuted, cursor: 'pointer', fontFamily: 'inherit',
+    fontSize: fontSizes.md, lineHeight: 1, padding: '2px 10px',
+  },
+  calendarBody: { padding: `${spacing.md}px ${spacing.lg}px ${spacing.lg}px` },
+  legendRow: { display: 'flex', gap: spacing.sm, flexWrap: 'wrap', marginBottom: spacing.md },
+  legendChip: {
+    display: 'flex', alignItems: 'center', gap: spacing.xs,
+    border: '1px solid', borderRadius: radii.pill,
+    fontSize: fontSizes.xs, fontWeight: 600, fontFamily: 'inherit',
+    padding: '4px 10px', cursor: 'pointer', maxWidth: '220px',
+    overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+  },
+  legendDot: { width: '7px', height: '7px', borderRadius: radii.circle, flexShrink: 0 },
+  weekdayRow: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: spacing.xs, marginBottom: spacing.xs },
+  weekdayCell: {
+    fontSize: fontSizes.xxs, fontWeight: 700, color: colors.textDim,
+    textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'center',
+  },
+  calendarGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: spacing.xs },
+  dayCell: {
+    minHeight: '84px', maxHeight: '132px', overflowY: 'auto',
+    background: colors.whiteA03, border: `1px solid ${colors.border}`,
+    borderRadius: radii.md, padding: '4px 5px',
+  },
+  dayCellOutside: { background: 'transparent', opacity: 0.4 },
+  dayNumber: { fontSize: fontSizes.xxs, fontWeight: 600, color: colors.textDim, marginBottom: '3px' },
+  dayEvents: { display: 'flex', flexDirection: 'column', gap: '3px' },
+  eventPill: {
+    fontSize: fontSizes.xxs, borderRadius: radii.xs, padding: '2px 5px',
+    overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', lineHeight: 1.35,
+  },
+  calendarKey: {
+    display: 'flex', gap: spacing.md, flexWrap: 'wrap', marginTop: spacing.md,
+    fontSize: fontSizes.xxs, color: colors.textDim,
+  },
+
 };

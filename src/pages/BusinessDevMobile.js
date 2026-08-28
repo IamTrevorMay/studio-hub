@@ -5,6 +5,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { toast } from '../contexts/ToastContext';
 import { mobileTokens } from '../utils/mobileTokens';
 import { colors } from '../lib/styleTokens';
+import { ROADMAP_COLORS, roadmapPalette, nextRoadmapColor } from '../lib/roadmapColors';
 import { fetchAllRows } from './analytics/utils';
 
 // Mobile companion for the Roadmap page. Full parity on the core rebuild:
@@ -58,7 +59,7 @@ const CATEGORY_GROUPS = [
   { key: 'none', label: 'No Timeframe' },
 ];
 
-const EMPTY_ROADMAP = { name: '', deadline_name: '', deadline_date: '' };
+const EMPTY_ROADMAP = { name: '', deadline_name: '', deadline_date: '', color: ROADMAP_COLORS[0].key };
 const EMPTY_MILESTONE = { title: '', target_date: '' };
 const EMPTY_TASK = { title: '', description: '', due_date: '' };
 
@@ -172,17 +173,17 @@ export default function BusinessDevMobile() {
   }, [tasks]);
 
   // ── Roadmap CRUD ──
-  function openCreateRoadmap() { setEditingRoadmapId(null); setRoadmapForm(EMPTY_ROADMAP); setRoadmapModalOpen(true); }
+  function openCreateRoadmap() { setEditingRoadmapId(null); setRoadmapForm({ ...EMPTY_ROADMAP, color: nextRoadmapColor(roadmaps) }); setRoadmapModalOpen(true); }
   function openEditRoadmap(rm) {
     setEditingRoadmapId(rm.id);
-    setRoadmapForm({ name: rm.name, deadline_name: rm.deadline_name || '', deadline_date: rm.deadline_date || '' });
+    setRoadmapForm({ name: rm.name, deadline_name: rm.deadline_name || '', deadline_date: rm.deadline_date || '', color: roadmapPalette(rm, roadmaps.indexOf(rm)).key });
     setRoadmapModalOpen(true);
   }
   async function submitRoadmap(e) {
     e.preventDefault();
     const name = roadmapForm.name.trim();
     if (!name) { toast.error('Name is required.'); return; }
-    const payload = { name, deadline_name: roadmapForm.deadline_name.trim() || null, deadline_date: roadmapForm.deadline_date || null };
+    const payload = { name, deadline_name: roadmapForm.deadline_name.trim() || null, deadline_date: roadmapForm.deadline_date || null, color: roadmapForm.color || ROADMAP_COLORS[0].key };
     if (editingRoadmapId) {
       const { error } = await supabase.from('roadmaps').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingRoadmapId);
       if (error) { toast.error(error.message); return; }
@@ -323,7 +324,8 @@ export default function BusinessDevMobile() {
 
       {roadmaps.length === 0 && <p style={styles.empty}>{isAdmin ? 'No roadmaps yet. Tap + Roadmap.' : 'No roadmaps yet.'}</p>}
 
-      {roadmaps.map((rm) => {
+      {roadmaps.map((rm, rmIdx) => {
+        const palette = roadmapPalette(rm, rmIdx);
         const isOpen = expandedRoadmaps[rm.id];
         const rmMilestones = milestonesByRoadmap[rm.id] || [];
         const done = rmMilestones.filter((m) => m.completed_at).length;
@@ -332,11 +334,14 @@ export default function BusinessDevMobile() {
         const addingMilestone = milestoneFormFor === rm.id && !editingMilestoneId;
 
         return (
-          <section key={rm.id} style={styles.roadmapCard}>
-            <div style={styles.roadmapHeader}>
+          <section key={rm.id} style={{ ...styles.roadmapCard, borderLeft: `3px solid ${palette.fg}` }}>
+            <div style={{ ...styles.roadmapHeader, background: palette.soft }}>
               <button onClick={() => setExpandedRoadmaps((prev) => ({ ...prev, [rm.id]: !prev[rm.id] }))} style={styles.roadmapHeaderBtn}>
                 <div style={styles.roadmapHeaderTop}>
-                  <span style={styles.roadmapName}>{rm.name}</span>
+                  <span style={styles.roadmapNameWrap}>
+                    <span style={{ ...styles.roadmapDot, background: palette.fg }} />
+                    <span style={styles.roadmapName}>{rm.name}</span>
+                  </span>
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style={{ transform: isOpen ? 'rotate(0)' : 'rotate(-90deg)', transition: 'transform 0.15s', color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>
                     <path d="M3 6l5 5 5-5z" />
                   </svg>
@@ -470,6 +475,22 @@ export default function BusinessDevMobile() {
               <input value={roadmapForm.name} onChange={(e) => setRoadmapForm({ ...roadmapForm, name: e.target.value })} placeholder="Roadmap name" autoFocus style={styles.input} />
               <input value={roadmapForm.deadline_name} onChange={(e) => setRoadmapForm({ ...roadmapForm, deadline_name: e.target.value })} placeholder="Deadline name (e.g. Grand opening)" style={styles.input} />
               <input type="date" value={roadmapForm.deadline_date} onChange={(e) => setRoadmapForm({ ...roadmapForm, deadline_date: e.target.value })} style={{ ...styles.input, colorScheme: 'dark' }} />
+              <div style={styles.swatchRow}>
+                {ROADMAP_COLORS.map((c) => {
+                  const selected = (roadmapForm.color || ROADMAP_COLORS[0].key) === c.key;
+                  return (
+                    <button
+                      key={c.key}
+                      type="button"
+                      onClick={() => setRoadmapForm({ ...roadmapForm, color: c.key })}
+                      aria-label={c.label}
+                      style={{ ...styles.swatch, background: c.soft, borderColor: selected ? c.fg : 'transparent' }}
+                    >
+                      <span style={{ ...styles.swatchDot, background: c.fg }} />
+                    </button>
+                  );
+                })}
+              </div>
               <div style={styles.inlineFormActions}>
                 <button type="button" onClick={() => setRoadmapModalOpen(false)} style={styles.subtleBtn}>Cancel</button>
                 <button type="submit" style={styles.primaryBtn}>{editingRoadmapId ? 'Save' : 'Create'}</button>
@@ -660,6 +681,15 @@ const styles = {
 
   // Roadmap
   roadmapCard: { background: 'rgba(255,255,255,0.04)', borderRadius: mobileTokens.radius.lg, overflow: 'hidden' },
+  roadmapNameWrap: { display: 'flex', alignItems: 'center', gap: mobileTokens.space.sm, minWidth: 0 },
+  roadmapDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
+  swatchRow: { display: 'flex', gap: mobileTokens.space.sm, flexWrap: 'wrap' },
+  swatch: {
+    width: '34px', height: '34px', borderRadius: mobileTokens.radius.md,
+    border: '1.5px solid transparent', padding: 0, cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  swatchDot: { width: '13px', height: '13px', borderRadius: '50%', display: 'block' },
   roadmapHeader: { display: 'flex', alignItems: 'flex-start', gap: mobileTokens.space.xs, padding: mobileTokens.space.md },
   roadmapHeaderBtn: {
     flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: '#e2e8f0', cursor: 'pointer',
