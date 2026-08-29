@@ -9,8 +9,13 @@ import DOMPurify from 'dompurify';
 import { colors } from '../lib/styleTokens';
 
 
-const SECTIONS = ['inbox', 'briefs', 'daily_content', 'news', 'trends'];
-const SECTION_LABELS = { inbox: 'Inbox', briefs: 'Briefs', daily_content: 'Daily Content', news: 'News', trends: 'Trends' };
+const SECTIONS = ['scores', 'inbox', 'briefs', 'daily_content', 'news', 'trends'];
+const SECTION_LABELS = { scores: 'Scores', inbox: 'Inbox', briefs: 'Briefs', daily_content: 'Daily Content', news: 'News', trends: 'Trends' };
+
+// Scoreboard refresh while anything is in progress. Triton's /api/scores is a
+// live passthrough of MLB StatsAPI, so a slow poll keeps in-progress games
+// current without hammering it.
+const SCORES_POLL_MS = 30000;
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -25,13 +30,19 @@ function timeAgo(dateStr) {
 export default function Research() {
   const { profile, refreshKey } = useAuth();
   const [view, setView] = useState('feed'); // feed | reader
-  const [section, setSection] = usePersistedTab('research-section', 'inbox', SECTIONS);
+  const [section, setSection] = usePersistedTab('research-section', 'scores', SECTIONS);
   const [articles, setArticles] = useState([]);
   const [feeds, setFeeds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
   const [selectedItem, setSelectedItem] = useState(null);
+
+  // Scores state
+  const [scores, setScores] = useState([]);
+  const [scoresDate, setScoresDate] = useState(null);
+  const [scoresLoading, setScoresLoading] = useState(true);
+  const [scoresError, setScoresError] = useState(null);
 
   // Briefs state
   const [briefs, setBriefs] = useState([]);
@@ -222,6 +233,28 @@ export default function Research() {
       setRegeneratingTrends(false);
     }
   };
+
+  // Scoreboard comes through /api/triton-scores, a same-origin proxy of
+  // Triton's own /api/scores — same day boundary and live fields Triton shows.
+  const fetchScores = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch('/api/triton-scores', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
+      setScores(Array.isArray(json.games) ? json.games : []);
+      setScoresDate(json.date || null);
+      setScoresError(null);
+    } catch (err) {
+      console.error('Error fetching scores:', err);
+      setScoresError(err.message);
+    } finally {
+      setScoresLoading(false);
+    }
+  }, []);
 
   // fetch-rss is a live 12-feed RSS crawl that takes ~10s, so overlapping
   // callers (mount + tab-focus refresh + manual Refresh) share one in-flight
@@ -623,10 +656,12 @@ export default function Research() {
   }, [markInboxRead]);
 
   useEffect(() => {
+    fetchScores();
     Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchDailyDates(), fetchInboxState()])
       .finally(() => setLoading(false));
-  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]);
+  }, [fetchScores, fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]);
   useVisibilityRefresh(useCallback(() => {
+    fetchScores();
     fetchArticles();
     fetchBriefs();
     fetchCardsArchive();
@@ -634,13 +669,20 @@ export default function Research() {
     fetchTrends();
     fetchDailyDates();
     fetchInboxState();
-  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]));
+  }, [fetchScores, fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]));
 
   async function handleRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchDailyDates(), fetchInboxState()]);
+    await Promise.all([fetchScores(), fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchDailyDates(), fetchInboxState()]);
     setRefreshing(false);
   }
+
+  const hasLiveGame = useMemo(() => scores.some(g => g.state !== 'Final'), [scores]);
+  useEffect(() => {
+    if (section !== 'scores' || !hasLiveGame) return undefined;
+    const id = setInterval(fetchScores, SCORES_POLL_MS);
+    return () => clearInterval(id);
+  }, [section, hasLiveGame, fetchScores]);
 
   function openItem(item, type) {
     setSelectedItem({ ...item, _type: type });
@@ -767,7 +809,110 @@ export default function Research() {
         ))}
       </div>
 
-      {loading ? (
+      {/* Scores Section — own loading state so the default tab isn't gated on
+          the RSS crawl the other sections wait for. */}
+      {section === 'scores' ? (
+        <div>
+          {scoresDate && (
+            <div style={s.scoresDateRow}>
+              {new Date(scoresDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+              <span style={s.scoresCount}>{scores.length} {scores.length === 1 ? 'game' : 'games'}</span>
+            </div>
+          )}
+
+          {scoresError && (
+            <div style={s.regenerateError}>Couldn't load scores: {scoresError}</div>
+          )}
+
+          {scoresLoading && scores.length === 0 ? (
+            <div style={s.scoresGrid}>
+              {[1, 2, 3, 4, 5, 6].map(i => (
+                <div key={i} style={s.scoreCardSkeleton} />
+              ))}
+            </div>
+          ) : scores.length === 0 ? (
+            <div style={s.emptyState}>No games scheduled.</div>
+          ) : (
+            <div style={s.scoresGrid}>
+              {scores.map(game => {
+                const final = game.state === 'Final';
+                const live = game.state === 'Live';
+                const awayWon = final && game.away.score > game.home.score;
+                const homeWon = final && game.home.score > game.away.score;
+                const startTime = new Date(game.gameDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                const statusLabel = final
+                  ? (game.inning > 9 ? `Final/${game.inning}` : 'Final')
+                  : live
+                    ? (game.detailedState === 'In Progress'
+                        ? `${game.inningHalf === 'Bottom' ? 'Bot' : 'Top'} ${game.inningOrdinal}`
+                        : game.detailedState)
+                    : game.detailedState === 'Scheduled' ? startTime : game.detailedState;
+
+                return (
+                  <div key={game.gamePk} style={s.scoreCard}>
+                    <div style={s.scoreCardHead}>
+                      <span style={{ ...s.scoreStatus, ...(live ? s.scoreStatusLive : {}) }}>
+                        {live && <span style={s.liveDot} />}
+                        {statusLabel}
+                      </span>
+                      {game.seriesDescription && game.gameType !== 'R' && (
+                        <span style={s.scoreSeries}>{game.seriesDescription}</span>
+                      )}
+                    </div>
+
+                    {[game.away, game.home].map((team, idx) => {
+                      const isWinner = idx === 0 ? awayWon : homeWon;
+                      const dim = final && !isWinner;
+                      return (
+                        <div key={team.id} style={s.scoreTeamRow}>
+                          <img
+                            src={`https://www.mlbstatic.com/team-logos/${team.id}.svg`}
+                            alt=""
+                            style={{ ...s.scoreLogo, ...(dim ? s.scoreDim : {}) }}
+                            onError={e => { e.target.style.visibility = 'hidden'; }}
+                          />
+                          <span style={{ ...s.scoreAbbrev, ...(dim ? s.scoreDim : {}) }}>{team.abbrev}</span>
+                          <span style={{ ...s.scoreTeamName, ...(dim ? s.scoreDim : {}) }}>{team.name}</span>
+                          <span style={{ ...s.scoreValue, ...(dim ? s.scoreDim : {}) }}>
+                            {team.score == null ? '–' : team.score}
+                          </span>
+                        </div>
+                      );
+                    })}
+
+                    {live && game.detailedState === 'In Progress' && (
+                      <div style={s.scoreLiveFoot}>
+                        <span style={s.basesWrap} title="Runners on base">
+                          <span style={{ ...s.base, ...s.baseSecond, ...(game.onSecond ? s.baseOn : {}) }} />
+                          <span style={{ ...s.base, ...s.baseThird, ...(game.onThird ? s.baseOn : {}) }} />
+                          <span style={{ ...s.base, ...s.baseFirst, ...(game.onFirst ? s.baseOn : {}) }} />
+                        </span>
+                        <span style={s.outsWrap}>
+                          {[0, 1, 2].map(i => (
+                            <span key={i} style={{ ...s.out, ...((game.outs || 0) > i ? s.outOn : {}) }} />
+                          ))}
+                          <span style={s.outsLabel}>{game.outs || 0} out</span>
+                        </span>
+                        {game.pitcher && game.batter && (
+                          <span style={s.matchup}>
+                            P: {game.pitcher.name} · AB: {game.batter.name}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {game.state === 'Preview' && (game.probableAway || game.probableHome) && (
+                      <div style={s.scoreProbables}>
+                        {game.probableAway?.name || 'TBD'} vs {game.probableHome?.name || 'TBD'}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : loading ? (
         <div style={s.emptyState}>Loading...</div>
       ) : (
         <>
@@ -2106,6 +2251,183 @@ const s = {
     flexShrink: 0,
   },
   // Daily graphics styles
+  // ─── Scores ───
+  scoresDateRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '20px',
+    fontSize: '13px',
+    fontWeight: 600,
+    color: colors.textMuted,
+  },
+  scoresCount: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: colors.textDim,
+    background: colors.bgInput,
+    padding: '2px 8px',
+    borderRadius: '999px',
+  },
+  scoresGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+    gap: '12px',
+  },
+  scoreCardSkeleton: {
+    height: '128px',
+    background: colors.accentA04,
+    border: `1px solid ${colors.border}`,
+    borderRadius: '10px',
+  },
+  scoreCard: {
+    background: colors.bgRaised,
+    border: `1px solid ${colors.border}`,
+    borderRadius: '10px',
+    padding: '12px 16px',
+  },
+  scoreCardHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '8px',
+    marginBottom: '8px',
+    paddingBottom: '8px',
+    borderBottom: `1px solid ${colors.border}`,
+  },
+  scoreStatus: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '11px',
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: colors.textDim,
+  },
+  scoreStatusLive: {
+    color: colors.success.fg,
+  },
+  liveDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '999px',
+    background: colors.success.fg,
+    display: 'inline-block',
+  },
+  scoreSeries: {
+    fontSize: '10px',
+    fontWeight: 600,
+    color: colors.textPlaceholder,
+  },
+  scoreTeamRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '4px 0',
+  },
+  scoreLogo: {
+    width: '22px',
+    height: '22px',
+    flexShrink: 0,
+  },
+  scoreAbbrev: {
+    fontSize: '13px',
+    fontWeight: 700,
+    color: colors.text,
+    width: '38px',
+    flexShrink: 0,
+  },
+  scoreTeamName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: '12px',
+    color: colors.textSubtle,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  scoreValue: {
+    fontSize: '18px',
+    fontWeight: 800,
+    color: colors.text,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  scoreDim: {
+    opacity: 0.45,
+  },
+  scoreLiveFoot: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    flexWrap: 'wrap',
+    marginTop: '8px',
+    paddingTop: '8px',
+    borderTop: `1px solid ${colors.border}`,
+  },
+  // Bases render as a 45°-rotated diamond: 2nd on top, 3rd left, 1st right.
+  basesWrap: {
+    position: 'relative',
+    display: 'inline-block',
+    width: '28px',
+    height: '20px',
+    flexShrink: 0,
+  },
+  base: {
+    position: 'absolute',
+    width: '8px',
+    height: '8px',
+    transform: 'rotate(45deg)',
+    border: `1px solid ${colors.borderStrong}`,
+    background: 'transparent',
+  },
+  baseOn: {
+    background: colors.warning.fg,
+    borderColor: colors.warning.fg,
+  },
+  baseSecond: { top: 0, left: '10px' },
+  baseThird: { top: '8px', left: '1px' },
+  baseFirst: { top: '8px', left: '19px' },
+  outsWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+  },
+  out: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '999px',
+    border: `1px solid ${colors.borderStrong}`,
+  },
+  outOn: {
+    background: colors.textMuted,
+    borderColor: colors.textMuted,
+  },
+  outsLabel: {
+    marginLeft: '4px',
+    fontSize: '11px',
+    color: colors.textDim,
+  },
+  matchup: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: '11px',
+    color: colors.textDim,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  scoreProbables: {
+    marginTop: '8px',
+    paddingTop: '8px',
+    borderTop: `1px solid ${colors.border}`,
+    fontSize: '11px',
+    color: colors.textDim,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+
   // ─── Daily Content ───
   dateSelectRow: {
     display: 'flex',
