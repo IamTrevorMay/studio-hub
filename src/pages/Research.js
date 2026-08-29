@@ -9,8 +9,8 @@ import DOMPurify from 'dompurify';
 import { colors } from '../lib/styleTokens';
 
 
-const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'trends', 'daily'];
-const SECTION_LABELS = { inbox: 'Inbox', briefs: 'Briefs', cards: 'Cards', news: 'News', trends: 'Trends', daily: 'Daily' };
+const SECTIONS = ['inbox', 'briefs', 'daily_content', 'news', 'trends'];
+const SECTION_LABELS = { inbox: 'Inbox', briefs: 'Briefs', daily_content: 'Daily Content', news: 'News', trends: 'Trends' };
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -42,7 +42,6 @@ export default function Research() {
   // Cards state
   const [cardsArchive, setCardsArchive] = useState([]);
   const [currentCards, setCurrentCards] = useState([]);
-  const [currentCardDate, setCurrentCardDate] = useState(null);
   const [cardsBucket, setCardsBucket] = useState('top_ip');
   const [cardsLoading, setCardsLoading] = useState(false);
   const [selectedCard, setSelectedCard] = useState(null);
@@ -65,8 +64,12 @@ export default function Research() {
 
   // Daily graphics state
   const [dailyGraphics, setDailyGraphics] = useState([]); // { type, date, url }
-  const [dailyGraphicsDate, setDailyGraphicsDate] = useState(null);
   const [dailyDates, setDailyDates] = useState([]); // sorted desc
+  // One date drives the whole Daily Content view — the Vertical (cards) and
+  // Full Graphics halves come from different sources but are shown together.
+  const [dailyContentDate, setDailyContentDate] = useState(null);
+  const [verticalOpen, setVerticalOpen] = useState(true);
+  const [fullGraphicsOpen, setFullGraphicsOpen] = useState(true);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [selectedGraphic, setSelectedGraphic] = useState(null);
   const [regeneratingDaily, setRegeneratingDaily] = useState(false);
@@ -155,9 +158,9 @@ export default function Research() {
         setRegenerateError(null);
       }
       await fetchCardsArchive();
-      const generatedDate = json.date || currentCardDate;
+      const generatedDate = json.date || dailyContentDate;
       if (generatedDate) {
-        setCurrentCardDate(generatedDate);
+        setDailyContentDate(generatedDate);
         await fetchCardsForDate(generatedDate);
       }
     } catch (err) {
@@ -187,7 +190,7 @@ export default function Research() {
       if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
       await fetchDailyDates();
       if (json.date) {
-        setDailyGraphicsDate(json.date);
+        setDailyContentDate(json.date);
         await fetchDailyGraphics(json.date);
       }
     } catch (err) {
@@ -368,7 +371,6 @@ export default function Research() {
           .slice(0, 30)
           .map(([date, cards]) => ({ date, cards }));
         setCardsArchive(archive);
-        if (archive.length > 0) setCurrentCardDate(prev => prev || archive[0].date);
         return archive;
       }
       return [];
@@ -397,9 +399,6 @@ export default function Research() {
     }
   }, []);
 
-  useEffect(() => {
-    if (currentCardDate) fetchCardsForDate(currentCardDate);
-  }, [currentCardDate, fetchCardsForDate]);
 
   // Re-fetch when bucket changes. Skipped on mount — the initial load effect
   // below already fetches the archive for the starting bucket.
@@ -410,7 +409,7 @@ export default function Research() {
       return;
     }
     fetchCardsArchive(cardsBucket);
-    if (currentCardDate) fetchCardsForDate(currentCardDate, cardsBucket);
+    if (dailyContentDate) fetchCardsForDate(dailyContentDate, cardsBucket);
   }, [cardsBucket]); // eslint-disable-line
 
   // Trends fetching
@@ -453,7 +452,6 @@ export default function Research() {
       if (!error && data) {
         const unique = [...new Set(data.map(r => r.date))];
         setDailyDates(unique);
-        if (unique.length > 0) setDailyGraphicsDate(prev => prev || unique[0]);
       }
     } catch (err) {
       console.error('Error fetching daily graphics dates:', err);
@@ -478,9 +476,26 @@ export default function Research() {
     }
   }, []);
 
+  // Daily Content date picker: cards (Triton) and graphics (main) publish on
+  // their own cadences, so the dropdown offers the union and each section
+  // shows its own empty state when only one source has that day.
+  const dailyContentDates = useMemo(() => {
+    const all = new Set([...cardsArchive.map(a => a.date), ...dailyDates]);
+    return [...all].sort((a, b) => b.localeCompare(a));
+  }, [cardsArchive, dailyDates]);
+
   useEffect(() => {
-    if (dailyGraphicsDate) fetchDailyGraphics(dailyGraphicsDate);
-  }, [dailyGraphicsDate, fetchDailyGraphics]);
+    if (dailyContentDates.length > 0) {
+      setDailyContentDate(prev => (prev && dailyContentDates.includes(prev)) ? prev : dailyContentDates[0]);
+    }
+  }, [dailyContentDates]);
+
+  useEffect(() => {
+    if (!dailyContentDate) return;
+    fetchCardsForDate(dailyContentDate);
+    fetchDailyGraphics(dailyContentDate);
+  }, [dailyContentDate, fetchCardsForDate, fetchDailyGraphics]);
+
 
   // Inbox state fetching
   const fetchInboxState = useCallback(async () => {
@@ -599,8 +614,8 @@ export default function Research() {
       setSection('briefs');
       setCurrentBriefDate(item.date);
     } else if (item.type === 'cards') {
-      setSection('cards');
-      setCurrentCardDate(item.date);
+      setSection('daily_content');
+      setDailyContentDate(item.date);
     } else if (item.type === 'trends') {
       setSection('trends');
       setCurrentTrendDate(item.date);
@@ -726,7 +741,7 @@ export default function Research() {
     <div style={s.container}>
       {/* Header */}
       <div style={s.header}>
-        <h1 style={s.title}>Research</h1>
+        <h1 style={s.title}>News</h1>
         <button onClick={handleRefresh} disabled={refreshing} style={s.refreshBtn}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>
             <path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4" />
@@ -797,103 +812,273 @@ export default function Research() {
             </div>
           )}
 
-          {/* Daily Graphics Section */}
-          {section === 'daily' && (
+          {/* Daily Content Section — Vertical (Triton cards) + Full Graphics */}
+          {section === 'daily_content' && (
             <div>
-              <div style={s.briefDateNav}>
-                {dailyGraphicsDate && (
+              {/* Card lightbox */}
+              {selectedCard && (
+                <div
+                  style={s.cardLightbox}
+                  onClick={() => setSelectedCard(null)}
+                >
+                  <div style={{ position: 'relative', maxWidth: '95vw', maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
+                    <img
+                      src={`https://www.tritonapex.io/api/card-image?id=${selectedCard.id}`}
+                      alt={selectedCard.pitcher_name}
+                      style={{ maxWidth: '95vw', maxHeight: '85vh', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginTop: '16px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 600, color: colors.white }}>{selectedCard.pitcher_name}</span>
+                      <span style={{ fontSize: '12px', color: colors.textSubtle }}>{selectedCard.game_info}</span>
+                      <a
+                        href={`https://www.tritonapex.io/api/card-image?id=${selectedCard.id}`}
+                        download={`${selectedCard.pitcher_name.replace(/\s+/g, '-')}-${selectedCard.date}.png`}
+                        style={{ padding: '6px 14px', background: colors.accent, color: colors.white, borderRadius: '6px', fontSize: '12px', fontWeight: 600, textDecoration: 'none', marginLeft: '8px' }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        Download PNG
+                      </a>
+                      <button
+                        onClick={() => setSelectedCard(null)}
+                        style={{ padding: '6px 14px', background: colors.bgHover, color: colors.white, borderRadius: '6px', fontSize: '12px', border: 'none', cursor: 'pointer' }}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* One date drives both sections */}
+              <div style={s.dateSelectRow}>
+                <span style={s.dateSelectLabel}>Date</span>
+                <select
+                  value={dailyContentDate || ''}
+                  onChange={e => setDailyContentDate(e.target.value)}
+                  disabled={dailyContentDates.length === 0}
+                  style={s.dateSelect}
+                >
+                  {dailyContentDates.length === 0 ? (
+                    <option value="">No dates available</option>
+                  ) : dailyContentDates.map(d => (
+                    <option key={d} value={d}>
+                      {new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* ── Vertical ── */}
+              <section style={s.collapseSection}>
+                <div style={s.collapseHeaderRow}>
+                  <button onClick={() => setVerticalOpen(o => !o)} style={s.collapseToggle}>
+                    <svg
+                      width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"
+                      style={{ transform: verticalOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}
+                    >
+                      <path d="M6 3l5 5-5 5" />
+                    </svg>
+                    <span style={s.collapseTitle}>Vertical</span>
+                    <span style={s.collapseCount}>{currentCards.length}</span>
+                  </button>
+                  <div style={{ flex: 1 }} />
+                  {confirmRegenCards ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '12px', color: colors.textSubtle }}>Sure?</span>
+                      <button onClick={handleRegenerateCards} style={{ ...s.briefActionBtn, borderColor: colors.danger.border, color: colors.danger.fg }}>Yes, regenerate</button>
+                      <button onClick={() => setConfirmRegenCards(false)} style={s.briefActionBtn}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmRegenCards(true)} disabled={regeneratingCards} style={{ ...s.briefActionBtn, opacity: regeneratingCards ? 0.5 : 1 }}>
+                      {regeneratingCards ? (
+                        <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerating…</>
+                      ) : (
+                        <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
+                      )}
+                    </button>
+                  )}
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      onClick={() => setShowCardsConfig(!showCardsConfig)}
+                      style={{ ...s.briefActionBtn, background: showCardsConfig ? colors.accentA20 : undefined }}
+                      title="Card settings"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <circle cx="10" cy="10" r="3" />
+                        <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41" />
+                      </svg>
+                    </button>
+                    {showCardsConfig && (
+                      <div style={s.cardsConfigPanel}>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: colors.text, marginBottom: '12px' }}>Card Generation Settings</div>
+                        <label style={s.configLabel}>Template</label>
+                        <select
+                          value={cardsConfig?.template_id || ''}
+                          onChange={e => updateCardsConfig(e.target.value, cardsConfig?.top_n)}
+                          disabled={savingConfig}
+                          style={s.configSelect}
+                        >
+                          <option value="" disabled>Select template...</option>
+                          {availableTemplates.map(t => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
+                        {cardsConfig?.template_id && (
+                          <div style={{ fontSize: '11px', color: colors.textPlaceholder, marginTop: '4px' }}>
+                            {availableTemplates.find(t => t.id === cardsConfig.template_id)?.name || 'Unknown'}
+                          </div>
+                        )}
+                        <label style={{ ...s.configLabel, marginTop: '14px' }}>Cards per day</label>
+                        <select
+                          value={cardsConfig?.top_n || 5}
+                          onChange={e => updateCardsConfig(cardsConfig?.template_id, parseInt(e.target.value))}
+                          disabled={savingConfig || !cardsConfig?.template_id}
+                          style={s.configSelect}
+                        >
+                          {[3, 5, 8, 10].map(n => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                        {savingConfig && <div style={{ fontSize: '11px', color: colors.accentFg, marginTop: '8px' }}>Saving...</div>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {verticalOpen && (
                   <>
-                    <button
-                      onClick={() => {
-                        const idx = dailyDates.indexOf(dailyGraphicsDate);
-                        if (idx < dailyDates.length - 1) setDailyGraphicsDate(dailyDates[idx + 1]);
-                      }}
-                      disabled={dailyDates.indexOf(dailyGraphicsDate) >= dailyDates.length - 1}
-                      style={s.briefNavBtn}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
-                    </button>
-                    <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-                      {new Date(dailyGraphicsDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
-                    </span>
-                    <button
-                      onClick={() => {
-                        const idx = dailyDates.indexOf(dailyGraphicsDate);
-                        if (idx > 0) setDailyGraphicsDate(dailyDates[idx - 1]);
-                      }}
-                      disabled={dailyDates.indexOf(dailyGraphicsDate) <= 0}
-                      style={s.briefNavBtn}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
-                    </button>
+                    {/* Bucket sort tabs */}
+                    <div style={s.bucketTabs}>
+                      {[
+                        { key: 'top_ip', label: 'Innings Pitched' },
+                        { key: 'top_start', label: 'Overall Grade' },
+                        { key: 'top_cmd', label: 'CnD+' },
+                        { key: 'top_stuff', label: 'Stuff+' },
+                      ].map(b => (
+                        <button
+                          key={b.key}
+                          onClick={() => setCardsBucket(b.key)}
+                          style={{
+                            ...s.bucketTab,
+                            ...(cardsBucket === b.key ? s.bucketTabActive : {}),
+                          }}
+                        >
+                          {b.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {regenerateError && (
+                      <div style={s.regenerateError}>
+                        {regenerateError}
+                      </div>
+                    )}
+
+                    {cardsLoading ? (
+                      <div style={s.cardsGrid}>
+                        {[1,2,3,4,5].map(i => (
+                          <div key={i} style={{ aspectRatio: '16/9', background: colors.accentA04, borderRadius: '12px', border: `1px solid ${colors.border}` }} />
+                        ))}
+                      </div>
+                    ) : currentCards.length > 0 ? (
+                      <div style={s.cardsGrid}>
+                        {currentCards.map(card => {
+                          const ipFull = Math.floor(card.ip);
+                          const ipPartial = Math.round((card.ip - ipFull) * 3);
+                          const ipDisplay = `${ipFull}.${ipPartial}`;
+                          return (
+                            <div
+                              key={card.id}
+                              onClick={() => setSelectedCard(card)}
+                              style={s.dailyCard}
+                              onMouseEnter={e => { e.currentTarget.style.borderColor = colors.borderFocus; e.currentTarget.style.transform = 'scale(1.02)'; }}
+                              onMouseLeave={e => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.transform = 'scale(1)'; }}
+                            >
+                              <img
+                                src={`https://www.tritonapex.io/api/card-image?id=${card.id}`}
+                                alt={card.pitcher_name}
+                                style={{ width: '100%', display: 'block', borderRadius: '12px 12px 0 0' }}
+                                loading="lazy"
+                              />
+                              <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '8px', background: colors.bgInput }}>
+                                <span style={{ fontSize: '16px', fontWeight: 800, color: colors.accent, minWidth: '20px' }}>{card.rank}</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: '13px', fontWeight: 600, color: colors.text }}>{card.pitcher_name}</div>
+                                  <div style={{ fontSize: '11px', color: colors.textDim }}>{card.game_info} &middot; {ipDisplay} IP &middot; {card.pitch_count}P</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : !tritonSupabase ? (
+                      <div style={s.emptyState}>Cards are not configured. Add Triton Supabase credentials to .env.</div>
+                    ) : (
+                      <div style={s.emptyState}>No cards available for this date.</div>
+                    )}
                   </>
                 )}
-                <button onClick={handleRegenerateDaily} disabled={regeneratingDaily} style={{ ...s.briefActionBtn, marginLeft: 'auto', opacity: regeneratingDaily ? 0.5 : 1 }}>
+              </section>
+
+              {/* ── Full Graphics ── */}
+              <section style={s.collapseSection}>
+                <div style={s.collapseHeaderRow}>
+                  <button onClick={() => setFullGraphicsOpen(o => !o)} style={s.collapseToggle}>
+                    <svg
+                      width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"
+                      style={{ transform: fullGraphicsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}
+                    >
+                      <path d="M6 3l5 5-5 5" />
+                    </svg>
+                    <span style={s.collapseTitle}>Full Graphics</span>
+                    <span style={s.collapseCount}>{dailyGraphics.length}</span>
+                  </button>
+                  <div style={{ flex: 1 }} />
+                  <button onClick={handleRegenerateDaily} disabled={regeneratingDaily} style={{ ...s.briefActionBtn, opacity: regeneratingDaily ? 0.5 : 1 }}>
                     {regeneratingDaily ? (
                       <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Fetching…</>
                     ) : (
                       <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
                     )}
                   </button>
-              </div>
-
-              {dailyLoading ? (
-                <div style={s.dailyGrid}>
-                  {[1,2,3,4,5].map(i => (
-                    <div key={i} style={{ aspectRatio: '1080/1350', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }} />
-                  ))}
                 </div>
-              ) : dailyGraphics.length > 0 ? (
-                <div style={s.dailyGrid}>
-                  {dailyGraphics.map(g => (
-                    <div
-                      key={g.type}
-                      onClick={() => setSelectedGraphic(g)}
-                      style={s.dailyCard}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(91, 143, 199,0.5)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'scale(1)'; }}
-                    >
-                      <img
-                        src={g.url}
-                        alt={g.type}
-                        style={{ width: '100%', display: 'block', borderRadius: '12px 12px 0 0' }}
-                        loading="lazy"
-                      />
-                      <div style={s.dailyCardLabel}>
-                        {g.type.replace(/-/g, ' ')}
-                      </div>
+
+                {fullGraphicsOpen && (
+                  dailyLoading ? (
+                    <div style={s.dailyGrid}>
+                      {[1,2,3,4,5].map(i => (
+                        <div key={i} style={{ aspectRatio: '1080/1350', background: colors.accentA04, borderRadius: '12px', border: `1px solid ${colors.border}` }} />
+                      ))}
                     </div>
-                  ))}
-                </div>
-              ) : dailyGraphicsDate ? (
-                <div style={s.emptyState}>No graphics available for this date.</div>
-              ) : (
-                <div style={s.emptyState}>No daily graphics available.</div>
-              )}
-
-              {dailyDates.length > 1 && (
-                <div style={{ marginTop: '32px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#fff', marginBottom: '16px' }}>Archive</h3>
-                  <div style={s.briefArchiveGrid}>
-                    {dailyDates.map(date => (
-                      <div
-                        key={date}
-                        onClick={() => setDailyGraphicsDate(date)}
-                        style={{
-                          ...s.briefArchiveCard,
-                          ...(date === dailyGraphicsDate ? s.briefArchiveCardActive : {}),
-                        }}
-                      >
-                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
-                          {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  ) : dailyGraphics.length > 0 ? (
+                    <div style={s.dailyGrid}>
+                      {dailyGraphics.map(g => (
+                        <div
+                          key={g.type}
+                          onClick={() => setSelectedGraphic(g)}
+                          style={s.dailyCard}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = colors.borderFocus; e.currentTarget.style.transform = 'scale(1.02)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.transform = 'scale(1)'; }}
+                        >
+                          <img
+                            src={g.url}
+                            alt={g.type}
+                            style={{ width: '100%', display: 'block', borderRadius: '12px 12px 0 0' }}
+                            loading="lazy"
+                          />
+                          <div style={s.dailyCardLabel}>
+                            {g.type.replace(/-/g, ' ')}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={s.emptyState}>No graphics available for this date.</div>
+                  )
+                )}
+              </section>
 
-              {/* Lightbox */}
+              {/* Graphic lightbox */}
               {selectedGraphic && (
                 <div
                   style={s.dailyLightbox}
@@ -908,7 +1093,7 @@ export default function Research() {
                       alt={selectedGraphic.type}
                       style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: '12px', display: 'block' }}
                     />
-                    <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '14px', fontWeight: 600, color: 'rgba(255,255,255,0.7)', textTransform: 'capitalize' }}>
+                    <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '14px', fontWeight: 600, color: colors.textMuted, textTransform: 'capitalize' }}>
                       {selectedGraphic.type.replace(/-/g, ' ')}
                     </div>
                   </div>
@@ -1155,248 +1340,6 @@ export default function Research() {
 
               {!tritonSupabase && (
                 <div style={s.emptyState}>Briefs are not configured. Add Triton Supabase credentials to .env.</div>
-              )}
-            </div>
-          )}
-
-          {/* Cards Section */}
-          {section === 'cards' && (
-            <div>
-              {selectedCard && (
-                <div
-                  style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                  onClick={() => setSelectedCard(null)}
-                >
-                  <div style={{ position: 'relative', maxWidth: '95vw', maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
-                    <img
-                      src={`https://www.tritonapex.io/api/card-image?id=${selectedCard.id}`}
-                      alt={selectedCard.pitcher_name}
-                      style={{ maxWidth: '95vw', maxHeight: '85vh', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}
-                    />
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginTop: '16px' }}>
-                      <span style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>{selectedCard.pitcher_name}</span>
-                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>{selectedCard.game_info}</span>
-                      <a
-                        href={`https://www.tritonapex.io/api/card-image?id=${selectedCard.id}`}
-                        download={`${selectedCard.pitcher_name.replace(/\s+/g, '-')}-${selectedCard.date}.png`}
-                        style={{ padding: '6px 14px', background: colors.accent, color: colors.white, borderRadius: '6px', fontSize: '12px', fontWeight: 600, textDecoration: 'none', marginLeft: '8px' }}
-                        onClick={e => e.stopPropagation()}
-                      >
-                        Download PNG
-                      </a>
-                      <button
-                        onClick={() => setSelectedCard(null)}
-                        style={{ padding: '6px 14px', background: 'rgba(255,255,255,0.1)', color: '#fff', borderRadius: '6px', fontSize: '12px', border: 'none', cursor: 'pointer' }}
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {currentCardDate && (
-                <div style={s.briefDateNav}>
-                  <button
-                    onClick={() => {
-                      const dates = cardsArchive.map(a => a.date);
-                      const idx = dates.indexOf(currentCardDate);
-                      if (idx < dates.length - 1) setCurrentCardDate(dates[idx + 1]);
-                    }}
-                    disabled={(() => { const dates = cardsArchive.map(a => a.date); return dates.indexOf(currentCardDate) >= dates.length - 1; })()}
-                    style={s.briefNavBtn}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
-                  </button>
-                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-                    {new Date(currentCardDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
-                  </span>
-                  <button
-                    onClick={() => {
-                      const dates = cardsArchive.map(a => a.date);
-                      const idx = dates.indexOf(currentCardDate);
-                      if (idx > 0) setCurrentCardDate(dates[idx - 1]);
-                    }}
-                    disabled={(() => { const dates = cardsArchive.map(a => a.date); return dates.indexOf(currentCardDate) <= 0; })()}
-                    style={s.briefNavBtn}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
-                  </button>
-                  {confirmRegenCards ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '12px' }}>
-                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Sure?</span>
-                      <button onClick={handleRegenerateCards} style={{ ...s.briefActionBtn, borderColor: 'rgba(239,68,68,0.4)', color: '#ef4444' }}>Yes, regenerate</button>
-                      <button onClick={() => setConfirmRegenCards(false)} style={s.briefActionBtn}>Cancel</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setConfirmRegenCards(true)} disabled={regeneratingCards} style={{ ...s.briefActionBtn, marginLeft: '12px', opacity: regeneratingCards ? 0.5 : 1 }}>
-                      {regeneratingCards ? (
-                        <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerating…</>
-                      ) : (
-                        <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
-                      )}
-                    </button>
-                  )}
-                  <div style={{ position: 'relative', marginLeft: '4px' }}>
-                    <button
-                      onClick={() => setShowCardsConfig(!showCardsConfig)}
-                      style={{ ...s.briefActionBtn, background: showCardsConfig ? 'rgba(91, 143, 199,0.2)' : undefined }}
-                      title="Card settings"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <circle cx="10" cy="10" r="3" />
-                        <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41" />
-                      </svg>
-                    </button>
-                    {showCardsConfig && (
-                      <div style={s.cardsConfigPanel}>
-                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#e2e8f0', marginBottom: '12px' }}>Card Generation Settings</div>
-                        <label style={s.configLabel}>Template</label>
-                        <select
-                          value={cardsConfig?.template_id || ''}
-                          onChange={e => updateCardsConfig(e.target.value, cardsConfig?.top_n)}
-                          disabled={savingConfig}
-                          style={s.configSelect}
-                        >
-                          <option value="" disabled>Select template...</option>
-                          {availableTemplates.map(t => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
-                          ))}
-                        </select>
-                        {cardsConfig?.template_id && (
-                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '4px' }}>
-                            {availableTemplates.find(t => t.id === cardsConfig.template_id)?.name || 'Unknown'}
-                          </div>
-                        )}
-                        <label style={{ ...s.configLabel, marginTop: '14px' }}>Cards per day</label>
-                        <select
-                          value={cardsConfig?.top_n || 5}
-                          onChange={e => updateCardsConfig(cardsConfig?.template_id, parseInt(e.target.value))}
-                          disabled={savingConfig || !cardsConfig?.template_id}
-                          style={s.configSelect}
-                        >
-                          {[3, 5, 8, 10].map(n => (
-                            <option key={n} value={n}>{n}</option>
-                          ))}
-                        </select>
-                        {savingConfig && <div style={{ fontSize: '11px', color: colors.accentFg, marginTop: '8px' }}>Saving...</div>}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Bucket sort tabs */}
-              <div style={{ display: 'flex', gap: '4px', marginBottom: '14px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', padding: '3px', border: '1px solid rgba(255,255,255,0.04)', width: 'fit-content' }}>
-                {[
-                  { key: 'top_ip', label: 'Innings Pitched' },
-                  { key: 'top_start', label: 'Overall Grade' },
-                  { key: 'top_cmd', label: 'CnD+' },
-                  { key: 'top_stuff', label: 'Stuff+' },
-                ].map(b => (
-                  <button
-                    key={b.key}
-                    onClick={() => setCardsBucket(b.key)}
-                    style={{
-                      padding: '5px 14px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      fontFamily: 'inherit',
-                      cursor: 'pointer',
-                      transition: 'background 0.12s, color 0.12s',
-                      background: cardsBucket === b.key ? 'rgba(91, 143, 199,0.2)' : 'transparent',
-                      color: cardsBucket === b.key ? '#8fb4d8' : 'rgba(255,255,255,0.4)',
-                    }}
-                  >
-                    {b.label}
-                  </button>
-                ))}
-              </div>
-
-              {regenerateError && (
-                <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#fca5a5', fontSize: '12px', marginBottom: '12px' }}>
-                  {regenerateError}
-                </div>
-              )}
-
-              {cardsLoading ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
-                  {[1,2,3,4,5].map(i => (
-                    <div key={i} style={{ aspectRatio: '16/9', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }} />
-                  ))}
-                </div>
-              ) : currentCards.length > 0 ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
-                  {currentCards.map(card => {
-                    const ipFull = Math.floor(card.ip);
-                    const ipPartial = Math.round((card.ip - ipFull) * 3);
-                    const ipDisplay = `${ipFull}.${ipPartial}`;
-                    return (
-                      <div
-                        key={card.id}
-                        onClick={() => setSelectedCard(card)}
-                        style={{ cursor: 'pointer', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', transition: 'border-color 0.2s, transform 0.2s' }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(91, 143, 199,0.5)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'scale(1)'; }}
-                      >
-                        <img
-                          src={`https://www.tritonapex.io/api/card-image?id=${card.id}`}
-                          alt={card.pitcher_name}
-                          style={{ width: '100%', display: 'block', borderRadius: '12px 12px 0 0' }}
-                          loading="lazy"
-                        />
-                        <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.02)' }}>
-                          <span style={{ fontSize: '16px', fontWeight: 800, color: colors.accent, minWidth: '20px' }}>{card.rank}</span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>{card.pitcher_name}</div>
-                            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>{card.game_info} &middot; {ipDisplay} IP &middot; {card.pitch_count}P</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : currentCardDate ? (
-                <div style={s.emptyState}>No cards available for this date.</div>
-              ) : null}
-
-              {cardsArchive.length > 0 && (
-                <div style={{ marginTop: '32px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#fff', marginBottom: '16px' }}>Archive</h3>
-                  <div style={s.briefArchiveGrid}>
-                    {cardsArchive.map(entry => (
-                      <div
-                        key={entry.date}
-                        onClick={() => setCurrentCardDate(entry.date)}
-                        style={{
-                          ...s.briefArchiveCard,
-                          ...(entry.date === currentCardDate ? s.briefArchiveCardActive : {}),
-                        }}
-                      >
-                        <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>
-                          {new Date(entry.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                        </div>
-                        {entry.cards.map((c, i) => {
-                          const ipF = Math.floor(c.ip);
-                          const ipP = Math.round((c.ip - ipF) * 3);
-                          return (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                              <span style={{ fontSize: '11px', fontWeight: 700, color: colors.accent, width: '14px' }}>{c.rank}</span>
-                              <span style={{ fontSize: '12px', color: '#e2e8f0' }}>{c.pitcher_name}</span>
-                              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginLeft: 'auto' }}>{ipF}.{ipP} IP</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {!tritonSupabase && (
-                <div style={s.emptyState}>Cards are not configured. Add Triton Supabase credentials to .env.</div>
               )}
             </div>
           )}
@@ -2163,6 +2106,121 @@ const s = {
     flexShrink: 0,
   },
   // Daily graphics styles
+  // ─── Daily Content ───
+  dateSelectRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '24px',
+  },
+  dateSelectLabel: {
+    fontSize: '11px',
+    fontWeight: 700,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+    color: colors.textDim,
+  },
+  dateSelect: {
+    minWidth: '260px',
+    padding: '8px 12px',
+    border: `1px solid ${colors.border}`,
+    borderRadius: '8px',
+    background: colors.bgInput,
+    color: colors.text,
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    outline: 'none',
+    cursor: 'pointer',
+  },
+  collapseSection: {
+    marginBottom: '32px',
+  },
+  collapseHeaderRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flexWrap: 'wrap',
+    marginBottom: '16px',
+    paddingBottom: '12px',
+    borderBottom: `1px solid ${colors.border}`,
+  },
+  collapseToggle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: 0,
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    color: colors.textDim,
+    fontFamily: 'inherit',
+  },
+  collapseTitle: {
+    fontSize: '16px',
+    fontWeight: 700,
+    color: colors.white,
+  },
+  collapseCount: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: colors.textDim,
+    background: colors.bgInput,
+    padding: '2px 8px',
+    borderRadius: '999px',
+  },
+  bucketTabs: {
+    display: 'flex',
+    gap: '4px',
+    marginBottom: '16px',
+    background: colors.accentA04,
+    borderRadius: '8px',
+    padding: '3px',
+    border: `1px solid ${colors.border}`,
+    width: 'fit-content',
+  },
+  bucketTab: {
+    padding: '5px 14px',
+    borderRadius: '6px',
+    border: 'none',
+    fontSize: '12px',
+    fontWeight: 600,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    transition: 'background 0.12s, color 0.12s',
+    background: 'transparent',
+    color: colors.textDim,
+  },
+  bucketTabActive: {
+    background: colors.accentA20,
+    color: colors.accentFg,
+  },
+  regenerateError: {
+    padding: '8px 14px',
+    borderRadius: '8px',
+    background: colors.danger.bg,
+    border: `1px solid ${colors.danger.border}`,
+    color: colors.danger.fgSoft,
+    fontSize: '12px',
+    marginBottom: '12px',
+  },
+  cardsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+    gap: '16px',
+  },
+  cardLightbox: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    background: colors.bgOverlay,
+    zIndex: 9999,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+  },
   dailyGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',

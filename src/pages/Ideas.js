@@ -49,7 +49,10 @@ function userColor(userId) {
   return USER_COLORS[h % USER_COLORS.length];
 }
 
-export default function Ideas() {
+// `embedded` renders the board inside the Projects page's Ideas view: the page
+// chrome (padding, title, subtitle) belongs to Projects there, but the Select /
+// Add to Projects actions still ride along with the board.
+export default function Ideas({ embedded = false }) {
   const { profile } = useAuth();
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
@@ -354,14 +357,16 @@ export default function Ideas() {
   }
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
-        <div>
-          <h1 style={styles.pageTitle}>Ideas</h1>
-          <p style={styles.pageSubtitle}>
-            Sort ideas across categories. Drag rows to move them between sections.
-          </p>
-        </div>
+    <div style={embedded ? styles.embeddedPage : styles.page}>
+      <header style={embedded ? styles.embeddedHeader : styles.header}>
+        {!embedded && (
+          <div>
+            <h1 style={styles.pageTitle}>Ideas</h1>
+            <p style={styles.pageSubtitle}>
+              Sort ideas across categories. Drag rows to move them between sections.
+            </p>
+          </div>
+        )}
         <div style={styles.headerActions}>
           {selectMode ? (
             <>
@@ -739,6 +744,9 @@ function Section({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEd
 
 const styles = {
   page: { padding: '36px 40px 64px', maxWidth: '1500px', margin: '0 auto', minHeight: '100vh' },
+  // Embedded in Projects: that page already supplies the padding and max-width.
+  embeddedPage: {},
+  embeddedHeader: { display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' },
   header: {
     marginBottom: '24px',
     display: 'flex',

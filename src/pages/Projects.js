@@ -6,6 +6,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import UnifiedBoard from './projects/UnifiedBoard';
+import Ideas from './Ideas';
 import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
 import { callEdgeFn } from '../lib/edgeFn';
 import { fetchAllRows } from './analytics/utils';
@@ -45,7 +46,12 @@ export default function Projects({ onNavigate }) {
   const [selectedProject, setSelectedProject] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState(() => localStorage.getItem('projects_view') || 'board');
+  // 'board' | 'list' | 'ideas' — Ideas used to be its own page and is now a
+  // third view here. Guard the stored value so an unknown one can't blank the page.
+  const [viewMode, setViewMode] = useState(() => {
+    const stored = localStorage.getItem('projects_view');
+    return ['board', 'list', 'ideas'].includes(stored) ? stored : 'board';
+  });
   const [showArchived, setShowArchived] = useState(false);
   const [rowCtxMenu, setRowCtxMenu] = useState(null); // { x, y, project }
 
@@ -386,7 +392,11 @@ export default function Projects({ onNavigate }) {
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Projects</h1>
-          <p style={styles.pageSubtitle}>{currentProjects.length + comingUpProjects.length} active{completedProjects.length > 0 ? ` · ${completedProjects.length} completed` : ''}{archivedCount > 0 ? ` · ${archivedCount} archived` : ''}</p>
+          <p style={styles.pageSubtitle}>
+            {viewMode === 'ideas'
+              ? 'Sort ideas across categories. Drag rows to move them between sections.'
+              : `${currentProjects.length + comingUpProjects.length} active${completedProjects.length > 0 ? ` · ${completedProjects.length} completed` : ''}${archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
+          </p>
         </div>
       </div>
 
@@ -449,6 +459,19 @@ export default function Projects({ onNavigate }) {
                 <rect x="11" y="1" width="4" height="12" rx="1" />
               </svg>
             </button>
+            <button
+              onClick={() => setViewMode('ideas')}
+              style={{
+                ...styles.viewToggleBtn,
+                ...(viewMode === 'ideas' ? styles.viewToggleBtnActive : {}),
+              }}
+              title="Ideas"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M6 12.5h4M6.5 14.5h3" />
+                <path d="M8 1.5a4.5 4.5 0 00-2.6 8.17c.37.27.6.69.6 1.15v.18h4v-.18c0-.46.23-.88.6-1.15A4.5 4.5 0 008 1.5z" />
+              </svg>
+            </button>
           </div>
           {viewMode === 'list' && (
             <input
@@ -462,7 +485,10 @@ export default function Projects({ onNavigate }) {
       </div>
 
       {/* ─── Sectioned Project Layout ─── */}
-      {loading ? (
+      {/* Ideas loads its own data, so it isn't gated on the projects fetch. */}
+      {viewMode === 'ideas' ? (
+        <Ideas embedded />
+      ) : loading ? (
         <p style={styles.emptyText}>Loading projects...</p>
       ) : viewMode === 'board' ? (
         <UnifiedBoard onNavigate={onNavigate} />

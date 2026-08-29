@@ -54,7 +54,6 @@ import ClientCalendar from './ClientCalendar';
 import ClientReview from './ClientReview';
 import ClientDocuments from './ClientDocuments';
 import ClientProfile from './ClientProfile';
-import Ideas from './Ideas';
 
 import Jobs from './Jobs';
 import Workflows from './Workflows';
@@ -78,7 +77,6 @@ const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
 
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
-  { key: 'ideas', label: 'Ideas', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
   { key: 'research_docs', label: 'Research', icon: ResourcesIcon },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
@@ -110,7 +108,7 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'fl_reviews', 'ideas', 'ct_assignments', 'ct_hours', 'ct_documents', 'ct_team', 'clients', 'cl_dashboard', 'cl_calendar', 'cl_review', 'cl_documents', 'cl_profile', 'cl_notifications'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'fl_reviews', 'ct_assignments', 'ct_hours', 'ct_documents', 'ct_team', 'clients', 'cl_dashboard', 'cl_calendar', 'cl_review', 'cl_documents', 'cl_profile', 'cl_notifications'));
 
 // ─── Modes ──────────────────────────────────────────────────
 // Beta pages: still under refinement. Grouped in a "Beta" folder at the bottom
@@ -227,7 +225,9 @@ function getAdminModeKeys(resolvedNav, isBetaOwner) {
 
 // Public URL aliases — the page is presented as "Roadmap" but keeps its
 // internal business_dev key (nav config, permissions, bd_* tables).
-const TAB_KEY_ALIASES = { roadmap: 'business_dev' };
+// Ideas was folded into Projects as a third view, so its old route/stored tab
+// resolves to Projects instead of falling back to the dashboard.
+const TAB_KEY_ALIASES = { roadmap: 'business_dev', ideas: 'projects' };
 const TAB_KEY_TO_PATH = { business_dev: 'roadmap' };
 
 function getTabFromPath() {
@@ -307,7 +307,6 @@ const NAV_ICON_MAP = {
   fl_assignments: ResourcesIcon,
   fl_submit: ResourcesIcon,
   fl_reviews: ReviewsIcon,
-  ideas: IdeationIcon,
   clients: ContractorsIcon,
   cl_dashboard: DashboardIcon,
   cl_calendar: CalendarIcon,
@@ -350,7 +349,8 @@ export default function AppLayout() {
     const fromPath = getTabFromPath();
     if (fromPath === 'my_tasks') return 'dashboard';
     if (fromPath) return fromPath;
-    const stored = localStorage.getItem('studio-hub-tab');
+    const raw = localStorage.getItem('studio-hub-tab');
+    const stored = (raw && TAB_KEY_ALIASES[raw]) || raw;
     if (stored === 'my_tasks') return 'dashboard';
     if (stored && VALID_TAB_KEYS.has(stored)) return stored;
     return 'dashboard';
@@ -1266,7 +1266,6 @@ export default function AppLayout() {
           {activeTab === 'production' && <PageErrorBoundary key="production"><Production initialSheetId={navTarget} onSheetOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'ideation' && <PageErrorBoundary key="ideation"><Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'resources' && <PageErrorBoundary key="resources"><Resources /></PageErrorBoundary>}
-          {activeTab === 'ideas' && <PageErrorBoundary key="ideas"><Ideas /></PageErrorBoundary>}
           {activeTab === 'screenwriter' && <PageErrorBoundary key="screenwriter"><Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'teleprompter' && <PageErrorBoundary key="teleprompter"><Teleprompter onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'telestration' && <PageErrorBoundary key="telestration"><Telestration onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
