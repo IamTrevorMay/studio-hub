@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -220,29 +220,40 @@ export default function Research() {
     }
   };
 
+  // fetch-rss is a live 12-feed RSS crawl that takes ~10s, so overlapping
+  // callers (mount + tab-focus refresh + manual Refresh) share one in-flight
+  // request instead of each kicking off its own crawl.
+  const articlesInFlight = useRef(null);
   const fetchArticles = useCallback(async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const response = await fetch(
-        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/fetch-rss`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
-          },
+    if (articlesInFlight.current) return articlesInFlight.current;
+    const run = (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const response = await fetch(
+          `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/fetch-rss`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+              'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+            },
+          }
+        );
+        const result = await response.json();
+        if (response.ok) {
+          setArticles(result.articles || []);
+          setFeeds(result.feeds || []);
         }
-      );
-      const result = await response.json();
-      if (response.ok) {
-        setArticles(result.articles || []);
-        setFeeds(result.feeds || []);
+      } catch (err) {
+        console.error('Error fetching articles:', err);
+      } finally {
+        articlesInFlight.current = null;
       }
-    } catch (err) {
-      console.error('Error fetching articles:', err);
-    }
+    })();
+    articlesInFlight.current = run;
+    return run;
   }, []);
 
   const handleAddFeed = async (sourceType) => {
@@ -295,14 +306,16 @@ export default function Research() {
         .order('date', { ascending: false });
       if (!error && data) {
         setBriefs(data);
-        if (data.length > 0 && !currentBriefDate) {
-          setCurrentBriefDate(data[0].date);
-        }
+        // Functional update instead of reading currentBriefDate: keeping the
+        // date out of the dep array is what makes this callback identity-stable,
+        // so the mount effect below doesn't re-fire (and re-run the 10s RSS
+        // crawl) every time a fetcher picks its initial date.
+        if (data.length > 0) setCurrentBriefDate(prev => prev || data[0].date);
       }
     } catch (err) {
       console.error('Error fetching briefs:', err);
     }
-  }, [currentBriefDate]);
+  }, []);
 
   const fetchFullBrief = useCallback(async (date) => {
     if (!tritonSupabase || !date) return;
@@ -325,9 +338,14 @@ export default function Research() {
     if (currentBriefDate) fetchFullBrief(currentBriefDate);
   }, [currentBriefDate, fetchFullBrief]);
 
+  // Read through a ref so the cards fetchers stay identity-stable across bucket
+  // changes; the bucket-change effect below re-fetches explicitly.
+  const cardsBucketRef = useRef(cardsBucket);
+  useEffect(() => { cardsBucketRef.current = cardsBucket; }, [cardsBucket]);
+
   const fetchCardsArchive = useCallback(async (bucket) => {
     if (!tritonSupabase) return [];
-    const activeBucket = bucket || cardsBucket;
+    const activeBucket = bucket || cardsBucketRef.current;
     try {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 5);
@@ -350,9 +368,7 @@ export default function Research() {
           .slice(0, 30)
           .map(([date, cards]) => ({ date, cards }));
         setCardsArchive(archive);
-        if (archive.length > 0 && !currentCardDate) {
-          setCurrentCardDate(archive[0].date);
-        }
+        if (archive.length > 0) setCurrentCardDate(prev => prev || archive[0].date);
         return archive;
       }
       return [];
@@ -360,11 +376,11 @@ export default function Research() {
       console.error('Error fetching cards archive:', err);
       return [];
     }
-  }, [currentCardDate, cardsBucket]);
+  }, []);
 
   const fetchCardsForDate = useCallback(async (date, bucket) => {
     if (!tritonSupabase || !date) return;
-    const activeBucket = bucket || cardsBucket;
+    const activeBucket = bucket || cardsBucketRef.current;
     setCardsLoading(true);
     try {
       const { data, error } = await tritonSupabase
@@ -379,14 +395,20 @@ export default function Research() {
     } finally {
       setCardsLoading(false);
     }
-  }, [cardsBucket]);
+  }, []);
 
   useEffect(() => {
     if (currentCardDate) fetchCardsForDate(currentCardDate);
   }, [currentCardDate, fetchCardsForDate]);
 
-  // Re-fetch when bucket changes
+  // Re-fetch when bucket changes. Skipped on mount — the initial load effect
+  // below already fetches the archive for the starting bucket.
+  const bucketMountedRef = useRef(false);
   useEffect(() => {
+    if (!bucketMountedRef.current) {
+      bucketMountedRef.current = true;
+      return;
+    }
     fetchCardsArchive(cardsBucket);
     if (currentCardDate) fetchCardsForDate(currentCardDate, cardsBucket);
   }, [cardsBucket]); // eslint-disable-line
@@ -404,15 +426,14 @@ export default function Research() {
         .order('date', { ascending: false });
       if (!error && data) {
         setTrends(data);
-        if (data.length > 0 && !currentTrendDate) {
-          setCurrentTrendDate(data[0].date);
-          setCurrentTrend(data[0]);
-        }
+        // currentTrend is derived from currentTrendDate by the effect below,
+        // so only the date needs seeding here.
+        if (data.length > 0) setCurrentTrendDate(prev => prev || data[0].date);
       }
     } catch (err) {
       console.error('Error fetching trends:', err);
     }
-  }, [currentTrendDate]);
+  }, []);
 
   useEffect(() => {
     if (currentTrendDate && trends.length > 0) {
@@ -432,14 +453,12 @@ export default function Research() {
       if (!error && data) {
         const unique = [...new Set(data.map(r => r.date))];
         setDailyDates(unique);
-        if (unique.length > 0 && !dailyGraphicsDate) {
-          setDailyGraphicsDate(unique[0]);
-        }
+        if (unique.length > 0) setDailyGraphicsDate(prev => prev || unique[0]);
       }
     } catch (err) {
       console.error('Error fetching daily graphics dates:', err);
     }
-  }, [dailyGraphicsDate]);
+  }, []);
 
   const fetchDailyGraphics = useCallback(async (date) => {
     if (!date) return;

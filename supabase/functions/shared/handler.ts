@@ -33,6 +33,21 @@ function jsonRes(data: unknown, status = 200) {
   });
 }
 
+// Copy a Response, adding the CORS headers. Existing headers win so a handler
+// can still opt into a narrower Access-Control-Allow-Origin (assistant-summary
+// restricts its origins deliberately).
+function withCors(res: Response): Response {
+  const headers = new Headers(res.headers);
+  for (const [key, value] of Object.entries(corsHeaders)) {
+    if (!headers.has(key)) headers.set(key, value);
+  }
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  });
+}
+
 export function createHandler(
   options: HandlerOptions,
   handler: (ctx: HandlerContext) => Promise<Response>
@@ -140,7 +155,12 @@ export function createHandler(
       }
 
       // ── Execute handler ──
-      return await handler({ req, admin, user, profile, isCron });
+      // Handlers that build their own Response would otherwise ship without
+      // CORS headers (jsonRes only covers the preflight + error paths), which
+      // makes the browser discard an otherwise-successful 200. Stamp them on
+      // the way out so a handler can't forget.
+      const res = await handler({ req, admin, user, profile, isCron });
+      return withCors(res);
     } catch (err) {
       console.error("Unhandled error in edge function:", err);
       return jsonRes({ error: err.message || "Internal server error" }, 500);
