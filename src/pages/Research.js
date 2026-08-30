@@ -7,6 +7,7 @@ import usePersistedTab from '../hooks/usePersistedTab';
 import backdropDismiss from '../lib/backdropDismiss';
 import DOMPurify from 'dompurify';
 import { colors } from '../lib/styleTokens';
+import { ptDayKey } from '../lib/ptDate';
 
 
 const SECTIONS = ['scores', 'inbox', 'briefs', 'daily_content', 'news', 'trends'];
@@ -16,6 +17,13 @@ const SECTION_LABELS = { scores: 'Scores', inbox: 'Inbox', briefs: 'Briefs', dai
 // live passthrough of MLB StatsAPI, so a slow poll keeps in-progress games
 // current without hammering it.
 const SCORES_POLL_MS = 30000;
+
+// Calendar-day arithmetic on a 'YYYY-MM-DD' string. Done in UTC so stepping a
+// day can't drift across a DST boundary the way local-time Date math can.
+function shiftDay(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -40,7 +48,7 @@ export default function Research() {
 
   // Scores state
   const [scores, setScores] = useState([]);
-  const [scoresDate, setScoresDate] = useState(null);
+  const [scoresDate, setScoresDate] = useState(() => ptDayKey(new Date()));
   const [scoresLoading, setScoresLoading] = useState(true);
   const [scoresError, setScoresError] = useState(null);
 
@@ -236,17 +244,22 @@ export default function Research() {
 
   // Scoreboard comes through /api/triton-scores, a same-origin proxy of
   // Triton's own /api/scores — same day boundary and live fields Triton shows.
-  const fetchScores = useCallback(async () => {
+  // Read the selected day through a ref so refresh callers stay identity-stable.
+  const scoresDateRef = useRef(scoresDate);
+  useEffect(() => { scoresDateRef.current = scoresDate; }, [scoresDate]);
+
+  const fetchScores = useCallback(async (date) => {
+    const target = date || scoresDateRef.current;
+    if (!target) return;
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const res = await fetch('/api/triton-scores', {
+      const res = await fetch(`/api/triton-scores?date=${encodeURIComponent(target)}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
       setScores(Array.isArray(json.games) ? json.games : []);
-      setScoresDate(json.date || null);
       setScoresError(null);
     } catch (err) {
       console.error('Error fetching scores:', err);
@@ -656,10 +669,9 @@ export default function Research() {
   }, [markInboxRead]);
 
   useEffect(() => {
-    fetchScores();
     Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchDailyDates(), fetchInboxState()])
       .finally(() => setLoading(false));
-  }, [fetchScores, fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]);
+  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]);
   useVisibilityRefresh(useCallback(() => {
     fetchScores();
     fetchArticles();
@@ -677,12 +689,21 @@ export default function Research() {
     setRefreshing(false);
   }
 
+  useEffect(() => {
+    setScoresLoading(true);
+    setScores([]);
+    fetchScores(scoresDate);
+  }, [scoresDate, fetchScores]);
+
+  // Poll only the live board: today's PT date, tab open, something unfinished.
+  // A past date is all Final and a future one is all Preview — neither changes.
   const hasLiveGame = useMemo(() => scores.some(g => g.state !== 'Final'), [scores]);
   useEffect(() => {
     if (section !== 'scores' || !hasLiveGame) return undefined;
+    if (scoresDate !== ptDayKey(new Date())) return undefined;
     const id = setInterval(fetchScores, SCORES_POLL_MS);
     return () => clearInterval(id);
-  }, [section, hasLiveGame, fetchScores]);
+  }, [section, hasLiveGame, scoresDate, fetchScores]);
 
   function openItem(item, type) {
     setSelectedItem({ ...item, _type: type });
@@ -815,7 +836,24 @@ export default function Research() {
         <div>
           {scoresDate && (
             <div style={s.scoresDateRow}>
-              {new Date(scoresDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+              <button onClick={() => setScoresDate(shiftDay(scoresDate, -1))} style={s.briefNavBtn} title="Previous day">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
+              </button>
+              <input
+                type="date"
+                value={scoresDate}
+                onChange={e => { if (e.target.value) setScoresDate(e.target.value); }}
+                style={s.scoresDateInput}
+              />
+              <button onClick={() => setScoresDate(shiftDay(scoresDate, 1))} style={s.briefNavBtn} title="Next day">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
+              </button>
+              {scoresDate !== ptDayKey(new Date()) && (
+                <button onClick={() => setScoresDate(ptDayKey(new Date()))} style={s.briefActionBtn}>Today</button>
+              )}
+              <span style={s.scoresDateLabel}>
+                {new Date(scoresDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </span>
               <span style={s.scoresCount}>{scores.length} {scores.length === 1 ? 'game' : 'games'}</span>
             </div>
           )}
@@ -2255,8 +2293,23 @@ const s = {
   scoresDateRow: {
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
+    gap: '8px',
+    flexWrap: 'wrap',
     marginBottom: '20px',
+  },
+  scoresDateInput: {
+    padding: '6px 10px',
+    border: `1px solid ${colors.border}`,
+    borderRadius: '8px',
+    background: colors.bgInput,
+    color: colors.text,
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    outline: 'none',
+    cursor: 'pointer',
+    colorScheme: 'dark',
+  },
+  scoresDateLabel: {
     fontSize: '13px',
     fontWeight: 600,
     color: colors.textMuted,
