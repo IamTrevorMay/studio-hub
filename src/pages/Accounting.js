@@ -7,6 +7,7 @@ import { fetchAllRows } from './analytics/utils';
 import BankAccountsTab from '../components/accounting/BankAccountsTab';
 import TransactionsTab from '../components/accounting/TransactionsTab';
 import MonthlyReportsTab from '../components/accounting/MonthlyReportsTab';
+import BreakdownTab from '../components/accounting/breakdown/BreakdownTab';
 import { colors, spacing, radii, fontSizes, fontWeights, zIndex } from '../lib/styleTokens';
 
 // Revenue (income) categories the Tiller sync writes into revenue_transactions.
@@ -63,6 +64,7 @@ const TABS = [
   { key: 'transactions', label: 'Transactions' },
   { key: 'accounts',     label: 'Accounts' },
   { key: 'reports',      label: 'Reports' },
+  { key: 'breakdown',    label: 'Breakdown' },
 ];
 
 // The two businesses synced from their own Tiller sheets. Rows predating the
@@ -155,7 +157,7 @@ function pctDelta(curr, prev) {
 export default function Accounting({ initialTab, onTabOpened }) {
   const { isAdmin } = useAuth();
   const [rangeKey, setRangeKey] = useState('90d');
-  const [tab, setTab] = usePersistedTab('accounting', 'overview', ['overview', 'revenue', 'expenses', 'transactions', 'accounts', 'reports']);
+  const [tab, setTab] = usePersistedTab('accounting', 'overview', ['overview', 'revenue', 'expenses', 'transactions', 'accounts', 'reports', 'breakdown']);
 
   // Deep-link from bell notifications (link_target = a tab key, e.g. 'reports')
   useEffect(() => {
@@ -350,6 +352,8 @@ export default function Accounting({ initialTab, onTabOpened }) {
         />
       ) : tab === 'reports' ? (
         <MonthlyReportsTab />
+      ) : tab === 'breakdown' ? (
+        <BreakdownTab />
       ) : (
         <BankAccountsTab onSynced={load} />
       )}
