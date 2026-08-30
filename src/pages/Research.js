@@ -7,6 +7,7 @@ import usePersistedTab from '../hooks/usePersistedTab';
 import backdropDismiss from '../lib/backdropDismiss';
 import DOMPurify from 'dompurify';
 import { colors } from '../lib/styleTokens';
+import { clickableKeyProps } from '../lib/styleRecipes';
 import { ptDayKey } from '../lib/ptDate';
 
 
@@ -20,6 +21,10 @@ const SECTION_LABELS = { scores: 'Scores', inbox: 'Inbox', briefs: 'Briefs', dai
 // a struggling backend every 30s.
 const SCORES_POLL_MS = 30000;
 const SCORES_POLL_MAX_MS = 300000;
+
+// Triton's /api/scores carries no pitching decisions or box score, so those
+// come straight from MLB StatsAPI, which allows browser CORS.
+const STATS_API = 'https://statsapi.mlb.com/api/v1';
 
 // Calendar-day arithmetic on a 'YYYY-MM-DD' string. Done in UTC so stepping a
 // day can't drift across a DST boundary the way local-time Date math can.
@@ -58,6 +63,13 @@ export default function Research() {
   // Bumped after every attempt so the poll effect re-runs and schedules the
   // next one — a self-rescheduling timeout rather than a fixed interval.
   const [scoresTick, setScoresTick] = useState(0);
+  // gamePk -> { winner, loser, save }, each { id, name, record }
+  const [decisions, setDecisions] = useState({});
+  // Box score modal
+  const [boxGame, setBoxGame] = useState(null);
+  const [boxData, setBoxData] = useState(null);
+  const [boxLoading, setBoxLoading] = useState(false);
+  const [boxError, setBoxError] = useState(null);
 
   // Briefs state
   const [briefs, setBriefs] = useState([]);
@@ -278,6 +290,84 @@ export default function Research() {
     } finally {
       setScoresLoading(false);
       setScoresTick(t => t + 1);
+    }
+  }, []);
+
+  // Winning / losing / save pitchers for the slate, plus each one's season
+  // record. Two requests total: decisions for every game on the date, then one
+  // batched people lookup for the pitchers those decisions name.
+  const fetchDecisions = useCallback(async (date) => {
+    const target = date || scoresDateRef.current;
+    if (!target) return;
+    try {
+      const res = await fetch(
+        `${STATS_API}/schedule?sportId=1&date=${encodeURIComponent(target)}&hydrate=decisions`
+      );
+      if (!res.ok) throw new Error(`StatsAPI ${res.status}`);
+      const json = await res.json();
+      const games = (json.dates || []).flatMap(d => d.games || []);
+
+      const byGame = {};
+      const ids = new Set();
+      for (const g of games) {
+        const d = g.decisions;
+        if (!d) continue;
+        byGame[g.gamePk] = {};
+        for (const role of ['winner', 'loser', 'save']) {
+          if (!d[role]) continue;
+          byGame[g.gamePk][role] = { id: d[role].id, name: d[role].fullName };
+          ids.add(d[role].id);
+        }
+      }
+      if (ids.size === 0) { setDecisions({}); return; }
+
+      // Season records, so a card can read "W: Name (9-6)".
+      const season = target.slice(0, 4);
+      const statsRes = await fetch(
+        `${STATS_API}/people?personIds=${[...ids].join(',')}`
+        + `&hydrate=${encodeURIComponent(`stats(group=[pitching],type=[season],season=${season})`)}`
+      );
+      const statsJson = statsRes.ok ? await statsRes.json() : { people: [] };
+      const recordById = {};
+      for (const person of statsJson.people || []) {
+        const split = person.stats?.[0]?.splits?.[0]?.stat;
+        if (split) recordById[person.id] = split;
+      }
+      for (const pk of Object.keys(byGame)) {
+        for (const role of Object.keys(byGame[pk])) {
+          const stat = recordById[byGame[pk][role].id];
+          if (!stat) continue;
+          byGame[pk][role].record = role === 'save'
+            ? (stat.saves != null ? `${stat.saves}` : null)
+            : (stat.wins != null ? `${stat.wins}-${stat.losses}` : null);
+        }
+      }
+      setDecisions(byGame);
+    } catch (err) {
+      // Decisions are a nice-to-have on top of the board; never block it.
+      console.error('Error fetching decisions:', err);
+    }
+  }, []);
+
+  const openBoxScore = useCallback(async (game) => {
+    setBoxGame(game);
+    setBoxData(null);
+    setBoxError(null);
+    setBoxLoading(true);
+    try {
+      const [boxRes, lineRes] = await Promise.all([
+        fetch(`${STATS_API}/game/${game.gamePk}/boxscore`),
+        fetch(`${STATS_API}/game/${game.gamePk}/linescore`),
+      ]);
+      if (!boxRes.ok) throw new Error(`StatsAPI ${boxRes.status}`);
+      const box = await boxRes.json();
+      const line = lineRes.ok ? await lineRes.json() : null;
+      setBoxData({ box, line });
+    } catch (err) {
+      console.error('Error fetching box score:', err);
+      setBoxError(err.message);
+    } finally {
+      setBoxLoading(false);
     }
   }, []);
 
@@ -686,6 +776,7 @@ export default function Research() {
   }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]);
   useVisibilityRefresh(useCallback(() => {
     fetchScores();
+    fetchDecisions();
     fetchArticles();
     fetchBriefs();
     fetchCardsArchive();
@@ -693,19 +784,21 @@ export default function Research() {
     fetchTrends();
     fetchDailyDates();
     fetchInboxState();
-  }, [fetchScores, fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]));
+  }, [fetchScores, fetchDecisions, fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]));
 
   async function handleRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchScores(), fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchDailyDates(), fetchInboxState()]);
+    await Promise.all([fetchScores(), fetchDecisions(), fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchDailyDates(), fetchInboxState()]);
     setRefreshing(false);
   }
 
   useEffect(() => {
     setScoresLoading(true);
     setScores([]);
+    setDecisions({});
     fetchScores(scoresDate);
-  }, [scoresDate, fetchScores]);
+    fetchDecisions(scoresDate);
+  }, [scoresDate, fetchScores, fetchDecisions]);
 
   // Poll only the live board: today's PT date, tab open, something unfinished.
   // A past date is all Final and a future one is all Preview — neither changes.
@@ -718,10 +811,10 @@ export default function Research() {
     // recovers, since hasLiveGame is derived from games we never received.
     if (!hasLiveGame && !scoresError) return undefined;
     const delay = Math.min(SCORES_POLL_MS * 2 ** scoresFailures, SCORES_POLL_MAX_MS);
-    const id = setTimeout(fetchScores, delay);
+    const id = setTimeout(() => { fetchScores(); fetchDecisions(); }, delay);
     return () => clearTimeout(id);
     // scoresTick re-runs this after each attempt to queue the next one.
-  }, [section, hasLiveGame, scoresError, scoresDate, scoresFailures, scoresTick, fetchScores]);
+  }, [section, hasLiveGame, scoresError, scoresDate, scoresFailures, scoresTick, fetchScores, fetchDecisions]);
 
   function openItem(item, type) {
     setSelectedItem({ ...item, _type: type });
@@ -904,8 +997,15 @@ export default function Research() {
                         : game.detailedState)
                     : game.detailedState === 'Scheduled' ? startTime : game.detailedState;
 
+                const dec = decisions[game.gamePk];
                 return (
-                  <div key={game.gamePk} style={s.scoreCard}>
+                  <div
+                    key={game.gamePk}
+                    style={s.scoreCard}
+                    onClick={() => openBoxScore(game)}
+                    {...clickableKeyProps(() => openBoxScore(game))}
+                    title="Open box score"
+                  >
                     <div style={s.scoreCardHead}>
                       <span style={{ ...s.scoreStatus, ...(live ? s.scoreStatusLive : {}) }}>
                         {live && <span style={s.liveDot} />}
@@ -962,9 +1062,175 @@ export default function Research() {
                         {game.probableAway?.name || 'TBD'} vs {game.probableHome?.name || 'TBD'}
                       </div>
                     )}
+
+                    {dec && (dec.winner || dec.loser || dec.save) && (
+                      <div style={s.scoreDecisions}>
+                        {dec.winner && (
+                          <span><b style={s.decisionTag}>W</b> {dec.winner.name}{dec.winner.record ? ` (${dec.winner.record})` : ''}</span>
+                        )}
+                        {dec.loser && (
+                          <span><b style={s.decisionTag}>L</b> {dec.loser.name}{dec.loser.record ? ` (${dec.loser.record})` : ''}</span>
+                        )}
+                        {dec.save && (
+                          <span><b style={s.decisionTag}>SV</b> {dec.save.name}{dec.save.record ? ` (${dec.save.record})` : ''}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Box score modal */}
+          {boxGame && (
+            <div style={s.boxOverlay} {...backdropDismiss(() => setBoxGame(null))}>
+              <div style={s.boxModal} onClick={e => e.stopPropagation()}>
+                <div style={s.boxHeader}>
+                  <div style={s.boxHeaderTeams}>
+                    <img src={`https://www.mlbstatic.com/team-logos/${boxGame.away.id}.svg`} alt="" style={s.scoreLogo} />
+                    <span style={s.boxHeaderScore}>{boxGame.away.score ?? '–'}</span>
+                    <span style={s.boxHeaderAt}>@</span>
+                    <span style={s.boxHeaderScore}>{boxGame.home.score ?? '–'}</span>
+                    <img src={`https://www.mlbstatic.com/team-logos/${boxGame.home.id}.svg`} alt="" style={s.scoreLogo} />
+                    <span style={s.boxHeaderState}>{boxGame.detailedState}</span>
+                  </div>
+                  <button onClick={() => setBoxGame(null)} style={s.boxClose} title="Close">
+                    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+                  </button>
+                </div>
+
+                <div style={s.boxBody}>
+                  {boxLoading ? (
+                    <div style={s.emptyState}>Loading box score…</div>
+                  ) : boxError ? (
+                    <div style={s.regenerateError}>Couldn't load box score: {boxError}</div>
+                  ) : boxData ? (
+                    <>
+                      {/* Line score */}
+                      {boxData.line?.innings?.length > 0 && (
+                        <div style={s.boxScroll}>
+                          <table style={s.boxTable}>
+                            <thead>
+                              <tr>
+                                <th style={{ ...s.boxTh, ...s.boxThName }} />
+                                {boxData.line.innings.map(i => <th key={i.num} style={s.boxTh}>{i.num}</th>)}
+                                <th style={{ ...s.boxTh, ...s.boxThTotal }}>R</th>
+                                <th style={{ ...s.boxTh, ...s.boxThTotal }}>H</th>
+                                <th style={{ ...s.boxTh, ...s.boxThTotal }}>E</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {['away', 'home'].map(side => (
+                                <tr key={side}>
+                                  <td style={{ ...s.boxTd, ...s.boxTdName }}>{boxGame[side].abbrev}</td>
+                                  {boxData.line.innings.map(i => (
+                                    <td key={i.num} style={s.boxTd}>{i[side]?.runs ?? '–'}</td>
+                                  ))}
+                                  <td style={{ ...s.boxTd, ...s.boxTdTotal }}>{boxData.line.teams?.[side]?.runs ?? 0}</td>
+                                  <td style={{ ...s.boxTd, ...s.boxTdTotal }}>{boxData.line.teams?.[side]?.hits ?? 0}</td>
+                                  <td style={{ ...s.boxTd, ...s.boxTdTotal }}>{boxData.line.teams?.[side]?.errors ?? 0}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {['away', 'home'].map(side => {
+                        const team = boxData.box?.teams?.[side];
+                        if (!team) return null;
+                        const player = id => team.players?.[`ID${id}`];
+                        // battingOrder is a 3-digit string: "100" is the starter
+                        // in slot 1, "101" the first sub in that slot.
+                        const isStarter = p => p?.battingOrder && p.battingOrder.endsWith('00');
+                        return (
+                          <div key={side} style={s.boxTeamBlock}>
+                            <h3 style={s.boxTeamName}>{team.team?.name || boxGame[side].name}</h3>
+
+                            <div style={s.boxScroll}>
+                              <table style={s.boxTable}>
+                                <thead>
+                                  <tr>
+                                    <th style={{ ...s.boxTh, ...s.boxThName }}>Batting</th>
+                                    {['AB', 'R', 'H', 'RBI', 'BB', 'SO', 'AVG'].map(h => <th key={h} style={s.boxTh}>{h}</th>)}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {/* batters can list players who never came
+                                      to the plate; those carry no battingOrder. */}
+                                  {(team.batters || []).filter(id => player(id)?.battingOrder).map(id => {
+                                    const p = player(id);
+                                    if (!p) return null;
+                                    const b = p.stats?.batting || {};
+                                    return (
+                                      <tr key={id}>
+                                        <td style={{ ...s.boxTd, ...s.boxTdName }}>
+                                          {!isStarter(p) && <span style={s.boxSub}>  </span>}
+                                          {p.person?.fullName}
+                                          <span style={s.boxPos}> {p.position?.abbreviation}</span>
+                                        </td>
+                                        <td style={s.boxTd}>{b.atBats ?? 0}</td>
+                                        <td style={s.boxTd}>{b.runs ?? 0}</td>
+                                        <td style={s.boxTd}>{b.hits ?? 0}</td>
+                                        <td style={s.boxTd}>{b.rbi ?? 0}</td>
+                                        <td style={s.boxTd}>{b.baseOnBalls ?? 0}</td>
+                                        <td style={s.boxTd}>{b.strikeOuts ?? 0}</td>
+                                        <td style={s.boxTd}>{p.seasonStats?.batting?.avg ?? '–'}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                  <tr>
+                                    <td style={{ ...s.boxTd, ...s.boxTdName, ...s.boxTotalRow }}>Totals</td>
+                                    {['atBats', 'runs', 'hits', 'rbi', 'baseOnBalls', 'strikeOuts'].map(k => (
+                                      <td key={k} style={{ ...s.boxTd, ...s.boxTotalRow }}>{team.teamStats?.batting?.[k] ?? 0}</td>
+                                    ))}
+                                    <td style={{ ...s.boxTd, ...s.boxTotalRow }} />
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+
+                            <div style={s.boxScroll}>
+                              <table style={s.boxTable}>
+                                <thead>
+                                  <tr>
+                                    <th style={{ ...s.boxTh, ...s.boxThName }}>Pitching</th>
+                                    {['IP', 'H', 'R', 'ER', 'BB', 'SO', 'HR', 'ERA'].map(h => <th key={h} style={s.boxTh}>{h}</th>)}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(team.pitchers || []).map(id => {
+                                    const p = player(id);
+                                    if (!p) return null;
+                                    const pt = p.stats?.pitching || {};
+                                    return (
+                                      <tr key={id}>
+                                        <td style={{ ...s.boxTd, ...s.boxTdName }}>
+                                          {p.person?.fullName}
+                                          {pt.note && <span style={s.boxPos}> {pt.note}</span>}
+                                        </td>
+                                        <td style={s.boxTd}>{pt.inningsPitched ?? '0.0'}</td>
+                                        <td style={s.boxTd}>{pt.hits ?? 0}</td>
+                                        <td style={s.boxTd}>{pt.runs ?? 0}</td>
+                                        <td style={s.boxTd}>{pt.earnedRuns ?? 0}</td>
+                                        <td style={s.boxTd}>{pt.baseOnBalls ?? 0}</td>
+                                        <td style={s.boxTd}>{pt.strikeOuts ?? 0}</td>
+                                        <td style={s.boxTd}>{pt.homeRuns ?? 0}</td>
+                                        <td style={s.boxTd}>{p.seasonStats?.pitching?.era ?? '–'}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : null}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -2487,6 +2753,162 @@ const s = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  scoreDecisions: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '10px',
+    marginTop: '8px',
+    paddingTop: '8px',
+    borderTop: `1px solid ${colors.border}`,
+    fontSize: '11px',
+    color: colors.textSubtle,
+  },
+  decisionTag: {
+    color: colors.textDim,
+    fontWeight: 700,
+    marginRight: '3px',
+  },
+
+  // ─── Box score modal ───
+  boxOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    background: colors.bgOverlay,
+    zIndex: 9999,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '24px',
+  },
+  boxModal: {
+    background: colors.bgModal,
+    border: `1px solid ${colors.border}`,
+    borderRadius: '14px',
+    width: '100%',
+    maxWidth: '900px',
+    maxHeight: '88vh',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  boxHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '12px',
+    padding: '16px 20px',
+    borderBottom: `1px solid ${colors.border}`,
+    flexShrink: 0,
+  },
+  boxHeaderTeams: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flexWrap: 'wrap',
+  },
+  boxHeaderScore: {
+    fontSize: '18px',
+    fontWeight: 800,
+    color: colors.text,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  boxHeaderAt: {
+    fontSize: '12px',
+    color: colors.textDim,
+  },
+  boxHeaderState: {
+    marginLeft: '8px',
+    fontSize: '11px',
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: colors.textDim,
+  },
+  boxClose: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '32px',
+    height: '32px',
+    flexShrink: 0,
+    border: `1px solid ${colors.border}`,
+    borderRadius: '8px',
+    background: colors.bgInput,
+    color: colors.textMuted,
+    cursor: 'pointer',
+  },
+  boxBody: {
+    padding: '16px 20px 24px',
+    overflowY: 'auto',
+  },
+  boxScroll: {
+    overflowX: 'auto',
+    marginBottom: '16px',
+  },
+  boxTable: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: '12px',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  boxTh: {
+    padding: '6px 8px',
+    textAlign: 'right',
+    fontSize: '10px',
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: colors.textDim,
+    borderBottom: `1px solid ${colors.border}`,
+    whiteSpace: 'nowrap',
+  },
+  boxThName: {
+    textAlign: 'left',
+    width: '100%',
+    minWidth: '180px',
+  },
+  boxThTotal: {
+    color: colors.textMuted,
+  },
+  boxTd: {
+    padding: '5px 8px',
+    textAlign: 'right',
+    color: colors.textMuted,
+    borderBottom: `1px solid ${colors.accentA04}`,
+    whiteSpace: 'nowrap',
+  },
+  boxTdName: {
+    textAlign: 'left',
+    color: colors.text,
+  },
+  boxTdTotal: {
+    color: colors.text,
+    fontWeight: 700,
+  },
+  boxTotalRow: {
+    fontWeight: 700,
+    color: colors.text,
+    borderTop: `1px solid ${colors.border}`,
+  },
+  boxTeamBlock: {
+    marginTop: '24px',
+  },
+  boxTeamName: {
+    fontSize: '14px',
+    fontWeight: 700,
+    color: colors.white,
+    marginBottom: '8px',
+  },
+  boxPos: {
+    color: colors.textDim,
+    fontWeight: 600,
+  },
+  boxSub: {
+    whiteSpace: 'pre',
   },
   scoreProbables: {
     marginTop: '8px',
