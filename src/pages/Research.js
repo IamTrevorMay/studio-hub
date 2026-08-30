@@ -15,8 +15,11 @@ const SECTION_LABELS = { scores: 'Scores', inbox: 'Inbox', briefs: 'Briefs', dai
 
 // Scoreboard refresh while anything is in progress. Triton's /api/scores is a
 // live passthrough of MLB StatsAPI, so a slow poll keeps in-progress games
-// current without hammering it.
+// current without hammering it. Consecutive failures double the gap up to
+// SCORES_POLL_MAX_MS, so an outage doesn't leave every open tab retrying into
+// a struggling backend every 30s.
 const SCORES_POLL_MS = 30000;
+const SCORES_POLL_MAX_MS = 300000;
 
 // Calendar-day arithmetic on a 'YYYY-MM-DD' string. Done in UTC so stepping a
 // day can't drift across a DST boundary the way local-time Date math can.
@@ -51,6 +54,10 @@ export default function Research() {
   const [scoresDate, setScoresDate] = useState(() => ptDayKey(new Date()));
   const [scoresLoading, setScoresLoading] = useState(true);
   const [scoresError, setScoresError] = useState(null);
+  const [scoresFailures, setScoresFailures] = useState(0);
+  // Bumped after every attempt so the poll effect re-runs and schedules the
+  // next one — a self-rescheduling timeout rather than a fixed interval.
+  const [scoresTick, setScoresTick] = useState(0);
 
   // Briefs state
   const [briefs, setBriefs] = useState([]);
@@ -253,7 +260,9 @@ export default function Research() {
     if (!target) return;
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      // No session counts as a failure: the usual cause is auth being
+      // unreachable, which is exactly when backing off matters.
+      if (!session) throw new Error('Not authenticated');
       const res = await fetch(`/api/triton-scores?date=${encodeURIComponent(target)}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
@@ -261,11 +270,14 @@ export default function Research() {
       if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
       setScores(Array.isArray(json.games) ? json.games : []);
       setScoresError(null);
+      setScoresFailures(0);
     } catch (err) {
       console.error('Error fetching scores:', err);
       setScoresError(err.message);
+      setScoresFailures(n => n + 1);
     } finally {
       setScoresLoading(false);
+      setScoresTick(t => t + 1);
     }
   }, []);
 
@@ -699,11 +711,17 @@ export default function Research() {
   // A past date is all Final and a future one is all Preview — neither changes.
   const hasLiveGame = useMemo(() => scores.some(g => g.state !== 'Final'), [scores]);
   useEffect(() => {
-    if (section !== 'scores' || !hasLiveGame) return undefined;
+    if (section !== 'scores') return undefined;
     if (scoresDate !== ptDayKey(new Date())) return undefined;
-    const id = setInterval(fetchScores, SCORES_POLL_MS);
-    return () => clearInterval(id);
-  }, [section, hasLiveGame, scoresDate, fetchScores]);
+    // Keep retrying while a game is unfinished, or while the last attempt
+    // failed — otherwise a failed first load leaves an empty board that never
+    // recovers, since hasLiveGame is derived from games we never received.
+    if (!hasLiveGame && !scoresError) return undefined;
+    const delay = Math.min(SCORES_POLL_MS * 2 ** scoresFailures, SCORES_POLL_MAX_MS);
+    const id = setTimeout(fetchScores, delay);
+    return () => clearTimeout(id);
+    // scoresTick re-runs this after each attempt to queue the next one.
+  }, [section, hasLiveGame, scoresError, scoresDate, scoresFailures, scoresTick, fetchScores]);
 
   function openItem(item, type) {
     setSelectedItem({ ...item, _type: type });
