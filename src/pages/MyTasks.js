@@ -803,6 +803,11 @@ export default function MyTasks({ onNavigate, embedded = false }) {
           const isOnHold = task.status === 'on_hold';
           const isReviewProposal = task.step_key === 'review_proposal';
           const isConfirmAutomation = task.step_key === 'confirm_automation';
+          // Overtime approvals are a decision, not a chore: completing one
+          // approves the pay window (fl_overtime_task_completed) and declining
+          // it denies the window (fl_overtime_task_declined), so the buttons
+          // say what they do rather than the generic Complete/Decline.
+          const isConfirmOvertime = task.related_entity_type === 'overtime_approval';
           const isWriteAdRead = action.type === 'write_ad_read';
           const isBackgroundResearch = task.step_key === 'background_research';
           const isResearchScope = task.step_key === 'research_scope' && !task.workflow_instance_id;
@@ -979,7 +984,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                     >
                       {isBackgroundResearch ? 'Start the Research' : (task.link_url ? 'Go To Work' : action.label)}
                     </button>
-                ) : !isReviewProposal && task.nav_target && onNavigate && (
+                ) : !isReviewProposal && !isConfirmOvertime && task.nav_target && onNavigate && (
                     <button
                       style={styles.primaryBtn}
                       onClick={() => onNavigate(task.nav_target)}
@@ -1058,6 +1063,28 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                   </>
                 )}
 
+                {/* Approve / Deny for an overtime pay window. Deny still writes
+                    status='declined' — that's what fl_overtime_task_declined
+                    fires on — the label just reads as the decision it is. */}
+                {isConfirmOvertime && !isOnHold && (
+                  <>
+                    <button
+                      style={{ ...styles.acceptBtn, marginLeft: 'auto', opacity: isCompleting ? 0.6 : 1 }}
+                      onClick={() => handlePrimaryAction(task)}
+                      disabled={isCompleting}
+                    >
+                      {isCompleting ? 'Approving…' : 'Approve'}
+                    </button>
+                    <button
+                      style={{ ...styles.declineBtn, opacity: isCompleting ? 0.6 : 1 }}
+                      onClick={() => setDeclineModalTask(task)}
+                      disabled={isCompleting}
+                    >
+                      Deny
+                    </button>
+                  </>
+                )}
+
                 {/* Go to Deliverables — pinned right */}
                 {isWriteAdRead && !isOnHold && (
                   <button
@@ -1075,7 +1102,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
               {/* Bottom row: Complete + Decline left, Hold + Snooze right */}
               <div style={styles.cardBottomRow}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {!isOnHold && !isReviewProposal && !isConfirmAutomation && !isResearchScope && action.type !== 'auto' && (
+                  {!isOnHold && !isReviewProposal && !isConfirmAutomation && !isConfirmOvertime && !isResearchScope && action.type !== 'auto' && (
                     <button
                       style={styles.primaryBtn}
                       onClick={() => handlePrimaryAction(task)}
@@ -1084,7 +1111,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                       {isCompleting ? 'Working...' : 'Complete'}
                     </button>
                   )}
-                  {!isReviewProposal && !isConfirmAutomation && !isResearchScope && action.type !== 'auto' && (
+                  {!isReviewProposal && !isConfirmAutomation && !isConfirmOvertime && !isResearchScope && action.type !== 'auto' && (
                     <button
                       style={{ ...styles.declineBtn, padding: '7px 16px', fontSize: 13 }}
                       onClick={() => setDeclineModalTask(task)}
@@ -1262,8 +1289,18 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       {declineModalTask && (
         <div style={styles.modalOverlay} {...backdropDismiss(() => { setDeclineModalTask(null); setDeclineReason(''); })}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>Decline this task?</h3>
+            <h3 style={styles.modalTitle}>
+              {declineModalTask.related_entity_type === 'overtime_approval'
+                ? 'Deny this overtime?'
+                : 'Decline this task?'}
+            </h3>
             <p style={styles.modalSubtitle}>{declineModalTask.title}</p>
+            {declineModalTask.related_entity_type === 'overtime_approval' && (
+              <p style={styles.modalSubtitle}>
+                Every hour in this window stays at the normal rate, and this clears the
+                approval from the other admins' queues.
+              </p>
+            )}
             <textarea
               style={styles.holdInput}
               placeholder="Reason (optional) — sent to the admins"
@@ -1283,7 +1320,9 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                 style={{ ...styles.primaryBtn, background: '#ef4444' }}
                 onClick={handleDeclineSubmit}
               >
-                Decline Task
+                {declineModalTask.related_entity_type === 'overtime_approval'
+                  ? 'Deny Overtime'
+                  : 'Decline Task'}
               </button>
             </div>
           </div>
