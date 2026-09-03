@@ -33,6 +33,11 @@ const CATEGORY_OPTIONS = [
   { value: 'social', label: 'Social', color: '#06b6d4' },
 ];
 
+// Retired taxonomy options. The rows stay in user_task_options so existing
+// task badges still resolve — they're just no longer offered in the task modal.
+const HIDDEN_CATEGORY_VALUES = new Set(['personal', 'software_dev']);
+const HIDDEN_BUCKET_VALUES = new Set(['mayday', 'neptune', 'general']);
+
 const SUBCATEGORY_OPTIONS = [
   { value: 'task', label: 'Task' },
   { value: 'idea', label: 'Idea' },
@@ -815,11 +820,13 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
     return data.value;
   }, [profile?.id, userOptions.bucket.length]);
 
-  const categoryOptions = [...CATEGORY_OPTIONS, ...userOptions.category];
+  const categoryOptions = [...CATEGORY_OPTIONS, ...userOptions.category]
+    .filter(o => !HIDDEN_CATEGORY_VALUES.has(o.value));
   const subcategoryOptions = [...SUBCATEGORY_OPTIONS, ...userOptions.subcategory];
-  const bucketOptions = userOptions.bucket;
+  const bucketOptions = userOptions.bucket.filter(o => !HIDDEN_BUCKET_VALUES.has(o.value));
   const bucketMap = {};
-  bucketOptions.forEach(b => { bucketMap[b.value] = { label: b.label, color: b.color }; });
+  // Built from the unfiltered list so cards tagged with a retired bucket keep their badge.
+  userOptions.bucket.forEach(b => { bucketMap[b.value] = { label: b.label, color: b.color }; });
 
   useEffect(() => { if (profile?.id) fetchTasks(); }, [profile?.id, fetchTasks, sprintVersion]);
   useEffect(() => { fetchSprintForWeek(); }, [fetchSprintForWeek]);
