@@ -34,6 +34,10 @@ import {
   errorResponse,
 } from "../shared/utils.ts";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 const SC_BASE = "https://api.simplecast.com";
 const RECENT_DAYS = 35; // window for daily metrics + per-episode download fetches
 
@@ -64,7 +68,7 @@ Deno.serve(async (req) => {
         if (!_u) return errorResponse("Unauthorized", 401);
         const { data: _profile } = await _adminClient
           .from("profiles").select("role").eq("id", _u.id).single();
-        if (_profile?.role !== "admin") return errorResponse("Forbidden", 403);
+        if (!ADMIN_TIER.includes(_profile?.role)) return errorResponse("Forbidden", 403);
       }
     }
 

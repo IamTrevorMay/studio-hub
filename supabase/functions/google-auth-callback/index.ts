@@ -2,6 +2,10 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { verifyState } from "../shared/oauth-state.ts";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -39,7 +43,7 @@ Deno.serve(async (req: Request) => {
       );
       const { data: prof } = await roleClient
         .from("profiles").select("role").eq("id", userId).single();
-      if (prof?.role !== "admin") throw new Error("Admin required");
+      if (!ADMIN_TIER.includes(prof?.role)) throw new Error("Admin required");
     }
 
     const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;

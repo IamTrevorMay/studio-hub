@@ -11,6 +11,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 const STAGES = ["queue", "research", "write", "pre_production", "film", "review", "edit", "post_production", "publish"] as const;
 type Stage = typeof STAGES[number];
 const BACKLOG_STAGE = "backlog" as const;
@@ -248,13 +252,13 @@ Deno.serve(async (req: Request) => {
   }
 
   // Permission: forward = admin or assignee of current stage; backward + backlog ops = admin only.
-  if (isBackward && caller.role !== "admin") {
+  if (isBackward && !ADMIN_TIER.includes(caller.role)) {
     return jsonResp({ error: "Only admins can move a card backward" }, 403);
   }
-  if ((targetStage === BACKLOG_STAGE || currentStage === BACKLOG_STAGE) && caller.role !== "admin") {
+  if ((targetStage === BACKLOG_STAGE || currentStage === BACKLOG_STAGE) && !ADMIN_TIER.includes(caller.role)) {
     return jsonResp({ error: "Only admins can move cards in or out of Backlog" }, 403);
   }
-  if (!isBackward && caller.role !== "admin") {
+  if (!isBackward && !ADMIN_TIER.includes(caller.role)) {
     const { data: assigned } = await admin
       .from("project_stage_assignments")
       .select("user_id")

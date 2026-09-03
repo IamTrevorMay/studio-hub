@@ -7,6 +7,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { getSupabaseAdmin, jsonResponse, errorResponse } from "../shared/utils.ts";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 
 // Platforms that support historical re-sync via date parameter
@@ -50,7 +54,7 @@ Deno.serve(async (req: Request) => {
     if (!user) return errorResponse("Unauthorized", 401);
     const { data: profile } = await supabase
       .from("profiles").select("role").eq("id", user.id).single();
-    if (profile?.role !== "admin") return errorResponse("Forbidden", 403);
+    if (!ADMIN_TIER.includes(profile?.role)) return errorResponse("Forbidden", 403);
   }
 
   const supabase = getSupabaseAdmin();

@@ -10,6 +10,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -55,7 +59,7 @@ Deno.serve(async (req: Request) => {
 
   const caller = await getCaller(req);
   if (!caller) return jsonResp({ error: "Unauthorized" }, 401);
-  if (caller.role !== "admin") return jsonResp({ error: "Admin only" }, 403);
+  if (!ADMIN_TIER.includes(caller.role)) return jsonResp({ error: "Admin only" }, 403);
 
   let body: { project_id?: string; action?: string; reason?: string };
   try { body = await req.json(); } catch { return jsonResp({ error: "Invalid JSON" }, 400); }

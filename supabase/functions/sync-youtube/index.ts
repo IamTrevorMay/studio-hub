@@ -12,6 +12,10 @@ import {
 } from "./shared/utils.ts";
 import { parseDuration } from "./parseDuration.ts";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 const YT_API_BASE = "https://www.googleapis.com/youtube/v3";
 
 // Pacific-time helpers. The server runs UTC; daily snapshots/metrics and
@@ -220,7 +224,7 @@ serve(async (req) => {
         if (!_u) return errorResponse("Unauthorized", 401);
         const { data: _profile } = await _adminClient
           .from("profiles").select("role").eq("id", _u.id).single();
-        if (_profile?.role !== "admin") return errorResponse("Forbidden", 403);
+        if (!ADMIN_TIER.includes(_profile?.role)) return errorResponse("Forbidden", 403);
       }
     }
 

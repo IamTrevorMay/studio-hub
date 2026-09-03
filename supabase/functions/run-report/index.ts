@@ -16,6 +16,10 @@ import {
   type SourceResult,
 } from "../shared/report-sources.ts";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 function ptDayString(d: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
@@ -508,7 +512,7 @@ Deno.serve(async (req: Request) => {
       if (user) {
         const { data: profile } = await userClient
           .from("profiles").select("role").eq("id", user.id).single();
-        if (profile?.role === "admin") authenticated = true;
+        if (ADMIN_TIER.includes(profile?.role)) authenticated = true;
       }
     } catch {}
   }

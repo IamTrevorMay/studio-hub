@@ -3,6 +3,11 @@ import { checkRateLimit } from "./utils.ts";
 
 export type AuthMode = "cron" | "jwt" | "admin_jwt" | "cron_or_admin_jwt" | "public";
 
+// "admin_jwt" means the admin tier (admin + director), matching the DB
+// is_admin() helper and the client-side isAdminTier. Directors are held back
+// from payroll/accounting/workflows in the UI only, never at this layer.
+const ADMIN_TIER = ["admin", "director"];
+
 export interface HandlerContext {
   req: Request;
   admin: ReturnType<typeof createClient>;
@@ -108,7 +113,7 @@ export function createHandler(
             .select("role")
             .eq("id", u.id)
             .single();
-          if (p?.role !== "admin") {
+          if (!ADMIN_TIER.includes(p?.role)) {
             return jsonRes({ error: "Forbidden" }, 403);
           }
           profile = p;
@@ -133,7 +138,7 @@ export function createHandler(
             .select("role")
             .eq("id", u.id)
             .single();
-          if (p?.role !== "admin") {
+          if (!ADMIN_TIER.includes(p?.role)) {
             return jsonRes({ error: "Forbidden" }, 403);
           }
           profile = p;

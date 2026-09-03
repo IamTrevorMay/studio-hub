@@ -18,6 +18,10 @@ import {
   numberedName,
 } from "../shared/progress-drive.ts";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -60,7 +64,7 @@ Deno.serve(async (req: Request) => {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (profile?.role !== "admin") return jsonResp({ error: "Forbidden" }, 403);
+  if (!ADMIN_TIER.includes(profile?.role)) return jsonResp({ error: "Forbidden" }, 403);
 
   // ── Validate body ─────────────────────────────────────────────
   let body: { column?: string; orderedIds?: unknown };

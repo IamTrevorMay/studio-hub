@@ -20,6 +20,10 @@ import {
   errorResponse,
 } from "../shared/utils.ts";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 function ptDayString(d: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
@@ -50,7 +54,7 @@ Deno.serve(async (req: Request) => {
     if (!user) return errorResponse("Unauthorized", 401);
     const { data: profile } = await supabase
       .from("profiles").select("role").eq("id", user.id).single();
-    if (profile?.role !== "admin") return errorResponse("Forbidden", 403);
+    if (!ADMIN_TIER.includes(profile?.role)) return errorResponse("Forbidden", 403);
   }
 
   const supabase = getSupabaseAdmin();

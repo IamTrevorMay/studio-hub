@@ -6,6 +6,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 const API_BASE = "https://api.fourthwall.com/open-api/v1.0";
 const PAGE_SIZE = 50;
 
@@ -67,7 +71,7 @@ Deno.serve(async (req: Request) => {
       if (!_u) return jsonResponse({ error: "Unauthorized" }, 401);
       const { data: _profile } = await _adminClient
         .from("profiles").select("role").eq("id", _u.id).single();
-      if (_profile?.role !== "admin") return jsonResponse({ error: "Forbidden" }, 403);
+      if (!ADMIN_TIER.includes(_profile?.role)) return jsonResponse({ error: "Forbidden" }, 403);
     }
   }
 

@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 const GRAPH_API = "https://graph.facebook.com/v19.0";
 
 const corsHeaders = {
@@ -56,7 +60,7 @@ Deno.serve(async (req: Request) => {
         .select("role")
         .eq("id", user.id)
         .single();
-      if (profile?.role !== "admin") {
+      if (!ADMIN_TIER.includes(profile?.role)) {
         return jsonRes({ error: "Admin only" }, 403);
       }
     } else {

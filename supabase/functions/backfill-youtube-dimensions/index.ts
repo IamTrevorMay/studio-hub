@@ -2,6 +2,10 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSupabaseAdmin, getActiveAccounts, fetchWithRetry, jsonResponse, errorResponse } from "./shared/utils.ts";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 const YT_API_BASE = "https://www.googleapis.com/youtube/v3";
 const YT_ANALYTICS_API = "https://youtubeanalytics.googleapis.com/v2/reports";
 const CHANNEL_TOKEN_MAP: Record<string, string> = { "More Mayday": "YOUTUBE_REFRESH_TOKEN_MAYDAY" };
@@ -240,7 +244,7 @@ serve(async (req) => {
         if (!_u) return errorResponse("Unauthorized", 401);
         const { data: _profile } = await _adminClient
           .from("profiles").select("role").eq("id", _u.id).single();
-        if (_profile?.role !== "admin") return errorResponse("Forbidden", 403);
+        if (!ADMIN_TIER.includes(_profile?.role)) return errorResponse("Forbidden", 403);
       }
     }
 

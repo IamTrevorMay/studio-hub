@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Admin tier = admin + director (mirrors the DB is_admin() helper and the
+// client-side isAdminTier). Directors are restricted in the UI, not here.
+const ADMIN_TIER = ["admin", "director"];
+
 // ── google-calendar-pull ──────────────────────────────────────────────────────
 // Reverse of google-calendar-sync. Reads the mapped Google calendars and applies
 // changes back onto calendar_events. Rows Studio pushed are updated/deleted in
@@ -435,7 +439,7 @@ Deno.serve(async (req: Request) => {
       }
       const { data: profile } = await admin
         .from("profiles").select("role").eq("id", user.id).single();
-      if (profile?.role !== "admin") {
+      if (!ADMIN_TIER.includes(profile?.role)) {
         return new Response(JSON.stringify({ error: "Admin only" }), {
           status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
