@@ -131,6 +131,9 @@ serve(async (req) => {
         youtubeType: post.youtubeData?.type || null,
         instagramType: post.instagramData?.type || null,
         facebookType: post.facebookData?.type || null,
+        // Metricool has no CAROUSEL type — a carousel is a POST with more than
+        // one media item, so callers need the count to tell them apart.
+        mediaCount: Array.isArray(post.media) ? post.media.length : 0,
         draft: post.draft,
         creatorEmail: post.creatorUserMail,
       };

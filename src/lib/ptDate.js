@@ -52,3 +52,24 @@ export function ptMonthKey(isoOrDate) {
 export function ptDayKey(isoOrDate) {
   return PT_DAY_FMT.format(new Date(isoOrDate));
 }
+
+// 'YYYY-MM-DD' of the Monday starting the PT week that contains this instant.
+// Monday–Sunday matches getSprintWeek() in SprintBoard, so weekly goals and
+// sprints share a week boundary. Arithmetic runs in UTC on the already-
+// resolved PT calendar day so it can't drift back across the timezone.
+export function ptWeekStartKey(isoOrDate) {
+  const [y, m, d] = ptDayKey(isoOrDate).split('-').map(Number);
+  const t = Date.UTC(y, m - 1, d);
+  const dow = new Date(t).getUTCDay(); // 0=Sun
+  return new Date(t - (dow === 0 ? 6 : dow - 1) * 86400000).toISOString().slice(0, 10);
+}
+
+// The Monday-start keys for the last `count` PT weeks, oldest first,
+// ending with the current week.
+export function recentWeekStarts(count, now = new Date()) {
+  const current = ptWeekStartKey(now);
+  const [y, m, d] = current.split('-').map(Number);
+  const currentMs = Date.UTC(y, m - 1, d);
+  return Array.from({ length: count }, (_, i) =>
+    new Date(currentMs - (count - 1 - i) * 7 * 86400000).toISOString().slice(0, 10));
+}

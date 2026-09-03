@@ -9,7 +9,11 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
-import { ptDateToUtcISO, ptMonthKey } from '../lib/ptDate';
+import { ptDateToUtcISO, ptMonthKey, ptWeekStartKey, recentWeekStarts } from '../lib/ptDate';
+import {
+  POST_TYPE_OPTIONS, POST_TYPE_MAP, needsAccountPicker, impliedAccountIds,
+  youtubeTypeOf, metricoolPostMatches,
+} from '../lib/postTypes';
 import { colors } from '../lib/styleTokens';
 
 // ─── Constants + helpers (mirrored from Goals.js so this stays standalone) ─
@@ -40,6 +44,12 @@ const METRIC_OPTIONS = [
 
 const EMPTY_GOAL = { title: '', current_value: '', target_value: '', category: 'yearly', goal_type: 'manual', metrics: [], platform_account_ids: [] };
 const EMPTY_MONTHLY = { title: '', content_type_filter: 'video', target_value: '', platform_account_ids: [] };
+// Weekly goals are recurring post-count goals: the row holds the per-week
+// target and the post types, and progress is recomputed for the live week.
+const EMPTY_WEEKLY = { title: '', target_value: '', metrics: [], platform_account_ids: [] };
+
+// How many past weeks the hit/miss strip on a weekly card shows.
+const WEEK_HISTORY = 8;
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -93,6 +103,52 @@ function monthlyExpectedFraction() {
   return Math.min(1, Math.max(0, (now.getTime() - startMs) / (endMs - startMs)));
 }
 
+// Fraction of the current Mon–Sun PT week that has elapsed, for the pace marker.
+function weeklyExpectedFraction() {
+  // ptDateToUtcISO is DST-aware; a hardcoded -08:00 would be an hour off
+  // for the ~8 months of PDT.
+  const startMs = Date.parse(ptDateToUtcISO(ptWeekStartKey(new Date())));
+  const elapsed = (Date.now() - startMs) / (7 * 86400000);
+  return Math.min(1, Math.max(0, elapsed));
+}
+
+// Label like "Sep 1–7" for a Monday-start week key.
+function weekRangeLabel(weekKey) {
+  const [y, m, d] = weekKey.split('-').map(Number);
+  const start = new Date(Date.UTC(y, m - 1, d));
+  const end = new Date(Date.UTC(y, m - 1, d + 6));
+  const fmt = (dt, withMonth) => (withMonth
+    ? `${dt.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })} ${dt.getUTCDate()}`
+    : String(dt.getUTCDate()));
+  return `${fmt(start, true)}–${fmt(end, start.getUTCMonth() !== end.getUTCMonth())}`;
+}
+
+// Count posts into buckets keyed by `keyFn(publishedAt)`. Metricool covers the
+// IG/TikTok/FB types; content_items covers the two YouTube ones.
+function countPostsByPeriod({ mcPosts, ciItems, types, ytAccountIds, keyFn }) {
+  const out = {};
+  const bump = (k) => { if (k) out[k] = (out[k] || 0) + 1; };
+  const selected = (types || []).map(t => POST_TYPE_MAP[t]).filter(Boolean);
+  const mcTypes = selected.filter(o => o.source === 'metricool').map(o => o.key);
+  const ytTypes = selected.filter(o => o.source === 'content_items').map(o => o.key);
+
+  if (mcTypes.length) {
+    for (const p of (mcPosts || [])) {
+      if (!p.publicationDate) continue;
+      if (mcTypes.some(t => metricoolPostMatches(p, t))) bump(keyFn(p.publicationDate));
+    }
+  }
+  if (ytTypes.length) {
+    const idSet = new Set(ytAccountIds || []);
+    for (const item of (ciItems || [])) {
+      if (idSet.size && !idSet.has(item.platform_account_id)) continue;
+      if (!ytTypes.includes(youtubeTypeOf(item))) continue;
+      bump(keyFn(item.published_at));
+    }
+  }
+  return out;
+}
+
 // ─── Section ──────────────────────────────────────────────────
 
 export default function YearlyGoalsSection() {
@@ -100,11 +156,16 @@ export default function YearlyGoalsSection() {
   const confirm = useConfirm();
 
   const [goals, setGoals] = useState([]);              // yearly only
+  const [weeklyGoals, setWeeklyGoals] = useState([]);
   const [monthlyGoals, setMonthlyGoals] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [rollupData, setRollupData] = useState({});
   const [velocityData, setVelocityData] = useState({});
   const [monthlyProgress, setMonthlyProgress] = useState({});
+  // { goalId: { 'YYYY-MM-DD' (week start): count } }
+  const [weeklyProgress, setWeeklyProgress] = useState({});
+  // { goalId: count } — year-to-date totals for yearly post_count goals
+  const [postCountTotals, setPostCountTotals] = useState({});
   const [loading, setLoading] = useState(true);
 
   // Goal form
@@ -118,6 +179,11 @@ export default function YearlyGoalsSection() {
   const [showMonthlyForm, setShowMonthlyForm] = useState(null);
   const [editingMonthlyId, setEditingMonthlyId] = useState(null);
   const [monthlyForm, setMonthlyForm] = useState(EMPTY_MONTHLY);
+
+  // Weekly form (top-level section, no parent)
+  const [showWeeklyForm, setShowWeeklyForm] = useState(false);
+  const [editingWeeklyId, setEditingWeeklyId] = useState(null);
+  const [weeklyForm, setWeeklyForm] = useState(EMPTY_WEEKLY);
 
   // Collapse state for each yearly card's monthly grid. Default expanded.
   const [collapsedMonthly, setCollapsedMonthly] = useState({});
@@ -140,16 +206,19 @@ export default function YearlyGoalsSection() {
     setLoading(true);
     try {
       const [goalsRes, acctRes, monthlyRes] = await Promise.all([
-        supabase.from('goals').select('*').eq('scope', 'content').eq('category', 'yearly').order('created_at', { ascending: false }),
+        supabase.from('goals').select('*').eq('scope', 'content').in('category', ['yearly', 'weekly']).order('created_at', { ascending: false }),
         supabase.from('platform_accounts').select('*').eq('is_active', true).order('platform'),
         supabase.from('monthly_goals').select('*').eq('scope', 'content').order('created_at'),
       ]);
       if (goalsRes.error) throw goalsRes.error;
 
-      const goalsData = goalsRes.data || [];
+      const allGoals = goalsRes.data || [];
+      const goalsData = allGoals.filter(g => g.category === 'yearly');
+      const weeklyData = allGoals.filter(g => g.category === 'weekly');
       const monthlyData = monthlyRes.data || [];
       const acctData = acctRes.data || [];
       setGoals(goalsData);
+      setWeeklyGoals(weeklyData);
       setMonthlyGoals(monthlyData);
       setAccounts(acctData);
 
@@ -159,9 +228,14 @@ export default function YearlyGoalsSection() {
         if (rollup) await fetchVelocityData(metricGoals, rollup);
       }
 
-      if (monthlyData.length > 0) {
-        await fetchMonthlyProgress(monthlyData, acctData);
+      // Legacy YouTube-based monthlies keep their original counting path;
+      // the Metricool-typed ones are handled by fetchPostCountProgress.
+      const legacyMonthly = monthlyData.filter(mg => ['video', 'short'].includes(mg.content_type_filter));
+      if (legacyMonthly.length > 0) {
+        await fetchMonthlyProgress(legacyMonthly, acctData);
       }
+
+      await fetchPostCountProgress(weeklyData, goalsData, monthlyData);
     } catch (err) {
       console.error('YearlyGoalsSection fetch error:', err);
     } finally {
@@ -240,6 +314,112 @@ export default function YearlyGoalsSection() {
       result[goal.id] = { last10: sumLast, prev10: sumPrev, paceNeeded10 };
     }
     setVelocityData(result);
+  }
+
+  // Post-count progress for all three tiers off one pair of fetches.
+  //
+  // Weekly goals need the last WEEK_HISTORY weeks, which in early January
+  // reaches back into last year, so the window is the earlier of Jan 1 and the
+  // oldest week start. Metricool is a live call (no per-post rows are stored
+  // anywhere), and YouTube comes from content_items.
+  async function fetchPostCountProgress(wGoals, yGoals, mGoals) {
+    const yearlyPostGoals = (yGoals || []).filter(g => g.goal_type === 'post_count');
+    // Monthly goals on one of the five Metricool types. Legacy 'video'/'short'
+    // monthlies keep their original code path in fetchMonthlyProgress.
+    const monthlyPostGoals = (mGoals || []).filter(mg => !['video', 'short'].includes(mg.content_type_filter));
+    const weekly = wGoals || [];
+
+    if (!weekly.length && !yearlyPostGoals.length && !monthlyPostGoals.length) {
+      setWeeklyProgress({});
+      setPostCountTotals({});
+      return;
+    }
+
+    const weekKeys = recentWeekStarts(WEEK_HISTORY);
+    const now = new Date();
+    const yearStart = `${now.getFullYear()}-01-01`;
+    const windowStart = weekly.length && weekKeys[0] < yearStart ? weekKeys[0] : yearStart;
+    const todayKey = now.toISOString().split('T')[0];
+
+    // Which sources are actually needed?
+    const allTypes = new Set([
+      ...weekly.flatMap(g => g.metrics || []),
+      ...yearlyPostGoals.flatMap(g => g.metrics || []),
+      ...monthlyPostGoals.map(mg => mg.content_type_filter),
+    ]);
+    const needsMetricool = [...allTypes].some(t => POST_TYPE_MAP[t]?.source === 'metricool');
+    const needsYouTube = [...allTypes].some(t => POST_TYPE_MAP[t]?.source === 'content_items');
+
+    let mcPosts = [];
+    let ciItems = [];
+
+    if (needsMetricool) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(
+          `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/metricool-posts?start=${windowStart}&end=${todayKey}`,
+          { headers: { Authorization: `Bearer ${session?.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY } },
+        );
+        if (res.ok) {
+          const json = await res.json();
+          mcPosts = json.posts || [];
+        } else {
+          console.error('metricool-posts returned', res.status);
+        }
+      } catch (err) {
+        console.error('post-count metricool fetch:', err);
+      }
+    }
+
+    if (needsYouTube) {
+      const { data, error } = await supabase
+        .from('content_items')
+        .select('id, content_type, platform_account_id, published_at, duration_seconds')
+        .gte('published_at', ptDateToUtcISO(windowStart))
+        .lt('published_at', ptDateToUtcISO(todayKey, true));
+      if (error) console.error('post-count content_items fetch:', error);
+      ciItems = data || [];
+    }
+
+    // Weekly: bucket by Monday-start week key.
+    const weekResult = {};
+    for (const g of weekly) {
+      weekResult[g.id] = countPostsByPeriod({
+        mcPosts, ciItems,
+        types: g.metrics || [],
+        ytAccountIds: g.platform_account_ids || [],
+        keyFn: ptWeekStartKey,
+      });
+    }
+    setWeeklyProgress(weekResult);
+
+    // Yearly post_count: single year-to-date total.
+    const totals = {};
+    for (const g of yearlyPostGoals) {
+      const buckets = countPostsByPeriod({
+        mcPosts, ciItems,
+        types: g.metrics || [],
+        ytAccountIds: g.platform_account_ids || [],
+        keyFn: (d) => (ptMonthKey(d).startsWith(String(now.getFullYear())) ? 'total' : null),
+      });
+      totals[g.id] = buckets.total || 0;
+    }
+    setPostCountTotals(totals);
+
+    // Monthly on a Metricool type: bucket by PT month, merged into the same
+    // shape fetchMonthlyProgress produces so MonthlyGoalCard needs no changes.
+    if (monthlyPostGoals.length) {
+      const monthResult = {};
+      for (const mg of monthlyPostGoals) {
+        monthResult[mg.id] = countPostsByPeriod({
+          mcPosts, ciItems,
+          types: [mg.content_type_filter],
+          ytAccountIds: mg.platform_account_ids || [],
+          keyFn: ptMonthKey,
+        });
+      }
+      setMonthlyProgress(prev => ({ ...prev, ...monthResult }));
+    }
   }
 
   async function fetchMonthlyProgress(mGoals, accts) {
@@ -339,23 +519,40 @@ export default function YearlyGoalsSection() {
     const title = goalForm.title.trim();
     if (!title) return;
     const isMetric = goalForm.goal_type === 'metric';
+    const isPostCount = goalForm.goal_type === 'post_count';
+    const auto = isMetric || isPostCount;
     const target_value = parseFloat(goalForm.target_value) || 1;
-    const current_value = isMetric ? 0 : (parseFloat(goalForm.current_value) || 0);
+    const current_value = auto ? 0 : (parseFloat(goalForm.current_value) || 0);
     const storedTarget = isMetric && goalForm.metrics.length === 1
       ? formatTargetForMetric(goalForm.metrics[0], target_value)
       : target_value;
+    // Post-count goals resolve their own accounts from the selected types;
+    // only the two YouTube types need an explicit channel choice.
+    const accountIds = isPostCount
+      ? [...new Set([
+          ...impliedAccountIds(goalForm.metrics, accounts),
+          ...(needsAccountPicker(goalForm.metrics) ? (goalForm.platform_account_ids || []) : []),
+        ])]
+      : goalForm.platform_account_ids;
     const payload = {
       title,
-      current_value: isMetric ? 0 : current_value,
+      current_value,
       target_value: storedTarget,
       category: 'yearly',
       goal_type: goalForm.goal_type,
-      metrics: isMetric ? goalForm.metrics : [],
-      platform_account_ids: isMetric ? goalForm.platform_account_ids : [],
+      metrics: auto ? goalForm.metrics : [],
+      platform_account_ids: auto ? accountIds : [],
     };
     if (isMetric && (!payload.metrics.length || !payload.platform_account_ids.length)) {
       alert('Please select at least one metric and one platform.');
       return;
+    }
+    if (isPostCount) {
+      if (!payload.metrics.length) { alert('Please select at least one post type.'); return; }
+      if (needsAccountPicker(goalForm.metrics) && !(goalForm.platform_account_ids || []).length) {
+        alert('Please pick which YouTube channel to count.');
+        return;
+      }
     }
     if (editingGoalId) {
       const { error } = await supabase.from('goals').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingGoalId);
@@ -369,6 +566,68 @@ export default function YearlyGoalsSection() {
   }
   async function handleDeleteGoal(id) {
     if (!(await confirm('Delete this goal?'))) return;
+    await supabase.from('goals').delete().eq('id', id);
+    fetchAll();
+  }
+
+  // ── Weekly goal CRUD ──
+  // Weekly goals are `goals` rows with category='weekly' and
+  // goal_type='post_count'. They recur: no week is stored on the row.
+
+  function openCreateWeekly() {
+    setEditingWeeklyId(null);
+    setWeeklyForm({ ...EMPTY_WEEKLY });
+    setShowWeeklyForm(true);
+  }
+  function openEditWeekly(g) {
+    setEditingWeeklyId(g.id);
+    setWeeklyForm({
+      title: g.title,
+      target_value: String(g.target_value),
+      metrics: g.metrics || [],
+      platform_account_ids: g.platform_account_ids || [],
+    });
+    setShowWeeklyForm(true);
+  }
+  function cancelWeeklyForm() {
+    setShowWeeklyForm(false);
+    setEditingWeeklyId(null);
+    setWeeklyForm({ ...EMPTY_WEEKLY });
+  }
+  async function handleWeeklySubmit(e) {
+    e.preventDefault();
+    const title = weeklyForm.title.trim();
+    if (!title) return;
+    if (!(weeklyForm.metrics || []).length) { alert('Please select at least one post type.'); return; }
+    if (needsAccountPicker(weeklyForm.metrics) && !(weeklyForm.platform_account_ids || []).length) {
+      alert('Please pick which YouTube channel to count.');
+      return;
+    }
+    const accountIds = [...new Set([
+      ...impliedAccountIds(weeklyForm.metrics, accounts),
+      ...(needsAccountPicker(weeklyForm.metrics) ? (weeklyForm.platform_account_ids || []) : []),
+    ])];
+    const payload = {
+      title,
+      current_value: 0,
+      target_value: parseInt(weeklyForm.target_value, 10) || 1,
+      category: 'weekly',
+      goal_type: 'post_count',
+      metrics: weeklyForm.metrics,
+      platform_account_ids: accountIds,
+    };
+    if (editingWeeklyId) {
+      const { error } = await supabase.from('goals').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingWeeklyId);
+      if (error) { alert('Error: ' + error.message); return; }
+    } else {
+      const { error } = await supabase.from('goals').insert({ ...payload, created_by: profile.id });
+      if (error) { alert('Error: ' + error.message); return; }
+    }
+    cancelWeeklyForm();
+    fetchAll();
+  }
+  async function handleDeleteWeekly(id) {
+    if (!(await confirm('Delete this weekly goal?'))) return;
     await supabase.from('goals').delete().eq('id', id);
     fetchAll();
   }
@@ -453,9 +712,72 @@ export default function YearlyGoalsSection() {
       : { ...prev, platform_account_ids: [...cur, id] };
   });
 
+  // Post-type toggles. No cap here — unlike engagement metrics, counts of
+  // different post types share a unit, so summing them is meaningful.
+  const togglePostType = (setter) => (key) => setter(prev => {
+    const cur = prev.metrics || [];
+    return cur.includes(key)
+      ? { ...prev, metrics: cur.filter(m => m !== key) }
+      : { ...prev, metrics: [...cur, key] };
+  });
+  const toggleGoalPostType = togglePostType(setGoalForm);
+  const toggleWeeklyPostType = togglePostType(setWeeklyForm);
+  const toggleWeeklyPlatform = (id) => setWeeklyForm(prev => {
+    const cur = prev.platform_account_ids || [];
+    return cur.includes(id)
+      ? { ...prev, platform_account_ids: cur.filter(a => a !== id) }
+      : { ...prev, platform_account_ids: [...cur, id] };
+  });
+
+  // Shared renderer for the post-type chip row + the YouTube-only channel
+  // picker. The five Metricool types resolve their account automatically, so
+  // the picker only appears once a YouTube type is selected.
+  const renderPostTypeFields = (form, onToggleType, onTogglePlatform) => (
+    <>
+      <div>
+        <div style={styles.formSubLabel}>Count which posts</div>
+        <div style={styles.chipRow}>
+          {POST_TYPE_OPTIONS.map(o => {
+            const selected = (form.metrics || []).includes(o.key);
+            return (
+              <button key={o.key} type="button" onClick={() => onToggleType(o.key)}
+                style={{
+                  ...styles.chip,
+                  ...(selected ? { background: o.color + '22', borderColor: o.color + '66', color: o.color } : {}),
+                }}>
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {needsAccountPicker(form.metrics) && (
+        <div>
+          <div style={styles.formSubLabel}>YouTube channel</div>
+          <div style={styles.chipRow}>
+            {accounts.filter(a => a.platform === 'youtube').map(acct => {
+              const selected = (form.platform_account_ids || []).includes(acct.id);
+              const pm = PLATFORM_META.youtube;
+              return (
+                <button key={acct.id} type="button" onClick={() => onTogglePlatform(acct.id)}
+                  style={{
+                    ...styles.chip,
+                    ...(selected ? { background: pm.color + '22', borderColor: pm.color + '66', color: pm.color } : {}),
+                  }}>
+                  {acct.account_name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   // ── Render ──
 
   const isMetricForm = goalForm.goal_type === 'metric';
+  const isPostCountForm = goalForm.goal_type === 'post_count';
 
   if (loading) {
     return <div style={styles.loading}>Loading goals…</div>;
@@ -470,6 +792,9 @@ export default function YearlyGoalsSection() {
             <button onClick={() => setShowAddDropdown(v => !v)} style={styles.addBtn}>+ Goal ▾</button>
             {showAddDropdown && (
               <div style={styles.dropdown}>
+                <button style={styles.dropdownItem} onClick={() => { setShowAddDropdown(false); openCreateWeekly(); }}>
+                  Weekly Goal
+                </button>
                 <button style={styles.dropdownItem} onClick={() => { setShowAddDropdown(false); openCreateGoal(); }}>
                   Yearly Goal
                 </button>
@@ -478,6 +803,63 @@ export default function YearlyGoalsSection() {
                 </button>
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Weekly subsection (standalone; recurring Mon–Sun PT) ── */}
+      <div style={styles.weeklyZone}>
+        <div style={styles.subsectionHeader}>
+          <span style={styles.subsectionTitle}>
+            Weekly{weeklyGoals.length > 0 ? ` · ${weeklyGoals.length}` : ''}
+          </span>
+          <span style={styles.subsectionHint}>{weekRangeLabel(ptWeekStartKey(new Date()))}</span>
+          {isAdmin && !showWeeklyForm && (
+            <button onClick={openCreateWeekly} style={styles.addMonthlyBtn}>+ Weekly</button>
+          )}
+        </div>
+
+        {showWeeklyForm && (
+          <form onSubmit={handleWeeklySubmit} style={styles.form}>
+            <div style={styles.formLabel}>{editingWeeklyId ? 'Edit Weekly Goal' : 'New Weekly Goal'}</div>
+            <input
+              value={weeklyForm.title}
+              onChange={e => setWeeklyForm({ ...weeklyForm, title: e.target.value })}
+              placeholder="Goal title"
+              style={styles.input}
+              autoFocus
+            />
+            <input
+              value={weeklyForm.target_value}
+              onChange={e => setWeeklyForm({ ...weeklyForm, target_value: e.target.value })}
+              placeholder="Target per week"
+              style={styles.input}
+              inputMode="numeric"
+            />
+            {renderPostTypeFields(weeklyForm, toggleWeeklyPostType, toggleWeeklyPlatform)}
+            <div style={styles.formRow}>
+              <button type="submit" style={styles.submitBtn}>{editingWeeklyId ? 'Update Goal' : 'Create Goal'}</button>
+              <button type="button" onClick={cancelWeeklyForm} style={{ ...styles.addBtn, color: 'rgba(255,255,255,0.5)' }}>Cancel</button>
+            </div>
+          </form>
+        )}
+
+        {weeklyGoals.length === 0 && !showWeeklyForm ? (
+          <p style={styles.empty}>
+            {isAdmin ? 'No weekly goals yet — add one with + Weekly.' : 'No weekly goals yet.'}
+          </p>
+        ) : (
+          <div style={styles.weeklyGrid}>
+            {weeklyGoals.map(g => (
+              <WeeklyGoalCard
+                key={g.id}
+                goal={g}
+                progress={weeklyProgress[g.id] || {}}
+                isAdmin={isAdmin}
+                onEdit={openEditWeekly}
+                onDelete={handleDeleteWeekly}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -495,6 +877,10 @@ export default function YearlyGoalsSection() {
               style={{ ...styles.typeBtn, ...(goalForm.goal_type === 'metric' ? styles.typeBtnActive : {}) }}>
               Metric
             </button>
+            <button type="button" onClick={() => setGoalForm({ ...goalForm, goal_type: 'post_count' })}
+              style={{ ...styles.typeBtn, ...(goalForm.goal_type === 'post_count' ? styles.typeBtnActive : {}) }}>
+              Post count
+            </button>
           </div>
           <input
             value={goalForm.title}
@@ -503,7 +889,19 @@ export default function YearlyGoalsSection() {
             style={styles.input}
             autoFocus
           />
-          {!isMetricForm && (
+          {isPostCountForm && (
+            <>
+              <input
+                value={goalForm.target_value}
+                onChange={e => setGoalForm({ ...goalForm, target_value: e.target.value })}
+                placeholder="Target posts this year"
+                style={styles.input}
+                inputMode="numeric"
+              />
+              {renderPostTypeFields(goalForm, toggleGoalPostType, togglePlatformAccount)}
+            </>
+          )}
+          {!isMetricForm && !isPostCountForm && (
             <div style={styles.formRow}>
               <input
                 value={goalForm.current_value}
@@ -585,6 +983,7 @@ export default function YearlyGoalsSection() {
                   goal={g}
                   rollupData={rollupData}
                   velocityData={velocityData}
+                  postCountTotals={postCountTotals}
                   accounts={accounts}
                   isAdmin={isAdmin}
                   onEdit={openEditGoal}
@@ -638,15 +1037,31 @@ export default function YearlyGoalsSection() {
                           style={styles.input}
                           autoFocus
                         />
-                        <div style={styles.formRow}>
-                          <button type="button" onClick={() => setMonthlyForm({ ...monthlyForm, content_type_filter: 'video' })}
-                            style={{ ...styles.typeBtn, ...(monthlyForm.content_type_filter === 'video' ? styles.typeBtnActive : {}) }}>
-                            Longform
-                          </button>
-                          <button type="button" onClick={() => setMonthlyForm({ ...monthlyForm, content_type_filter: 'short' })}
-                            style={{ ...styles.typeBtn, ...(monthlyForm.content_type_filter === 'short' ? styles.typeBtnActive : {}) }}>
-                            Short
-                          </button>
+                        <div>
+                          <div style={styles.formSubLabel}>Count which posts</div>
+                          <div style={styles.chipRow}>
+                            {POST_TYPE_OPTIONS.map(o => {
+                              const selected = monthlyForm.content_type_filter === o.key;
+                              return (
+                                <button key={o.key} type="button"
+                                  onClick={() => setMonthlyForm({
+                                    ...monthlyForm,
+                                    content_type_filter: o.key,
+                                    // Metricool types imply their account; keep any
+                                    // existing choice for the YouTube types.
+                                    platform_account_ids: o.source === 'metricool'
+                                      ? impliedAccountIds([o.key], accounts)
+                                      : monthlyForm.platform_account_ids,
+                                  })}
+                                  style={{
+                                    ...styles.chip,
+                                    ...(selected ? { background: o.color + '22', borderColor: o.color + '66', color: o.color } : {}),
+                                  }}>
+                                  {o.label}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                         <input
                           value={monthlyForm.target_value}
@@ -655,24 +1070,28 @@ export default function YearlyGoalsSection() {
                           style={styles.input}
                           inputMode="numeric"
                         />
-                        <div>
-                          <div style={styles.formSubLabel}>Platforms</div>
-                          <div style={styles.chipRow}>
-                            {accounts.map(acct => {
-                              const selected = (monthlyForm.platform_account_ids || []).includes(acct.id);
-                              const pm = PLATFORM_META[acct.platform] || {};
-                              return (
-                                <button key={acct.id} type="button" onClick={() => toggleMonthlyPlatform(acct.id)}
-                                  style={{
-                                    ...styles.chip,
-                                    ...(selected ? { background: (pm.color || '#666') + '22', borderColor: (pm.color || '#666') + '66', color: pm.color || '#fff' } : {}),
-                                  }}>
-                                  {acct.account_name}
-                                </button>
-                              );
-                            })}
+                        {/* The five Metricool types resolve their own account,
+                            so the picker only shows for YT video/short. */}
+                        {POST_TYPE_MAP[monthlyForm.content_type_filter]?.source !== 'metricool' && (
+                          <div>
+                            <div style={styles.formSubLabel}>Platforms</div>
+                            <div style={styles.chipRow}>
+                              {accounts.map(acct => {
+                                const selected = (monthlyForm.platform_account_ids || []).includes(acct.id);
+                                const pm = PLATFORM_META[acct.platform] || {};
+                                return (
+                                  <button key={acct.id} type="button" onClick={() => toggleMonthlyPlatform(acct.id)}
+                                    style={{
+                                      ...styles.chip,
+                                      ...(selected ? { background: (pm.color || '#666') + '22', borderColor: (pm.color || '#666') + '66', color: pm.color || '#fff' } : {}),
+                                    }}>
+                                    {acct.account_name}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
+                        )}
                         <div style={styles.formRow}>
                           <button type="submit" style={styles.submitBtn}>{editingMonthlyId ? 'Update' : 'Create'}</button>
                           <button type="button" onClick={cancelMonthlyForm} style={{ ...styles.addBtn, color: 'rgba(255,255,255,0.5)' }}>Cancel</button>
@@ -696,14 +1115,19 @@ export default function YearlyGoalsSection() {
 
 // ─── Subcomponents ───────────────────────────────────────────
 
-function GoalCard({ goal, rollupData, velocityData, accounts, isAdmin, onEdit, onDelete }) {
+function GoalCard({ goal, rollupData, velocityData, postCountTotals, accounts, isAdmin, onEdit, onDelete }) {
   const isMetric = goal.goal_type === 'metric';
+  const isPostCount = goal.goal_type === 'post_count';
   const goalMetrics = goal.metrics || [];
   const goalAccountIds = goal.platform_account_ids || [];
   const [paceHover, setPaceHover] = useState(false);
 
   let current, target, metricBreakdown;
-  if (isMetric && goalMetrics.length > 0) {
+  if (isPostCount) {
+    current = (postCountTotals || {})[goal.id] || 0;
+    target = Number(goal.target_value) || 1;
+    metricBreakdown = null;
+  } else if (isMetric && goalMetrics.length > 0) {
     const sums = rollupData[goal.id] || {};
     if (goalMetrics.length === 1) {
       const key = goalMetrics[0];
@@ -728,13 +1152,15 @@ function GoalCard({ goal, rollupData, velocityData, accounts, isAdmin, onEdit, o
   const pctDisplay = Math.round(pct * 100);
   const color = progressColor(pct);
 
-  const displayCurrent = isMetric && goalMetrics.length === 1
-    ? formatMetricValue(goalMetrics[0], current)
+  const displayCurrent = isPostCount ? current
+    : isMetric && goalMetrics.length === 1 ? formatMetricValue(goalMetrics[0], current)
     : isMetric ? Math.round(current).toLocaleString() : current;
-  const displayTarget = isMetric && goalMetrics.length === 1
-    ? formatMetricValue(goalMetrics[0], target)
+  const displayTarget = isPostCount ? target
+    : isMetric && goalMetrics.length === 1 ? formatMetricValue(goalMetrics[0], target)
     : isMetric ? Math.round(target).toLocaleString() : target;
 
+  // Post-count goals show their type chips instead of account names; the
+  // accounts are implied by the types.
   const platformLabels = isMetric
     ? goalAccountIds.map(id => (accounts.find(a => a.id === id) || {}).account_name).filter(Boolean)
     : [];
@@ -742,7 +1168,7 @@ function GoalCard({ goal, rollupData, velocityData, accounts, isAdmin, onEdit, o
   const expectedFrac = yearlyExpectedFraction();
   const expectedPct = Math.round(expectedFrac * 100);
   const expectedValue = target * expectedFrac;
-  const expectedDisplay = isMetric && goalMetrics.length === 1
+  const expectedDisplay = !isPostCount && isMetric && goalMetrics.length === 1
     ? formatMetricValue(goalMetrics[0], expectedValue)
     : Math.round(expectedValue).toLocaleString();
 
@@ -750,7 +1176,9 @@ function GoalCard({ goal, rollupData, velocityData, accounts, isAdmin, onEdit, o
     <div style={styles.card}>
       <div style={styles.cardHeader}>
         <div style={styles.cardTitleRow}>
-          <span style={isMetric ? styles.metricBadge : styles.cardBadge}>{isMetric ? 'Metric' : 'Goal'}</span>
+          <span style={isMetric || isPostCount ? styles.metricBadge : styles.cardBadge}>
+            {isPostCount ? 'Posts' : isMetric ? 'Metric' : 'Goal'}
+          </span>
           <span style={styles.cardTitle}>{goal.title}</span>
         </div>
         {isAdmin && (
@@ -769,13 +1197,21 @@ function GoalCard({ goal, rollupData, velocityData, accounts, isAdmin, onEdit, o
         )}
       </div>
 
-      {isMetric && (
+      {(isMetric || isPostCount) && (
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
-          {goalMetrics.map(key => (
+          {goalMetrics.map(key => (isPostCount ? (
+            <span key={key} style={{
+              ...styles.metricTag,
+              color: POST_TYPE_MAP[key]?.color || '#fff',
+              background: (POST_TYPE_MAP[key]?.color || '#666') + '18',
+            }}>
+              {POST_TYPE_MAP[key]?.label || key}
+            </span>
+          ) : (
             <span key={key} style={styles.metricTag}>
               {METRIC_OPTIONS.find(m => m.key === key)?.label || key}
             </span>
-          ))}
+          )))}
           {platformLabels.map((name, i) => (
             <span key={i} style={styles.platformTag}>{name}</span>
           ))}
@@ -830,7 +1266,110 @@ function GoalCard({ goal, rollupData, velocityData, accounts, isAdmin, onEdit, o
       })()}
 
       <div style={styles.cardUpdated}>
-        {isMetric ? 'This year — live' : `Updated ${formatDate(goal.updated_at)}`}
+        {isMetric || isPostCount ? 'This year — live' : `Updated ${formatDate(goal.updated_at)}`}
+      </div>
+    </div>
+  );
+}
+
+// Weekly post-count card: current Mon–Sun PT week plus a hit/miss strip for
+// the previous WEEK_HISTORY weeks. The goal itself is recurring — nothing
+// per-week is stored, so the strip is recomputed from post history each load.
+function WeeklyGoalCard({ goal, progress, isAdmin, onEdit, onDelete }) {
+  const [paceHover, setPaceHover] = useState(false);
+  const weekKeys = recentWeekStarts(WEEK_HISTORY);
+  const currentWeek = weekKeys[weekKeys.length - 1];
+  const target = Number(goal.target_value) || 1;
+  const current = progress[currentWeek] || 0;
+  const pct = Math.min(current / target, 1);
+  const pctDisplay = Math.round(pct * 100);
+  const color = progressColor(pct);
+  const types = goal.metrics || [];
+
+  const expectedFrac = weeklyExpectedFraction();
+  const expectedPct = Math.round(expectedFrac * 100);
+  const expectedValue = Math.round(target * expectedFrac);
+
+  return (
+    <div style={styles.monthlyCard}>
+      <div style={styles.cardHeader}>
+        <div style={styles.cardTitleRow}>
+          <span style={styles.weeklyBadge}>Weekly</span>
+          <span style={styles.cardTitle}>{goal.title}</span>
+        </div>
+        {isAdmin && (
+          <div style={styles.cardActions}>
+            <button onClick={() => onEdit(goal)} style={styles.iconBtn} title="Edit">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M14.5 3.5l2 2L6 16H4v-2L14.5 3.5z" />
+              </svg>
+            </button>
+            <button onClick={() => onDelete(goal.id)} style={styles.iconBtn} title="Delete">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M5 6h10M8 6V4h4v2M6 6v10a1 1 0 001 1h6a1 1 0 001-1V6" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+        {types.map(key => (
+          <span key={key} style={{
+            ...styles.metricTag,
+            color: POST_TYPE_MAP[key]?.color || '#fff',
+            background: (POST_TYPE_MAP[key]?.color || '#666') + '18',
+          }}>
+            {POST_TYPE_MAP[key]?.short || key}
+          </span>
+        ))}
+      </div>
+
+      <div style={styles.barBg}>
+        <div style={styles.barClip}>
+          <div style={{ ...styles.barFill, width: `${pctDisplay}%`, background: color }} />
+        </div>
+        <div
+          style={{ ...styles.paceHit, left: `${expectedPct}%` }}
+          onMouseEnter={() => setPaceHover(true)}
+          onMouseLeave={() => setPaceHover(false)}
+        >
+          <div style={styles.paceTick} />
+          <div style={styles.paceDot} />
+          {paceHover && <div style={styles.paceTip}>On pace: {expectedValue} ({expectedPct}%)</div>}
+        </div>
+      </div>
+      <div style={styles.cardFooter}>
+        <span style={styles.cardNumbers}>{current} / {target}</span>
+        <span style={{ ...styles.cardPct, color }}>{pctDisplay}%</span>
+      </div>
+
+      {/* Hit/miss strip — oldest left, current week is the hollow marker. */}
+      <div style={styles.weekStrip}>
+        {weekKeys.map((wk, i) => {
+          const count = progress[wk] || 0;
+          const hit = count >= target;
+          const isCurrent = i === weekKeys.length - 1;
+          return (
+            <span
+              key={wk}
+              title={`${weekRangeLabel(wk)} — ${count}/${target}${isCurrent ? ' (in progress)' : ''}`}
+              style={{
+                ...styles.weekDot,
+                ...(isCurrent
+                  ? { border: `1.5px solid ${color}`, background: 'transparent', color }
+                  : hit
+                    ? { background: 'rgba(34,197,94,0.18)', color: '#22c55e' }
+                    : { background: 'rgba(249,115,22,0.15)', color: '#f97316' }),
+              }}
+            >
+              {isCurrent ? '●' : hit ? '✓' : '✗'}
+            </span>
+          );
+        })}
+      </div>
+      <div style={styles.cardUpdated}>
+        {weekRangeLabel(currentWeek)} · live · last {WEEK_HISTORY} weeks
       </div>
     </div>
   );
@@ -846,8 +1385,11 @@ function MonthlyGoalCard({ goal, progress, accounts, isAdmin, onEdit, onDelete }
   const pctDisplay = Math.round(pct * 100);
   const color = progressColor(pct);
   const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const contentLabel = goal.content_type_filter === 'video' ? 'Video' : 'Short';
-  const contentColor = goal.content_type_filter === 'video' ? '#f472b6' : '#38bdf8';
+  // 'video'/'short' predate the shared vocabulary; POST_TYPE_MAP covers both
+  // those and the five Metricool types.
+  const contentMeta = POST_TYPE_MAP[goal.content_type_filter];
+  const contentLabel = contentMeta?.short || (goal.content_type_filter === 'video' ? 'Video' : 'Short');
+  const contentColor = contentMeta?.color || '#38bdf8';
   const platformLabels = (goal.platform_account_ids || []).map(id => (accounts.find(a => a.id === id) || {}).account_name).filter(Boolean);
   const expectedFrac = monthlyExpectedFraction();
   const expectedPct = Math.round(expectedFrac * 100);
@@ -1129,5 +1671,36 @@ const styles = {
     fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
     color: '#fbbf24', background: 'rgba(251,191,36,0.1)',
     padding: '3px 8px', borderRadius: 4, flexShrink: 0,
+  },
+  weeklyBadge: {
+    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
+    color: '#34d399', background: 'rgba(52,211,153,0.1)',
+    padding: '3px 8px', borderRadius: 4, flexShrink: 0,
+  },
+
+  // ── Weekly subsection ──
+  weeklyZone: {
+    display: 'flex', flexDirection: 'column', gap: 10,
+    paddingBottom: 16, marginBottom: 16,
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  subsectionHeader: { display: 'flex', alignItems: 'center', gap: 10 },
+  subsectionTitle: {
+    fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  subsectionHint: {
+    fontSize: 11, color: 'rgba(255,255,255,0.25)', flex: 1,
+  },
+  weeklyGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+    gap: 10,
+  },
+  weekStrip: { display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' },
+  weekDot: {
+    width: 18, height: 18, borderRadius: 4,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 10, fontWeight: 700, cursor: 'default',
   },
 };
