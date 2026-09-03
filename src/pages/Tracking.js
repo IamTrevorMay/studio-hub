@@ -6,7 +6,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { ptRangeToUtc } from '../lib/ptDate';
-import YearlyGoalsSection from '../components/YearlyGoalsSection';
+import GoalsSection from '../components/GoalsSection';
 import ProgressKanban from '../components/ProgressKanban';
 import { colors } from '../lib/styleTokens';
 
@@ -460,7 +460,7 @@ export default function Tracking() {
         <p style={styles.subtitle}>Goal progress + all published posts by source.</p>
       </div>
 
-      <YearlyGoalsSection />
+      <GoalsSection />
 
       {/* ── Posts Section ── */}
       <div style={{ marginTop: 32 }}>
