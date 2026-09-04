@@ -1,8 +1,18 @@
 // Harbor archiver — target-path construction + name sanitization.
 //
 // Layout on the NAS (all under ASSETS_ROOT, default '/Volumes/May Server'):
-//   <ASSETS_ROOT>/<HARBOR_ARCHIVE_DIR>/<yyyy-mm-dd> <session title>/
+//
+//   Show     <ARCHIVE_DIR>/<show title>/<yyyy-mm-dd> <session title>/
+//   Meeting  <ARCHIVE_DIR>/Meetings/<yyyy-mm-dd> <session title>/
+//   Legacy   <ARCHIVE_DIR>/<yyyy-mm-dd> <session title>/
+//
 //     <participant display_name>-<kind>-<track_id first 8>[-PARTIAL].<ext>
+//     <participant display_name>-<kind>-<track_id first 8>-1080p.<ext>   (rendition)
+//
+// A show groups its recordings under one folder so a season browses as a
+// season. Meetings share a single folder because they are one-offs with no
+// series to belong to. Legacy sessions keep the original flat layout so
+// nothing already on disk moves.
 //
 // The date is the session's end date in America/Los_Angeles — a show recorded
 // on the evening of the 23rd PT files under the 23rd, not the UTC 24th
@@ -46,9 +56,27 @@ function ptDateStamp(isoOrDate) {
 
 /** Container extension for a recording mime — mirrors containerExt() in
  *  src/lib/harbor/recorder.js and chunkPath() in
- *  supabase/functions/harbor-track/index.ts. Keep in sync. */
+ *  supabase/functions/harbor-track/index.ts. Keep in sync.
+ *  Meetings record audio only, so an mp4-family audio recording files as .m4a
+ *  rather than .mp4 — Finder and Premiere both treat it more sensibly. */
 function containerExt(mimeType) {
-  return (mimeType || '').startsWith('video/mp4') ? 'mp4' : 'webm';
+  const m = mimeType || '';
+  if (m.startsWith('audio/mp4')) return 'm4a';
+  if (m.startsWith('audio/')) return 'webm';
+  return m.startsWith('video/mp4') ? 'mp4' : 'webm';
+}
+
+/** Folder a session's files belong in, relative to the archive dir. */
+function sessionFolder({ session, show }) {
+  const dateStamp = ptDateStamp(session.ended_at || session.created_at);
+  const dated = `${dateStamp} ${sanitizeSegment(session.title, 'session')}`;
+  if (session.mode === 'show' && show) {
+    return path.join(sanitizeSegment(show.title, 'show'), dated);
+  }
+  if (session.mode === 'meeting') {
+    return path.join('Meetings', dated);
+  }
+  return dated;
 }
 
 /**
@@ -59,13 +87,13 @@ function containerExt(mimeType) {
 function buildTrackTarget({
   assetsRoot,
   archiveDir,
-  session, // { title, ended_at, created_at }
+  session, // { title, mode, ended_at, created_at }
+  show = null, // { title } when session.mode === 'show'
   track, // { id, kind, mime_type }
   participantName,
   partial = false,
 }) {
-  const dateStamp = ptDateStamp(session.ended_at || session.created_at);
-  const folder = `${dateStamp} ${sanitizeSegment(session.title, 'session')}`;
+  const folder = sessionFolder({ session, show });
   const ext = containerExt(track.mime_type);
   const fileName = [
     sanitizeSegment(participantName, 'participant'),
@@ -87,4 +115,31 @@ function buildTrackTarget({
   return { relDir, relPath, absDir, absPath, fileName };
 }
 
-module.exports = { sanitizeSegment, ptDateStamp, containerExt, buildTrackTarget };
+/**
+ * Path for a derived download. Sits beside its master with a quality suffix,
+ * so a folder shows every version of a take together.
+ * @returns {{ relPath, absPath, fileName }}
+ */
+function buildRenditionTarget({ masterRelPath, assetsRoot, quality }) {
+  const dir = path.dirname(masterRelPath);
+  const ext = path.extname(masterRelPath);
+  const base = path.basename(masterRelPath, ext);
+  // Renditions are always H.264/AAC in mp4 — a webm master still yields an
+  // mp4 download, which is what editors and browsers actually want.
+  const fileName = `${base}-${quality}.mp4`;
+  const relPath = path.join(dir, fileName);
+  const absPath = path.resolve(assetsRoot, relPath);
+  if (!absPath.startsWith(path.resolve(assetsRoot))) {
+    throw new Error(`Path traversal blocked for rendition: ${absPath}`);
+  }
+  return { relPath, absPath, fileName };
+}
+
+module.exports = {
+  sanitizeSegment,
+  ptDateStamp,
+  containerExt,
+  sessionFolder,
+  buildTrackTarget,
+  buildRenditionTarget,
+};

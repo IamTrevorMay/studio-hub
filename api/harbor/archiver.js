@@ -97,6 +97,19 @@ async function processSession(sb, cfg, session, summary) {
     .order('created_at', { ascending: true });
   if (tracksErr) throw new Error(`load tracks failed: ${tracksErr.message}`);
 
+  // A show session files under its show's folder, so resolve it once here
+  // rather than per track.
+  let show = null;
+  if (session.show_id) {
+    const { data, error } = await sb
+      .from('harbor_shows')
+      .select('id, title')
+      .eq('id', session.show_id)
+      .maybeSingle();
+    if (error) log(`WARN show lookup failed for session ${session.id}: ${error.message}`);
+    show = data || null;
+  }
+
   const terminal = new Set(['archived', 'failed']);
   let sessionHadErrors = false;
 
@@ -146,6 +159,7 @@ async function processSession(sb, cfg, session, summary) {
           assetsRoot: cfg.assetsRoot,
           archiveDir: cfg.archiveDir,
           session,
+          show,
           track,
           participantName,
           fromStatus: 'failed',
@@ -167,6 +181,7 @@ async function processSession(sb, cfg, session, summary) {
           assetsRoot: cfg.assetsRoot,
           archiveDir: cfg.archiveDir,
           session,
+          show,
           track,
           participantName,
           fromStatus: 'complete',
@@ -237,7 +252,7 @@ async function runArchiveTick() {
   }
   tickInFlight = true;
   const startedAt = Date.now();
-  const summary = { sessions: 0, archived: 0, failed: 0, swept: 0, errors: [] };
+  const summary = { sessions: 0, archived: 0, failed: 0, swept: 0, renditions: null, errors: [] };
   try {
     const cfg = getConfig();
     const sb = getSupabaseServiceClient();
@@ -253,7 +268,7 @@ async function runArchiveTick() {
     const cutoff = new Date(Date.now() - ENDED_GRACE_MS).toISOString();
     const { data: sessions, error: sessionsErr } = await sb
       .from('harbor_sessions')
-      .select('id, title, status, ended_at, created_at, archived_at')
+      .select('id, title, status, mode, show_id, ended_at, created_at, archived_at')
       .eq('status', 'ended')
       .is('archived_at', null)
       .not('ended_at', 'is', null)
@@ -269,6 +284,23 @@ async function runArchiveTick() {
         log(`ERROR session ${session.id} ("${session.title}"): ${err.message}`);
       }
     }
+
+    // Download ladder. Runs after archiving so a long encode never delays
+    // getting recordings off the capture buffer, and only a couple per tick
+    // because this Mac also serves the app.
+    try {
+      const rend = await processPendingRenditions({
+        sb,
+        assetsRoot: cfg.assetsRoot,
+        limit: 2,
+        log,
+      });
+      summary.renditions = rend;
+    } catch (err) {
+      summary.errors.push(`renditions: ${err.message}`);
+      log(`ERROR rendition pass: ${err.message}`);
+    }
+
     return summary;
   } finally {
     lastTick = {
@@ -317,7 +349,7 @@ async function dryRun() {
 
   const { data: sessions, error } = await sb
     .from('harbor_sessions')
-    .select('id, title, status, ended_at, created_at, archived_at')
+    .select('id, title, status, mode, show_id, ended_at, created_at, archived_at')
     .eq('status', 'ended')
     .is('archived_at', null)
     .order('ended_at', { ascending: true });

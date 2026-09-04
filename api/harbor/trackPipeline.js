@@ -25,6 +25,7 @@ const fsp = fs.promises;
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { buildTrackTarget } = require('./naming');
+const { queueRenditions } = require('./renditions');
 
 const BUCKET = 'harbor-recordings';
 const LIST_PAGE_SIZE = 1000;
@@ -173,6 +174,7 @@ async function archiveTrack({
   assetsRoot,
   archiveDir,
   session,
+  show = null,
   track,
   participantName,
   fromStatus,
@@ -200,7 +202,7 @@ async function archiveTrack({
     return { outcome: 'failed-verify', chunkCount: 0, listedBytes: 0 };
   }
 
-  const target = buildTrackTarget({ assetsRoot, archiveDir, session, track, participantName, partial });
+  const target = buildTrackTarget({ assetsRoot, archiveDir, session, show, track, participantName, partial });
   const partialPath = `${target.absPath}.partial`;
 
   // ── Download → temp file ─────────────────────────────────────
@@ -267,6 +269,12 @@ async function archiveTrack({
     file_name: target.fileName,
   });
   if (logErr) log(`WARN nas_access_logs insert failed: ${logErr.message}`);
+
+  // Register the master and queue the download ladder. Encoding happens on a
+  // later tick so a long transcode never delays archiving.
+  if (!partial) {
+    await queueRenditions({ sb, track, relPath: target.relPath, absPath: target.absPath, log });
+  }
 
   return { outcome: 'archived', relPath: target.relPath, method, chunkCount: chunks.length, listedBytes, finalBytes };
 }
