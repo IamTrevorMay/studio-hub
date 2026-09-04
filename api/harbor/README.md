@@ -72,6 +72,50 @@ success, storage deletes tolerate missing objects, row updates are keyed on
 current status — failed attempts retry on the next tick. One session and one
 track at a time; a module lock stops overlapping ticks.
 
+## Manual recovery (`rescue.js`)
+
+Break-glass tool for when the archiver can't do its job: the session never
+reached `ended`, the always-on Mac was down, a track failed verify, or you
+want the files in hand before anything is allowed to purge them.
+
+```bash
+node api/harbor/rescue.js <session_id>
+node api/harbor/rescue.js <session_id> --track <track_id>   # just one track
+```
+
+Does the useful half of the pipeline — download → concat → remux → verify —
+and **never deletes**: chunks stay in the bucket, no database row is touched.
+Safe to run when those chunks are the only copy of a recording. Output lands
+on exactly the path the archiver would have chosen, so a later archive run
+overwrites with identical bytes rather than creating a duplicate. Idempotent;
+re-running is harmless.
+
+Needs `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `ASSETS_ROOT`.
+`HARBOR_ARCHIVE_ENABLED` is *not* required — this path is manual by
+definition.
+
+## Sessions that never end
+
+The archiver only looks at `status='ended'`, and for a long time nothing
+guaranteed a session got there:
+
+- Recording works while a session is still `scheduled`, and the UI only
+  offered an End control in `live` — so a session could capture gigabytes and
+  have no exit. Fixed in `CallStage.js`: End shows whenever the session isn't
+  already ended, and starting a recording promotes `scheduled` → `live`.
+- A host who closes the tab instead of pressing End strands it the same way.
+  No client fix covers that, so `harbor_end_idle_sessions()` runs hourly
+  (pg_cron `harbor-end-idle-sessions`) and ends sessions idle past 12h. It
+  only considers sessions that **have tracks** — a `scheduled` session with no
+  recordings is a future booking and is never touched — and stamps `ended_at`
+  at the last real activity, so the NAS folder is named for the day it was
+  actually recorded.
+
+Deleting a session with unarchived recordings is now blocked by the
+`harbor_sessions_guard_delete` trigger: storage objects aren't foreign-keyed
+to the session, so deleting the row orphans them with nothing left to
+reference them (exactly how the leftover below became unreachable).
+
 ## Known leftovers
 
 - A 19-byte test object sits under bucket prefix

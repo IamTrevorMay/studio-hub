@@ -623,7 +623,17 @@ export default function CallStage({
     recState?.status === 'flushing';
   const anyoneRecording = selfRecording || remoteEntries.some(([, r]) => r.rec?.recording);
 
+  // Recording IS the start of the session, so the status follows reality
+  // rather than a button someone forgot to press. Fire-and-forget on purpose:
+  // a slow DB write must never delay the recorder starting.
+  const ensureSessionLive = () => {
+    if (!canControlSession) return; // guests can't write session rows anyway
+    if (sessionStatus !== 'scheduled') return;
+    changeSessionStatus('live').catch(() => {});
+  };
+
   const recordAll = () => {
+    ensureSessionLive();
     signalRef.current?.send('record', { action: 'start', target: 'all' });
     startRecording();
   };
@@ -841,7 +851,7 @@ export default function CallStage({
                 Start session
               </button>
             )}
-            {canControlSession && sessionStatus === 'live' && (
+            {canControlSession && sessionStatus !== 'ended' && (
               <button
                 type="button"
                 style={button({ variant: 'danger', size: 'sm', disabled: savingStatus })}
@@ -890,7 +900,14 @@ export default function CallStage({
           camOn={camOn}
           recState={recState}
           onToggleRecord={
-            isProducer && canRecord ? (selfRecording ? stopRecording : startRecording) : null
+            isProducer && canRecord
+              ? selfRecording
+                ? stopRecording
+                : () => {
+                    ensureSessionLive();
+                    startRecording();
+                  }
+              : null
           }
         />
         {remoteEntries.map(([id, peer]) => (
