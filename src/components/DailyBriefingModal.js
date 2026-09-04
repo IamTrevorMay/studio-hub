@@ -7,9 +7,9 @@ import { ptDayKey, ptRangeToUtc } from '../lib/ptDate';
 import { modalOverlay, modal as modalShell } from '../lib/styleRecipes';
 import backdropDismiss from '../lib/backdropDismiss';
 
-// Side-by-side needs more room than the app's 640px mobile breakpoint — below
-// this the modal (90vw) can't give two columns a readable measure, so the
-// blocks stack and the whole body scrolls as one instead.
+// The sections themselves always stack, but Upcoming Day splits its two
+// lists (tasks / itinerary) side by side once there's room for both to keep
+// a readable measure. Below this the modal (90vw) is too narrow for that.
 const WIDE_LAYOUT_QUERY = '(min-width: 900px)';
 
 function useWideLayout() {
@@ -149,21 +149,14 @@ export default function DailyBriefingModal({ onClose }) {
     }
   }
 
-  // Layout: on a wide viewport the two blocks sit side by side — the brief on
-  // the left, the day's tasks + itinerary on the right. With only one block
-  // enabled the grid collapses to a single column: Upcoming Day then splits
-  // its own two lists across the width, while a solo brief stays capped at a
-  // readable measure instead of stretching the full 1120px.
-  const twoUp = wide && showBaseball && showUpcoming;
-  const upcomingSplit = wide && showUpcoming && !showBaseball;
-  // Narrow + both blocks is the one case that stacks into two rows. Per-column
-  // scrolling only works while the sections share a single full-height row, so
-  // that case hands the scrolling back to the body.
-  const stacked = !wide && showBaseball && showUpcoming;
-  const bodyStyle = stacked
-    ? { ...st.body, display: 'block', overflowY: 'auto' }
-    : { ...st.body, gridTemplateColumns: twoUp ? 'minmax(0, 1.35fr) minmax(0, 1fr)' : 'minmax(0, 1fr)' };
-  const columnStyle = stacked ? st.stackedSection : st.column;
+  // Layout: the sections always stack in one column and the body scrolls as a
+  // whole — the day's tasks first, the brief underneath. (These used to sit
+  // side by side on a wide viewport.) Upcoming Day still splits its own two
+  // lists across the width when there's room, since it now always has the
+  // full measure to work with.
+  const upcomingSplit = wide && showUpcoming;
+  const bodyStyle = { ...st.body, display: 'block', overflowY: 'auto' };
+  const columnStyle = st.stackedSection;
 
   return (
     <div style={modalOverlay()} {...backdropDismiss(onClose)}>
@@ -178,29 +171,6 @@ export default function DailyBriefingModal({ onClose }) {
         </div>
 
         <div style={bodyStyle}>
-          {/* ── Around Baseball ── */}
-          {showBaseball && (
-            <section style={{ ...columnStyle, ...(twoUp ? st.columnDivider : null) }}>
-              <div style={twoUp ? undefined : st.soloMeasure}>
-                <div style={st.sectionTitle}>Around Baseball</div>
-                {briefLoading ? (
-                  <div style={st.muted}>Loading brief…</div>
-                ) : brief ? (
-                  <div style={st.briefCard}>
-                    <h2 style={st.briefTitle}>{brief.title}</h2>
-                    {brief.summary && <p style={st.briefSummary}>{brief.summary}</p>}
-                    <div
-                      style={st.briefContent}
-                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(brief.content || '') }}
-                    />
-                  </div>
-                ) : (
-                  <div style={st.emptyCard}>No brief available yet today.</div>
-                )}
-              </div>
-            </section>
-          )}
-
           {/* ── Upcoming Day ── */}
           {showUpcoming && (
             <section style={columnStyle}>
@@ -246,6 +216,31 @@ export default function DailyBriefingModal({ onClose }) {
             </section>
           )}
 
+          {/* ── Around Baseball ── */}
+          {showBaseball && (
+            <section style={{ ...columnStyle, ...(showUpcoming ? st.topRule : null) }}>
+              {/* The brief now runs the full modal width, so cap the measure —
+                  ~1050px of line length is unreadable. */}
+              <div style={st.soloMeasure}>
+                <div style={st.sectionTitle}>Around Baseball</div>
+                {briefLoading ? (
+                  <div style={st.muted}>Loading brief…</div>
+                ) : brief ? (
+                  <div style={st.briefCard}>
+                    <h2 style={st.briefTitle}>{brief.title}</h2>
+                    {brief.summary && <p style={st.briefSummary}>{brief.summary}</p>}
+                    <div
+                      style={st.briefContent}
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(brief.content || '') }}
+                    />
+                  </div>
+                ) : (
+                  <div style={st.emptyCard}>No brief available yet today.</div>
+                )}
+              </div>
+            </section>
+          )}
+
           {!showBaseball && !showUpcoming && (
             <div style={{ ...st.emptyCard, alignSelf: 'start' }}>
               No briefing sections are enabled. Turn some on in settings.
@@ -283,16 +278,13 @@ const st = {
     width: '30px', height: '30px', borderRadius: '8px', cursor: 'pointer',
     fontSize: '14px', flexShrink: 0,
   },
-  // Grid of section columns. `minHeight: 0` lets the columns — not the modal —
-  // own the overflow, so a long brief scrolls without pushing the day's
-  // itinerary out of view.
+  // Sections stack in one column and the body scrolls as a whole.
   body: {
-    display: 'grid', gap: '0 32px', gridTemplateRows: 'minmax(0, 1fr)',
-    padding: '22px 32px 14px', flex: 1, minHeight: 0, overflow: 'hidden',
+    padding: '22px 32px 14px', flex: 1, minHeight: 0,
   },
-  column: { minWidth: 0, minHeight: 0, overflowY: 'auto', paddingBottom: '8px' },
   stackedSection: { minWidth: 0, marginBottom: '24px' },
-  columnDivider: { borderRight: '1px solid rgba(255,255,255,0.06)', paddingRight: '32px' },
+  // Separates the stacked sections; only drawn when one sits above.
+  topRule: { borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '22px' },
   // A brief on its own would run to ~1050px of line length; cap the measure.
   soloMeasure: { maxWidth: '760px', margin: '0 auto' },
   lists: { display: 'grid', gap: '0 32px', alignItems: 'start' },
