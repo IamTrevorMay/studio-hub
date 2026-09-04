@@ -4,6 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkRateLimit } from "../shared/utils.ts";
+import { fetchAnalyticsPosts, toSchedulerShape } from "../shared/metricoolAnalytics.ts";
 
 // Admin tier = admin + director (mirrors the DB is_admin() helper and the
 // client-side isAdminTier). Directors are restricted in the UI, not here.
@@ -143,8 +144,44 @@ serve(async (req) => {
       };
     });
 
+    // ── Published counts come from the analytics endpoints ──
+    //
+    // The scheduler only knows what Metricool itself published, so anything
+    // posted natively from a phone is invisible to it (probed 2026-09-03:
+    // 2 TikToks and 3 Facebook posts missing in a single month). Analytics
+    // reads the connected account instead.
+    //
+    // The scheduler is still the source for everything analytics can't do:
+    // scheduled/future posts, IG Stories (its analytics endpoint 500s), and
+    // IG feed posts — where the carousel rule depends on the scheduler's
+    // media array. So published IG-Reel / TikTok / FB rows are dropped from
+    // the scheduler list and replaced with their analytics equivalents.
+    const analyticsCovers = (p: typeof posts[number]) => {
+      if (p.status !== "PUBLISHED") return false;
+      if (p.network === "TIKTOK" || p.network === "FACEBOOK") return true;
+      return p.network === "INSTAGRAM" && p.instagramType === "REEL";
+    };
+
+    let merged = posts;
+    try {
+      const analytics = await fetchAnalyticsPosts({
+        token: mcToken, userId: mcUserId, blogId: mcBlogId,
+        start: startDt.slice(0, 10), end: endDt.slice(0, 10),
+      });
+      if (analytics.length) {
+        merged = [
+          ...posts.filter((p) => !analyticsCovers(p)),
+          ...analytics.map(toSchedulerShape),
+        ];
+      }
+    } catch (err) {
+      // A failure here must not blank the page — fall back to scheduler-only,
+      // which is what this endpoint returned before analytics existed.
+      console.error("analytics merge failed, serving scheduler only:", err);
+    }
+
     return new Response(
-      JSON.stringify({ posts }),
+      JSON.stringify({ posts: merged }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 

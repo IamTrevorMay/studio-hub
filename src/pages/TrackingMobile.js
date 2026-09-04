@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import { ptRangeToUtc } from '../lib/ptDate';
+import { ptRangeToUtc, ptDayKey } from '../lib/ptDate';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
@@ -151,8 +151,15 @@ export default function TrackingMobile() {
       const mcJson = await mcRes.json();
       const networkToCol = {};
       POSTS_COLUMNS.filter(c => c.source === 'metricool').forEach(c => { networkToCol[c.network] = c.accountId; });
+      // extendedRange=true makes Metricool return posts past the window edge,
+      // which would otherwise be counted in the neighbouring month.
       mcPosts = (mcJson.posts || [])
         .filter(p => p.status === 'PUBLISHED' && networkToCol[p.network])
+        .filter(p => {
+          if (!p.publicationDate) return false;
+          const day = ptDayKey(p.publicationDate);
+          return day >= start && day <= end;
+        })
         .map(p => ({ id: `mc_${p.id}`, duration_seconds: null, platform_account_id: networkToCol[p.network] }));
     }
     if (gen !== postsGenRef.current) return;

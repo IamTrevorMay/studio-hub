@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import { ptRangeToUtc } from '../lib/ptDate';
+import { ptRangeToUtc, ptDayKey } from '../lib/ptDate';
 import GoalsSection from '../components/GoalsSection';
 import ProgressKanban from '../components/ProgressKanban';
 import { colors } from '../lib/styleTokens';
@@ -266,8 +266,16 @@ export default function Tracking() {
       const mcJson = await mcRes.json();
       const networkToCol = {};
       POSTS_COLUMNS.filter(c => c.source === 'metricool').forEach(c => { networkToCol[c.network] = c.accountId; });
+      // Metricool is asked with extendedRange=true, so it returns posts past
+      // the window boundary — a Jul 31 reel came back for an Aug 1 request.
+      // Without this the extra posts land in the wrong month's column.
       mcPosts = (mcJson.posts || [])
         .filter(p => p.status === 'PUBLISHED' && networkToCol[p.network])
+        .filter(p => {
+          if (!p.publicationDate) return false;
+          const day = ptDayKey(p.publicationDate);
+          return day >= start && day <= end;
+        })
         .map(p => ({
           id: `mc_${p.id}`,
           title: p.youtubeTitle || p.text || '(untitled)',
