@@ -48,11 +48,53 @@ function buildIceServers() {
 
 export const ICE_SERVERS = buildIceServers();
 
-// 720p cap for Phase 1 — local recording (Phase 2) will revisit quality.
-export const LOCAL_MEDIA_CONSTRAINTS = {
-  video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-  audio: { echoCancellation: true, noiseSuppression: true },
+// What the CAMERA is asked for. This is not what peers receive: the local
+// stream feeds both the recorder and the mesh, and a 4K track multiplied by
+// three peers would saturate any uplink. capSenderResolution() below scales
+// what goes over the wire back down to MESH_SEND_HEIGHT, so a Show can record
+// at full resolution while the call still behaves like 720p.
+export const CAPTURE_PROFILES = {
+  '720p': { width: { ideal: 1280 }, height: { ideal: 720 } },
+  '1080p': { width: { ideal: 1920 }, height: { ideal: 1080 } },
+  // No `max` — ask high and take whatever the camera actually offers, so
+  // "High Quality" means the sensor's real ceiling rather than a guess.
+  best: { width: { ideal: 3840 }, height: { ideal: 2160 } },
 };
+
+/** Constraints for a capture quality ('720p' | '1080p' | 'best'). */
+export function localMediaConstraints(quality = '720p') {
+  return {
+    video: CAPTURE_PROFILES[quality] || CAPTURE_PROFILES['720p'],
+    audio: { echoCancellation: true, noiseSuppression: true },
+  };
+}
+
+// Back-compat for callers that haven't been given a quality yet.
+export const LOCAL_MEDIA_CONSTRAINTS = localMediaConstraints('720p');
+
+// Ceiling for what any peer receives, regardless of capture resolution.
+export const MESH_SEND_HEIGHT = 720;
+export const MESH_SEND_MAX_BPS = 2500000;
+
+/**
+ * Cap one video sender so a high-resolution local capture doesn't flood the
+ * mesh. Best-effort by design — scaleResolutionDownBy is unevenly supported,
+ * and a browser that ignores it still works, just at higher bitrate.
+ */
+export async function capSenderResolution(sender) {
+  if (!sender || sender.track?.kind !== 'video') return;
+  try {
+    const height = sender.track.getSettings?.().height || MESH_SEND_HEIGHT;
+    const params = sender.getParameters();
+    // Firefox hands back an empty encodings array before negotiation.
+    if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+    params.encodings[0].scaleResolutionDownBy = Math.max(1, height / MESH_SEND_HEIGHT);
+    params.encodings[0].maxBitrate = MESH_SEND_MAX_BPS;
+    await sender.setParameters(params);
+  } catch (err) {
+    console.warn('Harbor: could not cap sender resolution:', err?.message || err);
+  }
+}
 
 export class HarborMesh {
   /**
@@ -69,8 +111,11 @@ export class HarborMesh {
    * @param {(active: boolean, screenStream: MediaStream|null) => void} [opts.onScreenShareChange]
    *        fires when screen share starts/stops, including when the browser's
    *        native "Stop sharing" ends it out from under us.
+   * @param {'720p'|'1080p'|'best'} [opts.captureQuality]  what to ask the
+   *        camera for. Peers still receive MESH_SEND_HEIGHT regardless; only
+   *        the local recording sees the full resolution.
    */
-  constructor({ clientId, sendSignal, onRemoteStream, onPeerState, onPeerRemoved, maxParticipants = HARBOR_MAX_PARTICIPANTS, onScreenShareChange }) {
+  constructor({ clientId, sendSignal, onRemoteStream, onPeerState, onPeerRemoved, maxParticipants = HARBOR_MAX_PARTICIPANTS, onScreenShareChange, captureQuality = '720p' }) {
     this.clientId = clientId;
     this.sendSignal = sendSignal;
     this.onRemoteStream = onRemoteStream;
@@ -78,6 +123,7 @@ export class HarborMesh {
     this.onPeerRemoved = onPeerRemoved;
     this.onScreenShareChange = onScreenShareChange;
     this.maxRemotePeers = Math.max(1, (maxParticipants || HARBOR_MAX_PARTICIPANTS) - 1);
+    this.captureQuality = captureQuality;
     this.peers = new Map(); // clientId → { pc, makingOffer, ignoreOffer, settingRemoteAnswer, polite }
     this.localStream = null;
     // Present mode: while sharing, each peer's outgoing VIDEO sender carries the
@@ -94,7 +140,8 @@ export class HarborMesh {
   async startLocalMedia(existingStream = null) {
     if (this.localStream) return this.localStream;
     this.localStream =
-      existingStream || (await navigator.mediaDevices.getUserMedia(LOCAL_MEDIA_CONSTRAINTS));
+      existingStream ||
+      (await navigator.mediaDevices.getUserMedia(localMediaConstraints(this.captureQuality)));
     return this.localStream;
   }
 
@@ -122,7 +169,11 @@ export class HarborMesh {
     this.peers.set(remoteId, peer);
 
     if (this.localStream) {
-      for (const track of this.localStream.getTracks()) pc.addTrack(track, this.localStream);
+      for (const track of this.localStream.getTracks()) {
+        const sender = pc.addTrack(track, this.localStream);
+        // Recording keeps the full-resolution track; peers get 720p.
+        if (track.kind === 'video') capSenderResolution(sender);
+      }
     }
     // Late joiner while we're presenting: send them the screen, not the camera.
     if (this.screenTrack) this._applyScreenToPeer(peer);

@@ -87,8 +87,9 @@ export default function CallStage({
   displayName,
   role, // 'producer' | 'guest'
   session, // { id, title, status }
-  mode = 'recording', // 'recording' | 'meeting'
+  mode = 'recording', // 'recording' | 'meeting' | 'show'
   maxParticipants = 4, // session seat cap → mesh peer limit
+  captureQuality = '720p', // show setting: what to ask the camera for
   participantId = null, // own harbor_participants row id (presence meta)
   initialParticipantState = 'admitted', // 'lobby' for green-room guests
   initialStream = null, // reuse a device-check preview stream (guest flow)
@@ -213,8 +214,16 @@ export default function CallStage({
       clone.enabled = true;
       return clone;
     });
+    // Meetings are a video call that records audio only — the cameras are for
+    // the conversation, not the archive. Shows record the full A/V stream.
+    const recordKind = isMeeting ? 'audio' : 'video';
+    const recordedTracks =
+      recordKind === 'audio'
+        ? audioClones
+        : [...source.getVideoTracks(), ...audioClones];
     const recorder = new HarborRecorder({
-      stream: new MediaStream([...source.getVideoTracks(), ...audioClones]),
+      stream: new MediaStream(recordedTracks),
+      kind: recordKind,
       ownedTracks: audioClones,
       transport: factory(),
       onState: (state) => {
@@ -230,7 +239,7 @@ export default function CallStage({
       // The engine released the owned clones on the failure path.
       console.error('Harbor: recording failed to start:', err);
     }
-  }, [broadcastRecState]);
+  }, [broadcastRecState, isMeeting]);
 
   const stopRecording = useCallback(() => {
     // Flush + finalize continue async — uploads don't need the media stream.
@@ -244,6 +253,7 @@ export default function CallStage({
     const mesh = createHarborRoom({
       clientId,
       maxParticipants,
+      captureQuality,
       sendSignal: (to, msg) => signalRef.current?.send(msg.type, msg, to),
       onRemoteStream: (id, stream) => upsertRemote(id, { stream }),
       onPeerState: (id, connState) => upsertRemote(id, { connState }),

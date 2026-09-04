@@ -54,15 +54,22 @@ export function chunkPath(storagePrefix, index, ext = 'webm') {
  *  doesn't import webm — with webm fallback (Firefox has no mp4 recorder).
  *  Chrome 126+/Safari emit fragmented MP4 under timeslice, so sequential
  *  chunks concatenate into a valid file just like webm. */
-export function pickRecordingMimeType() {
+export function pickRecordingMimeType(kind = 'video') {
   if (typeof MediaRecorder === 'undefined') return '';
-  const candidates = [
-    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-    'video/mp4',
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
-  ];
+  const candidates = kind === 'audio'
+    ? [
+        'audio/mp4;codecs=mp4a.40.2',
+        'audio/mp4',
+        'audio/webm;codecs=opus',
+        'audio/webm',
+      ]
+    : [
+        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+        'video/mp4',
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+      ];
   for (const c of candidates) {
     try {
       if (MediaRecorder.isTypeSupported(c)) return c;
@@ -155,16 +162,16 @@ export class HarborRecorder {
     this.status = 'starting';
     this._emit();
     try {
-      this.mimeType = pickRecordingMimeType();
+      this.mimeType = pickRecordingMimeType(this.kind);
       const { trackId, storagePrefix } = await this.transport.createTrack({
         kind: this.kind,
-        mimeType: this.mimeType || 'video/webm',
+        mimeType: this.mimeType || (this.kind === 'audio' ? 'audio/webm' : 'video/webm'),
       });
       this.trackId = trackId;
       this.storagePrefix = storagePrefix;
 
       const options = {
-        videoBitsPerSecond: RECORDING_VIDEO_BPS,
+        ...(this.kind === 'audio' ? {} : { videoBitsPerSecond: RECORDING_VIDEO_BPS }),
         audioBitsPerSecond: RECORDING_AUDIO_BPS,
       };
       if (this.mimeType) options.mimeType = this.mimeType;
