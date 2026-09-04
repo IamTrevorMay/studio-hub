@@ -16,6 +16,12 @@ import { colors } from '../lib/styleTokens';
 
 
 const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
+
+// Top-level views. Ideas was previously a third icon on the layout toggle.
+const VIEWS = [
+  { key: 'projects', label: 'Projects' },
+  { key: 'ideas',    label: 'Ideas' },
+];
 const STATUS_LABELS = {
   queue: 'Queue', research: 'Research', write: 'Write', pre_production: 'Pre-Production', film: 'Film',
   review: 'Review', edit: 'Edit', post_production: 'Post-Production', publish: 'Published',
@@ -46,11 +52,21 @@ export default function Projects({ onNavigate }) {
   const [selectedProject, setSelectedProject] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  // 'board' | 'list' | 'ideas' — Ideas used to be its own page and is now a
-  // third view here. Guard the stored value so an unknown one can't blank the page.
-  const [viewMode, setViewMode] = useState(() => {
+  // Two independent axes: which view you're in, and — inside Projects — how it
+  // is laid out. Ideas used to be a third option on the layout toggle, which
+  // conflated "what am I looking at" with "how is it drawn".
+  //
+  // 'projects_view' previously stored the layout values, so an existing 'ideas'
+  // maps to the Ideas view and anything else carries over as the layout.
+  const [view, setView] = useState(() => {
     const stored = localStorage.getItem('projects_view');
-    return ['board', 'list', 'ideas'].includes(stored) ? stored : 'board';
+    if (stored === 'ideas') return 'ideas';
+    return ['projects', 'ideas'].includes(stored) ? stored : 'projects';
+  });
+  const [layout, setLayout] = useState(() => {
+    const stored = localStorage.getItem('projects_layout')
+      ?? localStorage.getItem('projects_view');   // legacy key held the layout
+    return ['board', 'list'].includes(stored) ? stored : 'board';
   });
   const [showArchived, setShowArchived] = useState(false);
   const [rowCtxMenu, setRowCtxMenu] = useState(null); // { x, y, project }
@@ -64,8 +80,11 @@ export default function Projects({ onNavigate }) {
   const [adReadDeliverables, setAdReadDeliverables] = useState([]);
 
   useEffect(() => {
-    localStorage.setItem('projects_view', viewMode);
-  }, [viewMode]);
+    localStorage.setItem('projects_view', view);
+  }, [view]);
+  useEffect(() => {
+    localStorage.setItem('projects_layout', layout);
+  }, [layout]);
 
 
   const fetchProjects = useCallback(async () => {
@@ -391,9 +410,9 @@ export default function Projects({ onNavigate }) {
     <div style={styles.page}>
       <div style={styles.topBar}>
         <div>
-          <h1 style={styles.pageTitle}>Projects</h1>
+          <h1 style={styles.pageTitle}>{view === 'ideas' ? 'Ideas' : 'Projects'}</h1>
           <p style={styles.pageSubtitle}>
-            {viewMode === 'ideas'
+            {view === 'ideas'
               ? 'Sort ideas across categories. Drag rows to move them between sections.'
               : `${currentProjects.length + comingUpProjects.length} active${completedProjects.length > 0 ? ` · ${completedProjects.length} completed` : ''}${archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
           </p>
@@ -402,7 +421,7 @@ export default function Projects({ onNavigate }) {
 
       {/* Filters (list view only — kanban columns are self-filtering) */}
       <div style={styles.filterRow}>
-        {viewMode === 'list' ? (
+        {view === 'projects' && layout === 'list' ? (
           <div style={styles.statusFilters}>
             <button
               onClick={() => setFilterStatus('all')}
@@ -430,50 +449,57 @@ export default function Projects({ onNavigate }) {
           </div>
         ) : <div />}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {/* View: what you're looking at */}
           <div style={styles.viewToggle}>
-            <button
-              onClick={() => setViewMode('list')}
-              style={{
-                ...styles.viewToggleBtn,
-                ...(viewMode === 'list' ? styles.viewToggleBtnActive : {}),
-              }}
-              title="List view"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <rect x="1" y="2" width="14" height="2" rx="0.5" />
-                <rect x="1" y="7" width="14" height="2" rx="0.5" />
-                <rect x="1" y="12" width="14" height="2" rx="0.5" />
-              </svg>
-            </button>
-            <button
-              onClick={() => setViewMode('board')}
-              style={{
-                ...styles.viewToggleBtn,
-                ...(viewMode === 'board' ? styles.viewToggleBtnActive : {}),
-              }}
-              title="Board view"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <rect x="1" y="1" width="4" height="14" rx="1" />
-                <rect x="6" y="1" width="4" height="10" rx="1" />
-                <rect x="11" y="1" width="4" height="12" rx="1" />
-              </svg>
-            </button>
-            <button
-              onClick={() => setViewMode('ideas')}
-              style={{
-                ...styles.viewToggleBtn,
-                ...(viewMode === 'ideas' ? styles.viewToggleBtnActive : {}),
-              }}
-              title="Ideas"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M6 12.5h4M6.5 14.5h3" />
-                <path d="M8 1.5a4.5 4.5 0 00-2.6 8.17c.37.27.6.69.6 1.15v.18h4v-.18c0-.46.23-.88.6-1.15A4.5 4.5 0 008 1.5z" />
-              </svg>
-            </button>
+            {VIEWS.map(v => (
+              <button
+                key={v.key}
+                onClick={() => setView(v.key)}
+                style={{
+                  ...styles.viewTabBtn,
+                  ...(view === v.key ? styles.viewToggleBtnActive : {}),
+                }}
+              >
+                {v.label}
+              </button>
+            ))}
           </div>
-          {viewMode === 'list' && (
+
+          {/* Layout: how the Projects view is drawn. Ideas has one layout. */}
+          {view === 'projects' && (
+            <div style={styles.viewToggle}>
+              <button
+                onClick={() => setLayout('list')}
+                style={{
+                  ...styles.viewToggleBtn,
+                  ...(layout === 'list' ? styles.viewToggleBtnActive : {}),
+                }}
+                title="List view"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <rect x="1" y="2" width="14" height="2" rx="0.5" />
+                  <rect x="1" y="7" width="14" height="2" rx="0.5" />
+                  <rect x="1" y="12" width="14" height="2" rx="0.5" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setLayout('board')}
+                style={{
+                  ...styles.viewToggleBtn,
+                  ...(layout === 'board' ? styles.viewToggleBtnActive : {}),
+                }}
+                title="Board view"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <rect x="1" y="1" width="4" height="14" rx="1" />
+                  <rect x="6" y="1" width="4" height="10" rx="1" />
+                  <rect x="11" y="1" width="4" height="12" rx="1" />
+                </svg>
+              </button>
+            </div>
+          )}
+
+          {view === 'projects' && layout === 'list' && (
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -486,11 +512,11 @@ export default function Projects({ onNavigate }) {
 
       {/* ─── Sectioned Project Layout ─── */}
       {/* Ideas loads its own data, so it isn't gated on the projects fetch. */}
-      {viewMode === 'ideas' ? (
+      {view === 'ideas' ? (
         <Ideas embedded />
       ) : loading ? (
         <p style={styles.emptyText}>Loading projects...</p>
-      ) : viewMode === 'board' ? (
+      ) : layout === 'board' ? (
         <UnifiedBoard onNavigate={onNavigate} />
       ) : (
         <>
@@ -1608,6 +1634,24 @@ const styles = {
     background: 'transparent',
     color: 'rgba(255,255,255,0.35)',
     cursor: 'pointer',
+    transition: 'all 0.15s',
+  },
+  // Text sibling of viewToggleBtn, for the Projects/Ideas view tabs.
+  viewTabBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 12px',
+    height: '28px',
+    border: 'none',
+    borderRadius: '6px',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: '13px',
+    fontWeight: 600,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
     transition: 'all 0.15s',
   },
   viewToggleBtnActive: {
