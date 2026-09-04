@@ -8,7 +8,6 @@ import {
   listMeetings,
   createMeeting,
   listLegacySessions,
-  CAPTURE_QUALITY_LABELS,
 } from '../../lib/harbor/shows';
 import useVisibilityRefresh from '../../hooks/useVisibilityRefresh';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../lib/styleTokens';
@@ -29,6 +28,19 @@ import { pill, button, input, card, sectionHeader } from '../../lib/styleRecipes
 
 const STATUS_TONES = { scheduled: 'info', live: 'success', ended: 'danger' };
 const STATUS_LABELS = { scheduled: 'Scheduled', live: 'Live', ended: 'Ended' };
+
+/** When a not-yet-started session is set for. Falls back to when it was made,
+ *  since sessions created from the room have no explicit scheduled_at. */
+function formatScheduled(session) {
+  const when = session.scheduled_at || session.created_at;
+  if (!when) return '';
+  return new Date(when).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 const TABS = [
   { key: 'shows', label: 'Shows' },
@@ -163,19 +175,21 @@ export default function HarborHome({ onOpenRoom, onOpenShow, onBackToLauncher })
   return (
     <div style={styles.page}>
       <div style={styles.inner}>
+        {/* Three columns so the title sits dead centre regardless of whether
+            the Apps button is rendered. */}
         <div style={styles.brandRow}>
-          <div style={styles.brandLeft}>
-            <div style={styles.tileMark}>H</div>
-            <div>
-              <h1 style={styles.title}>Harbor</h1>
-              <p style={styles.tagline}>Podcast &amp; remote recording</p>
-            </div>
+          <div style={styles.brandSide}>
+            {onBackToLauncher && (
+              <button type="button" onClick={onBackToLauncher} style={button({ variant: 'ghost', size: 'sm' })}>
+                &larr; Apps
+              </button>
+            )}
           </div>
-          {onBackToLauncher && (
-            <button type="button" onClick={onBackToLauncher} style={button({ variant: 'ghost', size: 'sm' })}>
-              &larr; Apps
-            </button>
-          )}
+          <div style={styles.brandCenter}>
+            <div style={styles.tileMark}>H</div>
+            <h1 style={styles.title}>Harbor</h1>
+          </div>
+          <div style={styles.brandSide} aria-hidden="true" />
         </div>
 
         <div style={styles.tabRow}>
@@ -206,11 +220,6 @@ export default function HarborHome({ onOpenRoom, onOpenShow, onBackToLauncher })
                 {creating ? 'Creating…' : tab === 'shows' ? 'Create show' : 'Start meeting'}
               </button>
             </form>
-            <p style={styles.hint}>
-              {tab === 'shows'
-                ? 'A show is a room you keep — one permanent guest link, and a new recording every time you use it. Up to 4 people, full video.'
-                : 'A meeting is a one-off. Everyone is on camera, but only audio is recorded. Up to 6 people.'}
-            </p>
           </>
         )}
 
@@ -262,12 +271,7 @@ function ShowList({ shows, onOpenShow, copiedId, onCopy }) {
           <div style={styles.sessionInfo}>
             <div style={styles.sessionTitleRow}>
               <span style={styles.sessionTitle}>{s.title}</span>
-              <span style={pill('info')}>Show</span>
             </div>
-            <span style={styles.sessionMeta}>
-              {s.max_participants} seats · video ·{' '}
-              {CAPTURE_QUALITY_LABELS[s.capture_quality] || s.capture_quality}
-            </span>
           </div>
           <div style={styles.sessionActions}>
             <button
@@ -314,10 +318,13 @@ function SessionList({
           <div style={styles.sessionInfo}>
             <div style={styles.sessionTitleRow}>
               <span style={styles.sessionTitle}>{s.title}</span>
-              {s.mode === 'meeting' && <span style={pill('default')}>Audio only</span>}
-              <span style={pill(STATUS_TONES[s.status] || 'info')}>
-                {STATUS_LABELS[s.status] || s.status}
-              </span>
+              {s.status === 'scheduled' ? (
+                <span style={styles.scheduledFor}>{formatScheduled(s)}</span>
+              ) : (
+                <span style={pill(STATUS_TONES[s.status] || 'info')}>
+                  {STATUS_LABELS[s.status] || s.status}
+                </span>
+              )}
               {s.archived_at && <span style={pill('success')}>On NAS</span>}
             </div>
             <span style={styles.sessionMeta}>
@@ -390,14 +397,15 @@ const styles = {
   brandRow: {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: spacing.md,
-    flexWrap: 'wrap',
   },
-  brandLeft: { display: 'flex', alignItems: 'center', gap: spacing.lg },
+  // Equal-width flanks keep the title centred on the page, not merely
+  // centred in whatever space the Apps button leaves behind.
+  brandSide: { flex: 1, display: 'flex', alignItems: 'center', minWidth: 0 },
+  brandCenter: { display: 'flex', alignItems: 'center', gap: spacing.md, flexShrink: 0 },
   tileMark: {
-    width: 52,
-    height: 52,
+    width: 44,
+    height: 44,
     borderRadius: radii.lg,
     background: colors.info.bg,
     border: `1px solid ${colors.info.border}`,
@@ -414,8 +422,9 @@ const styles = {
     fontWeight: fontWeights.bold,
     margin: 0,
     letterSpacing: '-0.3px',
+    textAlign: 'center',
+    whiteSpace: 'nowrap',
   },
-  tagline: { fontSize: fontSizes.md, color: colors.info.fgSoft, margin: 0 },
   tabRow: {
     display: 'flex',
     gap: spacing.xs,
@@ -446,7 +455,6 @@ const styles = {
   },
   createRow: { display: 'flex', gap: spacing.sm, flexWrap: 'wrap' },
   createInput: { ...input(), flex: 1, minWidth: 200 },
-  hint: { fontSize: fontSizes.xs, color: colors.textSubtle, margin: 0 },
   errorBox: {
     padding: spacing.md,
     borderRadius: radii.md,
@@ -468,6 +476,12 @@ const styles = {
   sessionTitleRow: { display: 'flex', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
   sessionTitle: { fontSize: fontSizes.md, fontWeight: fontWeights.semibold },
   sessionMeta: { fontSize: fontSizes.xs, color: colors.textSubtle },
+  scheduledFor: {
+    fontSize: fontSizes.xs,
+    color: colors.textSubtle,
+    fontWeight: fontWeights.medium,
+    whiteSpace: 'nowrap',
+  },
   sessionActions: { display: 'flex', gap: spacing.xs, flexWrap: 'wrap' },
   emptyCard: { ...card(), padding: spacing.lg },
   emptyText: { fontSize: fontSizes.sm, color: colors.textSubtle, margin: 0 },
