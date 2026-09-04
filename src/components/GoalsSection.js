@@ -275,8 +275,29 @@ export default function GoalsSection() {
     const todayKey = ptDayKey(now);
 
     const next = {};
+
+    // ── Manual goals ──
+    // Weekly ones keep a real per-week log in goal_period_entries so their
+    // hit/miss strip means something; the value is set by clicking the strip.
+    // Monthly and yearly manual goals still carry a single current_value.
+    const manualWeekly = goalData.filter(g => g.goal_type === 'manual' && g.category === 'weekly');
+    let entriesByGoal = {};
+    if (manualWeekly.length) {
+      const { data, error } = await supabase
+        .from('goal_period_entries')
+        .select('goal_id, period_key, value')
+        .in('goal_id', manualWeekly.map(g => g.id));
+      if (error) console.error('goal_period_entries fetch:', error);
+      for (const row of (data || [])) {
+        (entriesByGoal[row.goal_id] ||= {})[row.period_key] = Number(row.value) || 0;
+      }
+    }
     for (const g of goalData) {
-      if (g.goal_type === 'manual') {
+      if (g.goal_type !== 'manual') continue;
+      if (g.category === 'weekly') {
+        const history = entriesByGoal[g.id] || {};
+        next[g.id] = { current: history[currentBucket('weekly', now)] || 0, history };
+      } else {
         next[g.id] = { current: Number(g.current_value) || 0, history: {} };
       }
     }
@@ -501,6 +522,31 @@ export default function GoalsSection() {
     fetchAll();
   }
 
+  // Log this week's value for a manual weekly goal, from a click on its strip.
+  // Optimistic so the square responds immediately; a failure re-reads rather
+  // than leaving the card showing something the DB doesn't have.
+  async function setWeekValue(goal, periodKey, value) {
+    setProgress(prev => ({
+      ...prev,
+      [goal.id]: {
+        current: value,
+        history: { ...(prev[goal.id]?.history || {}), [periodKey]: value },
+      },
+    }));
+    const { error } = await supabase.from('goal_period_entries').upsert(
+      {
+        goal_id: goal.id, period_key: periodKey, value,
+        created_by: profile.id, updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'goal_id,period_key' },
+    );
+    if (error) {
+      console.error('goal_period_entries upsert:', error);
+      alert('Could not save: ' + error.message);
+      fetchAll();
+    }
+  }
+
   // ── Form helpers ──
 
   const patchForm = (patch) => setGoalForm(prev => ({ ...prev, ...patch }));
@@ -639,6 +685,7 @@ export default function GoalsSection() {
                             isAdmin={isAdmin}
                             onEdit={openEditGoal}
                             onDelete={deleteGoal}
+                            onLogWeek={setWeekValue}
                           />
                         ))}
                       </div>
@@ -740,7 +787,15 @@ function GoalForm({ form, accounts, onPatch, onToggleMetric, onTogglePostType, o
         autoFocus
       />
 
-      {isManual ? (
+      {isManual && form.category === 'weekly' ? (
+        <>
+          <input value={form.target_value} onChange={e => onPatch({ target_value: e.target.value })}
+            placeholder="Target per week" style={styles.input} inputMode="decimal" />
+          <div style={styles.formHint}>
+            Log each week by clicking the current square on the card's strip.
+          </div>
+        </>
+      ) : isManual ? (
         <div style={styles.formRow}>
           <input value={form.current_value} onChange={e => onPatch({ current_value: e.target.value })}
             placeholder="Current value" style={{ ...styles.input, flex: 1 }} inputMode="decimal" />
@@ -844,7 +899,7 @@ function GoalForm({ form, accounts, onPatch, onToggleMetric, onTogglePostType, o
 
 // ─── Goal card ────────────────────────────────────────────────
 
-function GoalCard({ goal, progress, velocity, accounts, isAdmin, onEdit, onDelete }) {
+function GoalCard({ goal, progress, velocity, accounts, isAdmin, onEdit, onDelete, onLogWeek }) {
   const [paceHover, setPaceHover] = useState(false);
   const period = goal.category;
   const isManual = goal.goal_type === 'manual';
@@ -870,9 +925,11 @@ function GoalCard({ goal, progress, velocity, accounts, isAdmin, onEdit, onDelet
     ? (goal.platform_account_ids || []).map(id => (accounts.find(a => a.id === id) || {}).account_name).filter(Boolean)
     : [];
 
-  // Weekly cards carry a hit/miss strip; it needs per-period history, which
-  // manual goals don't have.
-  const weekKeys = period === 'weekly' && !isManual ? recentWeekStarts(WEEK_HISTORY) : null;
+  // Every weekly card carries a hit/miss strip. Manual ones get their history
+  // from goal_period_entries, and their current-week square is clickable —
+  // that click is how a manual weekly goal gets logged at all.
+  const weekKeys = period === 'weekly' ? recentWeekStarts(WEEK_HISTORY) : null;
+  const canLog = isManual && isAdmin && typeof onLogWeek === 'function';
 
   return (
     <div style={styles.monthlyCard}>
@@ -947,20 +1004,37 @@ function GoalCard({ goal, progress, velocity, accounts, isAdmin, onEdit, onDelet
             const count = progress?.history?.[wk] || 0;
             const hit = count >= target;
             const isCurrent = i === weekKeys.length - 1;
+            // Clicking the live square steps the count: +1 up to the target,
+            // then back to zero. With a target of 1 that's simply a checkbox.
+            const clickable = canLog && isCurrent;
+            const nextValue = count >= target ? 0 : count + 1;
             return (
               <span
                 key={wk}
-                title={`${weekRangeLabel(wk)} — ${fmt(count)}/${fmt(target)}${isCurrent ? ' (in progress)' : ''}`}
+                onClick={clickable ? () => onLogWeek(goal, wk, nextValue) : undefined}
+                role={clickable ? 'button' : undefined}
+                tabIndex={clickable ? 0 : undefined}
+                onKeyDown={clickable ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onLogWeek(goal, wk, nextValue); }
+                } : undefined}
+                title={
+                  clickable
+                    ? `${weekRangeLabel(wk)} — ${fmt(count)}/${fmt(target)} · click to ${nextValue === 0 ? 'clear' : `mark ${fmt(nextValue)}`}`
+                    : `${weekRangeLabel(wk)} — ${fmt(count)}/${fmt(target)}${isCurrent ? ' (in progress)' : ''}`
+                }
                 style={{
                   ...styles.weekDot,
                   ...(isCurrent
-                    ? { border: `1.5px solid ${color}`, background: 'transparent', color }
+                    ? (hit
+                        ? { border: `1.5px solid ${color}`, background: 'rgba(34,197,94,0.18)', color: '#22c55e' }
+                        : { border: `1.5px solid ${color}`, background: 'transparent', color })
                     : hit
                       ? { background: 'rgba(34,197,94,0.18)', color: '#22c55e' }
                       : { background: 'rgba(249,115,22,0.15)', color: '#f97316' }),
+                  ...(clickable ? { cursor: 'pointer' } : null),
                 }}
               >
-                {isCurrent ? '●' : hit ? '✓' : '✗'}
+                {isCurrent ? (hit ? '✓' : '●') : hit ? '✓' : '✗'}
               </span>
             );
           })}
@@ -984,7 +1058,9 @@ function GoalCard({ goal, progress, velocity, accounts, isAdmin, onEdit, onDelet
       )}
 
       <div style={styles.cardUpdated}>
-        {isManual ? `Updated ${formatDate(goal.updated_at)}` : `${periodLabel(period)} — live`}
+        {isManual && period !== 'weekly'
+          ? `Updated ${formatDate(goal.updated_at)}`
+          : `${periodLabel(period)} — live`}
       </div>
     </div>
   );
@@ -1230,6 +1306,7 @@ const styles = {
     gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
     gap: 10,
   },
+  formHint: { fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: -4 },
   weekStrip: { display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' },
   weekDot: {
     width: 18, height: 18, borderRadius: 4,
