@@ -8,7 +8,7 @@ import { callWorkflowFn } from '../lib/workflowApi';
 import { fetchAllRows } from './analytics/utils';
 import FindAssetsModal from '../components/FindAssetsModal';
 import { buttonReset } from '../lib/styleRecipes';
-import { colors } from '../lib/styleTokens';
+import { colors, spacing } from '../lib/styleTokens';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 
@@ -89,14 +89,29 @@ function cloneBeatsFresh(items) {
 }
 
 function timeAgo(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime();
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const diff = Date.now() - d.getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+  if (days < 7) return `${days}d ago`;
+  // Past a week "412d ago" stops meaning anything — show the date instead.
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-US', sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Exact stamp for the editor bar and list hover, where the relative form is too vague.
+function fullTimestamp(dateStr) {
+  if (!dateStr) return '';
+  return new Date(dateStr).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
 }
 
 // Fixed Beat Sheet type taxonomy. NULL type = "Unassigned" catch-all.
@@ -143,6 +158,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   const [driveFolderId, setDriveFolderId] = useState(null);
   const [driveFolderName, setDriveFolderName] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
+  const [lastSavedAt, setLastSavedAt] = useState(null);
   const saveTimer = useRef(null);
   const justLoadedSheet = useRef(false); // skip the autosave fired by openSheet's state writes
   const tagDragRef = useRef(null);
@@ -273,6 +289,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       setSaveStatus('saving');
+      const savedAt = new Date().toISOString();
       const { error } = await supabase
         .from('beat_sheets')
         .update({
@@ -280,7 +297,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           beats,
           drive_folder_id: driveFolderId,
           drive_folder_name: driveFolderName,
-          updated_at: new Date().toISOString(),
+          updated_at: savedAt,
         })
         .eq('id', activeSheet.id);
       if (error) {
@@ -288,6 +305,8 @@ export default function Production({ initialSheetId, onSheetOpened }) {
         setSaveStatus('unsaved');
       } else {
         setSaveStatus('saved');
+        setLastSavedAt(savedAt);
+        setSheets(prev => prev.map(s => (s.id === activeSheet.id ? { ...s, updated_at: savedAt } : s)));
       }
     }, 1500);
   }, [activeSheet, title, beats, driveFolderId, driveFolderName]);
@@ -385,12 +404,13 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   const renameSheet = async (id, newTitle) => {
     const t = newTitle.trim();
     if (!t) return;
-    setSheets(prev => prev.map(s => (s.id === id ? { ...s, title: t } : s)));
+    const savedAt = new Date().toISOString();
+    setSheets(prev => prev.map(s => (s.id === id ? { ...s, title: t, updated_at: savedAt } : s)));
     setActiveSheet(prev => (prev && prev.id === id ? { ...prev, title: t } : prev));
-    if (activeSheet?.id === id) setTitle(t);
+    if (activeSheet?.id === id) { setTitle(t); setLastSavedAt(savedAt); }
     const { error } = await supabase
       .from('beat_sheets')
-      .update({ title: t, updated_at: new Date().toISOString() })
+      .update({ title: t, updated_at: savedAt })
       .eq('id', id);
     if (error) console.error('Rename error:', error);
   };
@@ -427,6 +447,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     setDriveFolderId(sheet.drive_folder_id);
     setDriveFolderName(sheet.drive_folder_name);
     setSaveStatus('saved');
+    setLastSavedAt(sheet.updated_at || null);
     setTagInputs({});
     setExpandedContexts(new Set(flattenBeats(loadedBeats).filter(b => b.context).map(b => b.id)));
     window.history.replaceState({}, '', '/production/' + sheet.id);
@@ -463,12 +484,14 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     clearInterval(snapshotTimer.current);
     // force-save before leaving if unsaved; await so fetchSheets gets fresh data
     if (saveStatus !== 'saved' && activeSheet) {
+      const savedAt = new Date().toISOString();
       await supabase.from('beat_sheets').update({
         title, beats,
         drive_folder_id: driveFolderId,
         drive_folder_name: driveFolderName,
-        updated_at: new Date().toISOString(),
+        updated_at: savedAt,
       }).eq('id', activeSheet.id);
+      setLastSavedAt(savedAt);
     }
     // save version snapshot on close
     if (activeSheet) await saveSnapshot(activeSheet.id, title, beats);
@@ -1749,8 +1772,12 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           ) : (
             <button type="button" style={{ ...buttonReset, ...styles.rowMain }} onClick={() => openSheet(sheet)}>
               <span style={styles.sheetTitle}>{sheet.title || 'Untitled'}</span>
-              <span style={styles.sheetMeta}>
-                {n} beat{n !== 1 ? 's' : ''}{' · '}{timeAgo(sheet.updated_at)}
+              <span
+                style={styles.sheetMeta}
+                title={sheet.updated_at ? `Last updated ${fullTimestamp(sheet.updated_at)}` : undefined}
+              >
+                {n} beat{n !== 1 ? 's' : ''}
+                {sheet.updated_at && <>{' · '}Updated {timeAgo(sheet.updated_at)}</>}
               </span>
             </button>
           )}
@@ -1958,6 +1985,12 @@ export default function Production({ initialSheetId, onSheetOpened }) {
         <span style={styles.saveIndicator}>
           {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'unsaved' ? 'Unsaved' : 'Saved'}
         </span>
+
+        {lastSavedAt && (
+          <span style={styles.updatedIndicator}>
+            Updated {fullTimestamp(lastSavedAt)}
+          </span>
+        )}
       </div>
 
       {/* Column headers */}
@@ -2572,6 +2605,12 @@ const styles = {
     fontSize: 12,
     color: 'rgba(255,255,255,0.3)',
     marginLeft: 'auto',
+    whiteSpace: 'nowrap',
+  },
+  updatedIndicator: {
+    fontSize: 12,
+    color: colors.textPlaceholder,
+    marginLeft: spacing.md,
     whiteSpace: 'nowrap',
   },
 
