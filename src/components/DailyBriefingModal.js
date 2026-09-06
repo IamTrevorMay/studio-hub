@@ -12,6 +12,19 @@ import backdropDismiss from '../lib/backdropDismiss';
 // a readable measure. Below this the modal (90vw) is too narrow for that.
 const WIDE_LAYOUT_QUERY = '(min-width: 900px)';
 
+// The Triton brief lays its box-score cards out four across, which is far too
+// tight at this modal's measure — abbreviations stack vertically and the
+// linescores get clipped. The grid lives in the stored brief's inline styles,
+// so rewrite it to two-up on the way in; that fixes briefs already written as
+// well as new ones. Other grids in the brief (division standings, etc.) are
+// left alone.
+function twoUpBoxScores(html) {
+  return html.replace(
+    /grid-template-columns\s*:\s*repeat\(\s*4\s*,\s*1fr\s*\)/gi,
+    'grid-template-columns:repeat(2,minmax(0,1fr))',
+  );
+}
+
 function useWideLayout() {
   const [wide, setWide] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(WIDE_LAYOUT_QUERY).matches,
@@ -231,7 +244,7 @@ export default function DailyBriefingModal({ onClose }) {
                     {brief.summary && <p style={st.briefSummary}>{brief.summary}</p>}
                     <div
                       style={st.briefContent}
-                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(brief.content || '') }}
+                      dangerouslySetInnerHTML={{ __html: twoUpBoxScores(DOMPurify.sanitize(brief.content || '')) }}
                     />
                   </div>
                 ) : (
