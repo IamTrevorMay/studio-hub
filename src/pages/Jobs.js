@@ -366,7 +366,8 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
         .from('profiles')
         .select('id, full_name, nickname, role, sub_role')
         .in('role', ADMIN_TIER_ROLE_VALUES)
-        .neq('status', 'archived');
+        .neq('status', 'archived')
+        .is('deactivated_at', null);
       if (cancelled) return;
       setAdminOptions((data || []).sort((a, b) => (
         (a.full_name || a.nickname || '').localeCompare(b.full_name || b.nickname || '')

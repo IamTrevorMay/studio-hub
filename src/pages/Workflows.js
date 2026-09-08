@@ -307,6 +307,7 @@ export default function Workflows() {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, full_name, email, role, status')
+        .is('deactivated_at', null)
         .order('full_name', { ascending: true, nullsFirst: false });
       if (cancelled) return;
       if (error) {
@@ -448,6 +449,7 @@ export default function Workflows() {
       const { data } = await supabase
         .from('profiles')
         .select('id, full_name, email, role, status')
+        .is('deactivated_at', null)
         .order('full_name', { ascending: true, nullsFirst: false });
       if (cancelled) return;
       const active = (data || []).filter(p => p.status !== 'archived');

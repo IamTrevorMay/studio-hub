@@ -496,6 +496,7 @@ export default function AppLayout() {
         .from('profiles')
         .select('id, full_name, sub_role, title')
         .in('role', ['contractor', 'freelancer'])
+        .is('deactivated_at', null)
         .order('full_name');
       setViewAsContractors(data || []);
     }
@@ -507,6 +508,7 @@ export default function AppLayout() {
         .select('id, full_name, title')
         .eq('role', 'member')
         .neq('id', profile?.id)
+        .is('deactivated_at', null)
         .order('full_name');
       setViewAsStaff(data || []);
     }

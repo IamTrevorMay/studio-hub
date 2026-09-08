@@ -295,7 +295,8 @@ async function createConfirmationGate(
     const { data: admins } = await admin
       .from("profiles")
       .select("id")
-      .eq("role", "admin");
+      .eq("role", "admin")
+      .is("deactivated_at", null);
     assigneeIds = (admins || []).map((a: { id: string }) => a.id);
   }
 
@@ -376,7 +377,8 @@ async function executeCreateTask(
     const { data: admins } = await admin
       .from("profiles")
       .select("id")
-      .eq("role", "admin");
+      .eq("role", "admin")
+      .is("deactivated_at", null);
     assigneeIds = (admins || []).map((a: { id: string }) => a.id);
   } else if (assigneeType === "specific" && assigneeId) {
     assigneeIds = [assigneeId];
@@ -451,7 +453,8 @@ async function executeSendNotification(
     const { data: admins } = await admin
       .from("profiles")
       .select("id")
-      .eq("role", "admin");
+      .eq("role", "admin")
+      .is("deactivated_at", null);
     recipientIds = (admins || []).map((a: { id: string }) => a.id);
   } else if (recipientType === "specific" && recipientId) {
     recipientIds = [recipientId];

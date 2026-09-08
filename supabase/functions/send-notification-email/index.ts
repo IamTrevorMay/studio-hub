@@ -238,7 +238,8 @@ async function handleAllAdmins(
   const { data: admins } = await supabase
     .from("profiles")
     .select("id, email")
-    .eq("role", "admin");
+    .eq("role", "admin")
+    .is("deactivated_at", null);
 
   if (!admins?.length) return json({ sent: 0, skipped: 0 });
 

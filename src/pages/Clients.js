@@ -54,6 +54,7 @@ export default function Clients() {
       supabase.from('profiles')
         .select('id, full_name, email, avatar_url, title')
         .eq('role', 'client')
+        .is('deactivated_at', null)
         .order('full_name'),
       supabase.from('client_profiles').select('*'),
       supabase.from('client_editors').select('client_id, contractor_id'),
@@ -61,6 +62,7 @@ export default function Clients() {
         .select('id, full_name, email, avatar_url, sub_role')
         .in('role', ['contractor', 'freelancer'])
         .in('sub_role', EDITOR_SUB_ROLES)
+        .is('deactivated_at', null)
         .order('full_name'),
       supabase.from('client_documents').select('*').order('created_at', { ascending: false }),
     ]);

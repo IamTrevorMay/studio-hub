@@ -408,7 +408,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   const fetchTeamMembers = useCallback(async () => {
     try {
-      const { data } = await supabase.from('profiles').select('id, full_name, nickname, title');
+      const { data } = await supabase.from('profiles').select('id, full_name, nickname, title').is('deactivated_at', null);
       setTeamMembers(data || []);
     } catch (err) {
       console.error('Error fetching team:', err);

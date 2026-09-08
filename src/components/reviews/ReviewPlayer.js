@@ -491,6 +491,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
         .from('profiles')
         .select('id, full_name, nickname, email, avatar_url')
         .eq('role', 'client')
+        .is('deactivated_at', null)
         .order('full_name');
       if (error) console.error('Fetch clients failed:', error.message);
       setClientOptions(data || []);

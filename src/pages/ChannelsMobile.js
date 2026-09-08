@@ -279,7 +279,7 @@ export default function ChannelsMobile({ initialChannelName, onChannelOpened }) 
   }, []);
 
   const fetchTeam = useCallback(async () => {
-    const { data } = await supabase.from('profiles').select('id, full_name, nickname, title');
+    const { data } = await supabase.from('profiles').select('id, full_name, nickname, title').is('deactivated_at', null);
     setTeamMembers(data || []);
   }, []);
 

@@ -372,7 +372,7 @@ export default function Calendar({ onNavigate }) {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, full_name, email, avatar_url, title')
+        .select('id, full_name, email, avatar_url, title, deactivated_at')
         .order('full_name', { ascending: true });
       if (error) throw error;
       setHubUsers(data || []);
@@ -2529,7 +2529,7 @@ export default function Calendar({ onNavigate }) {
               </div>
               {showGuestDropdown && (
                 <div data-guest-dropdown style={{ ...styles.guestDropdownList, position: 'fixed', top: guestDropdownPos.top, left: guestDropdownPos.left, right: 'auto', width: guestDropdownPos.width, marginTop: 0 }}>
-                  {hubUsers.filter(u => u.id !== profile?.id).map(u => {
+                  {hubUsers.filter(u => u.id !== profile?.id && !u.deactivated_at).map(u => {
                     const isSelected = eventForm.guests.includes(u.id);
                     return (
                       <div

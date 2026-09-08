@@ -466,7 +466,7 @@ Deno.serve(async (req: Request) => {
     let notified = 0;
     if ((isCron && isFirst) || body.send === true) {
       const combined = results.find((r) => r.scope === "combined");
-      const { data: admins } = await db.from("profiles").select("id").eq("role", "admin");
+      const { data: admins } = await db.from("profiles").select("id").eq("role", "admin").is("deactivated_at", null);
       const notes = (admins || []).filter((a) => a.id).map((a) => ({
         user_id: a.id,
         type: "monthly_report",

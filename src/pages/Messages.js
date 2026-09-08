@@ -207,7 +207,8 @@ export default function Messages({ onNavigate, simulateClient = false, initialCo
         return;
       }
       let query = supabase.from('profiles').select('id, full_name, nickname, title, avatar_url')
-        .neq('id', profile.id);
+        .neq('id', profile.id)
+        .is('deactivated_at', null);
       // Only admins + the creative director see clients in the staff picker;
       // contractors get their own assigned clients merged in below.
       if (effIsContractor || !canManageClients(profile.role, profile.sub_role)) {
@@ -225,7 +226,8 @@ export default function Messages({ onNavigate, simulateClient = false, initialCo
         if (clientIds.length) {
           const { data: clients } = await supabase.from('profiles')
             .select('id, full_name, nickname, title, avatar_url')
-            .in('id', clientIds);
+            .in('id', clientIds)
+            .is('deactivated_at', null);
           members = [...members, ...(clients || [])];
         }
       }

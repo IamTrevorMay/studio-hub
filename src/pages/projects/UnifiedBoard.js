@@ -1757,7 +1757,8 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved, onNaviga
       const { data } = await supabase
         .from('profiles')
         .select('id, full_name, nickname, role, title, status')
-        .neq('status', 'archived');
+        .neq('status', 'archived')
+        .is('deactivated_at', null);
       if (cancelled) return;
       setTeamMembers((data || []).sort((a, b) =>
         (a.full_name || a.nickname || '').localeCompare(b.full_name || b.nickname || ''),

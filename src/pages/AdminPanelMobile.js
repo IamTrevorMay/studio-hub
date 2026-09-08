@@ -31,7 +31,7 @@ export default function AdminPanelMobile() {
     try {
       const [invRes, memRes] = await Promise.all([
         supabase.from('invitations').select('*').order('created_at', { ascending: false }),
-        supabase.from('profiles').select('id, full_name, email, role, title').order('full_name'),
+        supabase.from('profiles').select('id, full_name, email, role, title, deactivated_at').order('full_name'),
       ]);
       setInvitations(invRes.data || []);
       setTeam(memRes.data || []);
@@ -135,7 +135,7 @@ export default function AdminPanelMobile() {
       <Section title={`Team · ${team.length}`}>
         <ul style={styles.list}>
           {team.map((m) => (
-            <li key={m.id} style={styles.row}>
+            <li key={m.id} style={{ ...styles.row, ...(m.deactivated_at ? { opacity: 0.5 } : {}) }}>
               <div style={styles.avatar}>{(m.full_name || '?').charAt(0).toUpperCase()}</div>
               <div style={styles.rowBody}>
                 <div style={styles.rowName}>{m.full_name || m.email}</div>
@@ -146,6 +146,7 @@ export default function AdminPanelMobile() {
                     </span>
                   )}
                   {m.title && <span style={{ color: 'rgba(255,255,255,0.45)' }}>· {m.title}</span>}
+                  {m.deactivated_at && <span style={{ color: '#fca5a5' }}>· Deactivated</span>}
                 </div>
               </div>
             </li>

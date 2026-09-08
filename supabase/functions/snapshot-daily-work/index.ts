@@ -13,7 +13,8 @@ Deno.serve(
     const { data: admins, error: adminsError } = await admin
       .from("profiles")
       .select("id")
-      .eq("role", "admin");
+      .eq("role", "admin")
+      .is("deactivated_at", null);
 
     if (adminsError) throw adminsError;
     if (!admins || admins.length === 0) {

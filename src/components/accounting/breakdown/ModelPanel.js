@@ -210,7 +210,7 @@ export default function ModelPanel({ model, settings, onSetInput, onClearInput, 
             >
               <option value="">— add a planned line —</option>
               {profiles
-                .filter(pr => !peopleRows.some(p => p.profile_id === pr.id))
+                .filter(pr => !pr.deactivated_at && !peopleRows.some(p => p.profile_id === pr.id))
                 .map(pr => <option key={pr.id} value={`profile:${pr.id}`}>{pr.full_name || 'Unnamed'}</option>)}
               <option value="planned">Planned role (no profile)</option>
             </select>

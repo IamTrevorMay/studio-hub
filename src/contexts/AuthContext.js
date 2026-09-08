@@ -100,6 +100,14 @@ export function AuthProvider({ children }) {
           throw error;
         }
 
+        // Deactivated accounts are auth-banned server-side, but an existing
+        // access token stays valid until it expires — kick them out here so
+        // the block takes effect on the very next profile fetch.
+        if (data?.deactivated_at) {
+          await nukeSession();
+          return null;
+        }
+
         setProfile(data);
         setAuthError(null);
         // A healthy profile fetch means the session is fine — clear any prior
@@ -119,6 +127,7 @@ export function AuthProvider({ children }) {
           // Try one more time with the refreshed session
           try {
             const { data: retryData } = await supabase.from('profiles').select('*').eq('id', userId).single();
+            if (retryData?.deactivated_at) { await nukeSession(); return null; }
             if (retryData) { setProfile(retryData); setAuthError(null); return retryData; }
           } catch (e) { /* fall through */ }
         }
@@ -294,7 +303,13 @@ export function AuthProvider({ children }) {
       email,
       password,
     });
-    if (error) throw error;
+    if (error) {
+      // Deactivated accounts are auth-banned — GoTrue reports "User is banned".
+      if (/banned/i.test(error.message || '')) {
+        throw new Error('This account has been deactivated. Contact an admin if you think this is a mistake.');
+      }
+      throw error;
+    }
     return data;
   }
 

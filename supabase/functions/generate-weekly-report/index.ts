@@ -519,7 +519,7 @@ Deno.serve(async (req: Request) => {
     const shouldSend = (isCron && isFirst) || body.send === true;
     if (shouldSend) {
       const { data: admins } = await db
-        .from("profiles").select("id, email").eq("role", "admin");
+        .from("profiles").select("id, email").eq("role", "admin").is("deactivated_at", null);
 
       // bell notifications for all admins
       const notes = (admins || []).filter((a) => a.id).map((a) => ({
@@ -541,7 +541,7 @@ Deno.serve(async (req: Request) => {
       let recipients = envEmails;
       if (recipients.length === 0) {
         const { data: firstAdmin } = await db
-          .from("profiles").select("email").eq("role", "admin").not("email", "is", null)
+          .from("profiles").select("email").eq("role", "admin").not("email", "is", null).is("deactivated_at", null)
           .order("created_at", { ascending: true }).limit(1).maybeSingle();
         if (firstAdmin?.email) recipients = [firstAdmin.email];
       }

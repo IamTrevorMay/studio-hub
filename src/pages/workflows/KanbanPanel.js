@@ -619,6 +619,7 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
       const { data } = await supabase
         .from('profiles')
         .select('id, full_name, email, role, status')
+        .is('deactivated_at', null)
         .order('full_name', { ascending: true, nullsFirst: false });
       if (cancelled || !data) return;
       setProfiles(

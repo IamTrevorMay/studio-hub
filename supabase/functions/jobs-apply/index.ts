@@ -290,11 +290,12 @@ Deno.serve(async (req: Request) => {
       .from("profiles")
       .select("id")
       .in("id", notifyUserIds)
-      .in("role", ["admin", "director", "director_creative", "director_comms"]);
+      .in("role", ["admin", "director", "director_creative", "director_comms"])
+      .is("deactivated_at", null);
     recipients = picked || [];
   }
   if (!recipients.length) {
-    const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin");
+    const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin").is("deactivated_at", null);
     recipients = admins || [];
   }
   if (recipients.length) {

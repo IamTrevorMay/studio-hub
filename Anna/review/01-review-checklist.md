@@ -1,6 +1,6 @@
 ---
 title: Correctness-First Review Checklist (Mayday Studio)
-last_updated: 2026-07-15
+last_updated: 2026-09-08
 tags: [review, correctness, checklist, supabase, react]
 ---
 
@@ -126,6 +126,21 @@ Many pages have a `*Mobile.js` twin (`Deliverables.js` + `DeliverablesMobile.js`
 - [ ] Shared logic that diverged is a candidate to hoist into `src/lib` or a shared hook rather than fixed twice — but for a review, "apply to both twins" is the minimum bar.
 
 ---
+
+## (g) Deactivated users (2026-09-08)
+
+`profiles.deactivated_at timestamptz` marks deactivated accounts. Convention:
+- **Every LIVE people-list query on `profiles`** (pickers, rosters, recipient/fan-out lists,
+  presence widgets — any `.eq/.in/.neq('role', …)` or unfiltered `.order('full_name')` list)
+  must carry `.is('deactivated_at', null)` (frontend) / `.is("deactivated_at", null)` (edge fns).
+- **Never** add it to single-row `.eq('id', …)` attribution lookups or embedded
+  `profiles!` joins — historical content (messages, comments, reviews, payroll history)
+  keeps deactivated users' names.
+- Dual-use lists (one fetch feeds both a picker and historical name resolution — e.g.
+  `Calendar.js` `hubUsers`, accounting `useBreakdownData`/`ModelPanel`) select
+  `deactivated_at` and filter **at the picker render**, not at the query.
+- Server-side people-list RPCs (`client_message_recipients()`, `client_editor_options()`)
+  and DB-trigger fan-outs need the same filter in SQL — check them when they change.
 
 ## Fast pass order
 1. Any SQL/migration → RLS `WITH CHECK` + `is_admin()` (BLOCKER hunt).

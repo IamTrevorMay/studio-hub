@@ -47,6 +47,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
         supabase
           .from('profiles')
           .select('id, full_name, email, role, title')
+          .is('deactivated_at', null)
           .order('full_name', { ascending: true, nullsFirst: false }),
         fetchAllRows(
           supabase

@@ -235,6 +235,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, full_name, email, role, status')
+        .is('deactivated_at', null)
         .order('full_name', { ascending: true, nullsFirst: false });
       if (cancelled || error) return;
       setActiveProfiles((data || [])

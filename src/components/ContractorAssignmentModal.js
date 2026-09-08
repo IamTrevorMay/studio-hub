@@ -90,6 +90,7 @@ export default function ContractorAssignmentModal({
       .from('profiles')
       .select('id, full_name, email, title')
       .in('role', ['contractor', 'freelancer'])
+      .is('deactivated_at', null)
       .order('full_name');
     setContractors(data || []);
   }, []);

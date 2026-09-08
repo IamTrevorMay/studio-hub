@@ -316,6 +316,7 @@ export default function Dashboard({ onNavigate }) {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, full_name, title, avatar_url, status, status_note, last_seen_at, role')
+        .is('deactivated_at', null)
         .order('full_name');
       if (error) throw error;
       setTeamProfiles(data || []);
@@ -748,7 +749,7 @@ export default function Dashboard({ onNavigate }) {
       if (error) throw error;
       // Notify all team members
       try {
-        const { data: allMembers } = await supabase.from('profiles').select('id');
+        const { data: allMembers } = await supabase.from('profiles').select('id').is('deactivated_at', null);
         if (allMembers) {
           const notifs = allMembers
             .filter(m => m.id !== profile.id)
@@ -879,7 +880,7 @@ export default function Dashboard({ onNavigate }) {
       if (error) throw error;
 
       // Notify admins
-      const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
+      const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin').is('deactivated_at', null);
       const notifications = (admins || [])
         .filter(a => a.id !== profile.id)
         .map(a => ({

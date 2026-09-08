@@ -31,6 +31,7 @@ export default function ResearchScopeModal({ open, project, onClose, onSubmitted
       const { data } = await supabase
         .from('profiles')
         .select('id, full_name, email, role')
+        .is('deactivated_at', null)
         .order('full_name', { ascending: true, nullsFirst: false });
       setProfiles((data || []).filter(p => p.role && p.role !== 'deactivated'));
     } catch (err) {

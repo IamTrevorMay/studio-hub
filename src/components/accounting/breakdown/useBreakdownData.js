@@ -58,7 +58,7 @@ export default function useBreakdownData({ business }) {
           .eq('requires_hours', true).not('hours_spent', 'is', null)
           .gte('completed_at', start).order('completed_at', { ascending: false })),
 
-        supabase.from('profiles').select('id, full_name, role, sub_role'),
+        supabase.from('profiles').select('id, full_name, role, sub_role, deactivated_at'),
         supabase.from('payroll_salaries').select('profile_id, salary_type, amount_cents, effective_date, ended_at'),
         supabase.from('contractor_profiles').select('id, rate, payment_type'),
         // member_hourly_rates is not deployed on every environment — the

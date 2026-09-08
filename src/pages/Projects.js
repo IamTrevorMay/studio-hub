@@ -115,7 +115,7 @@ export default function Projects({ onNavigate }) {
 
   const fetchTeamMembers = useCallback(async () => {
     try {
-      const { data } = await supabase.from('profiles').select('id, full_name, title');
+      const { data } = await supabase.from('profiles').select('id, full_name, title').is('deactivated_at', null);
       setTeamMembers(data || []);
     } catch (err) {
       console.error('Error fetching team:', err);

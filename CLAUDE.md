@@ -246,6 +246,16 @@ MS-Paint-style drawing tool in the **Filming** nav folder (`whiteboard` key → 
 - Desktop-only (`whiteboard: 'excluded'` in `src/config/mobileNavConfig.js`; the Filming folder is already stripped from the mobile nav).
 - Migration: `20260811120000_whiteboards.sql`.
 
+## User Deactivation (added 2026-09-08)
+
+Strict-admin-only account disable without deletion. AdminPanel → Team tab: Deactivate/Reactivate buttons (`isStrictAdmin` only; self-target blocked).
+
+- **Column:** `profiles.deactivated_at` (timestamptz, null = active). Strict-admin-only via `profiles_lock_admin_fields` trigger, which also gained a service-role bypass (`auth.uid() is null` → allow) — this un-breaks service-role/migration profile updates generally.
+- **Edge function `deactivate-user`:** verifies caller `role = 'admin'`; deactivate = auth ban (`ban_duration: '87600h'`) + set `deactivated_at` + GoTrue admin logout (session revoke, non-fatal); flag-write failure rolls the ban back. Reactivate = unban + clear flag.
+- **Login block:** ban stops new logins ("This account has been deactivated…" mapped in `AuthContext.signIn`); `fetchProfile` nukes the session if it sees `deactivated_at`, so an active session is kicked on its next profile fetch.
+- **Visibility:** history stays attributed (single-row `.eq('id', …)` lookups untouched); LIVE surfaces filter `.is('deactivated_at', null)` — ~25 frontend files (pickers, rosters, recipients, payroll, presence, View-as), recipient fan-outs in ~10 edge functions + `shared/workflow-engine.ts` (`notifyAdminsTaskHeld`), client RPCs (`client_editor_options`, `client_message_recipients`), and DB fan-outs (`alert_failed_cron_jobs`, `fl_overtime_check_on_start`, `overtime_check_on_task_complete`). Convention: any NEW people-list query must add the filter; dual-use lists (picker + historical attribution, e.g. Calendar `hubUsers`, accounting breakdown) select `deactivated_at` and filter at render.
+- Migrations: `20260908120000_user_deactivation.sql`, `20260908130000_deactivation_fanout_filters.sql`.
+
 ## Admin Mode / Work Mode
 
 Two sidebar modes toggled via button at bottom of sidebar (`AppLayout.js`).

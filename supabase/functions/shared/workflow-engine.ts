@@ -573,7 +573,8 @@ export async function notifyAdmins(
   const { data: admins } = await admin
     .from("profiles")
     .select("id")
-    .eq("role", "admin");
+    .eq("role", "admin")
+    .is("deactivated_at", null);
   if (!admins || admins.length === 0) return;
   const rows = admins.map((a) => ({
     user_id: a.id,

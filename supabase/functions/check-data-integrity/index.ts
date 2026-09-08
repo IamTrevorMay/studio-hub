@@ -220,7 +220,8 @@ Deno.serve(async (req: Request) => {
         const { data: admins } = await supabase
           .from("profiles")
           .select("id")
-          .eq("role", "admin");
+          .eq("role", "admin")
+          .is("deactivated_at", null);
 
         if (admins && admins.length > 0) {
           const notes = admins.map((a) => ({

@@ -41,7 +41,7 @@ const EVENT_TYPE_LABELS = {
 const EVENT_TYPES = Object.keys(EVENT_TYPE_LABELS);
 
 export default function AdminPanel({ initialTab }) {
-  const { profile, isAdmin, refreshKey } = useAuth();
+  const { profile, isAdmin, isStrictAdmin, refreshKey } = useAuth();
   const confirm = useConfirm();
   const [invitations, setInvitations] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
@@ -188,6 +188,36 @@ export default function AdminPanel({ initialTab }) {
     } catch (err) {
       console.error('Remove member failed:', err);
       alert('Failed to remove member: ' + err.message);
+    }
+  }
+
+  async function handleToggleActive(member) {
+    const deactivating = !member.deactivated_at;
+    const msg = deactivating
+      ? `Deactivate ${member.full_name}? They'll be signed out immediately and won't be able to log in. Their past work stays visible, but they disappear from team lists and pickers. You can reactivate them anytime.`
+      : `Reactivate ${member.full_name}? They'll be able to log in again and reappear across the app.`;
+    if (!(await confirm(msg))) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const res = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/deactivate-user`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ userId: member.id, action: deactivating ? 'deactivate' : 'reactivate' }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to update account status');
+      fetchTeamMembers();
+    } catch (err) {
+      console.error('Deactivate/reactivate failed:', err);
+      alert('Failed to update account status: ' + err.message);
     }
   }
 
@@ -541,8 +571,8 @@ export default function AdminPanel({ initialTab }) {
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>Team Members</h3>
           <div style={styles.teamList}>
-            {teamMembers.map(member => (
-              <div key={member.id} style={styles.teamItem}>
+            {[...teamMembers].sort((a, b) => (!!a.deactivated_at - !!b.deactivated_at)).map(member => (
+              <div key={member.id} style={{ ...styles.teamItem, ...(member.deactivated_at ? styles.teamItemDeactivated : {}) }}>
                 {/* Avatar + name open the full detail drawer */}
                 <div
                   style={{ ...styles.teamAvatar, cursor: 'pointer' }}
@@ -563,6 +593,9 @@ export default function AdminPanel({ initialTab }) {
                     {member.id === profile.id && (
                       <span style={styles.youBadge}>You</span>
                     )}
+                    {member.deactivated_at && (
+                      <span style={styles.deactivatedBadge}>Deactivated</span>
+                    )}
                   </div>
                   <div style={styles.teamMeta}>
                     {member.email} ·{' '}
@@ -579,7 +612,7 @@ export default function AdminPanel({ initialTab }) {
                 <select
                   value={isDirectorRole(member.role) ? 'director' : member.role}
                   onChange={(e) => handleRoleChange(member.id, e.target.value)}
-                  disabled={member.id === profile.id}
+                  disabled={member.id === profile.id || !!member.deactivated_at}
                   style={styles.roleSelect}
                 >
                   <option value="member">Member</option>
@@ -599,6 +632,15 @@ export default function AdminPanel({ initialTab }) {
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
+                )}
+                {isStrictAdmin && member.id !== profile.id && (
+                  <button
+                    onClick={() => handleToggleActive(member)}
+                    style={member.deactivated_at ? styles.reactivateBtn : styles.deactivateBtn}
+                    title={member.deactivated_at ? 'Reactivate account' : 'Deactivate account (blocks login, keeps history)'}
+                  >
+                    {member.deactivated_at ? 'Reactivate' : 'Deactivate'}
+                  </button>
                 )}
                 {member.id !== profile.id && (
                   <button
@@ -890,6 +932,23 @@ const styles = {
     padding: '6px 10px', background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px',
     color: '#fff', fontSize: '12px', fontFamily: 'inherit', outline: 'none',
+  },
+  teamItemDeactivated: { opacity: 0.5 },
+  deactivatedBadge: {
+    padding: '2px 8px', background: 'rgba(239,68,68,0.12)',
+    borderRadius: '4px', fontSize: '10px', color: '#fca5a5', fontWeight: 600,
+  },
+  deactivateBtn: {
+    padding: '6px 10px', background: 'transparent',
+    border: '1px solid rgba(245,158,11,0.35)', borderRadius: '6px',
+    color: '#fbbf24', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+    flexShrink: 0, whiteSpace: 'nowrap',
+  },
+  reactivateBtn: {
+    padding: '6px 10px', background: 'transparent',
+    border: '1px solid rgba(34,197,94,0.35)', borderRadius: '6px',
+    color: '#86efac', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+    flexShrink: 0, whiteSpace: 'nowrap',
   },
   removeBtn: {
     padding: '6px 10px', background: 'transparent',

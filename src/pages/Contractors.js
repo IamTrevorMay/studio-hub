@@ -114,6 +114,7 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
       .from('profiles')
       .select('id, full_name, email, avatar_url, title, assigned_drive_folder_id, assigned_drive_folder_name')
       .in('role', ['contractor', 'freelancer'])
+      .is('deactivated_at', null)
       .order('full_name');
     setContractors(profiles || []);
 

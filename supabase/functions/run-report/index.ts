@@ -276,7 +276,8 @@ async function sendReportEmail(
   const { data: internalRecipients } = await adminClient
     .from("profiles")
     .select("id, email")
-    .eq("email_reports_enabled", true);
+    .eq("email_reports_enabled", true)
+    .is("deactivated_at", null);
 
   const { data: externalSubscribers } = await adminClient
     .from("newsletter_subscribers")
