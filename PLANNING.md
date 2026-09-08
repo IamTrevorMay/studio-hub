@@ -2,6 +2,17 @@
 
 ## Recently Completed
 
+### Triton SSO — "Continue with Mayday Studio" (2026-09-09)
+
+Mayday half of Triton's cross-app sign-in. `/triton-sso` (App.js path check inside the auth
+gate, so anonymous visitors log in first) trades the Mayday JWT for a signed hand-off URL via
+`api/triton-sso.js` — session verified with the standard Bearer pattern, role-gated to
+admin/director/member/contractor (clients refused), 60-second HMAC assertion signed with
+`TRITON_SSO_SECRET` (must equal Triton's `MAYDAY_SSO_SECRET`) — then redirects to Triton's
+`/api/auth/mayday`, which auto-provisions Triton accounts with Research access. Contract lives
+in Triton-Tools `docs/mayday-sso.md`. Env: `TRITON_SSO_SECRET` (+ optional `TRITON_SSO_TARGET`,
+defaults to prod tritonapex.io).
+
 ### Templates: Beat Sheet + Research Documents (2026-06-13)
 
 - **Beat Sheet templates**: new "New Beat Sheet" modal (name + Blank/template picker, deep-clones template beats with fresh UUIDs), kept in-editor "Save as Template" (full state incl. media) + append-into-open-sheet, added rename action. Migration `20260613000007` makes `beat_sheet_templates` universal (any authed user can update/delete).

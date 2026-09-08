@@ -80,6 +80,15 @@ function AppContent() {
     );
   }
 
+  // Signed in on /triton-sso → hand off to Triton instead of the layout.
+  if (isTritonSsoPath()) {
+    return (
+      <Suspense fallback={<LayoutFallback />}>
+        <TritonSso />
+      </Suspense>
+    );
+  }
+
   return (
     <Suspense fallback={<LayoutFallback />}>
       <Layout />
@@ -104,6 +113,9 @@ const PublicDeliverables = React.lazy(() => import('./pages/public/PublicDeliver
 // Harbor guest join — tokenized, login-free call entry (guests never see staff
 // chrome). Must be checked before the layouts ever see the 'harbor' segment.
 const HarborJoin = React.lazy(() => import('./pages/harbor/HarborJoin'));
+// Triton SSO hand-off — rendered inside the auth gate (AppContent), so an
+// anonymous visitor logs in first and then continues to Triton.
+const TritonSso = React.lazy(() => import('./pages/TritonSso'));
 function isCareersPath() {
   return /^\/careers(\/|$)/.test(window.location.pathname);
 }
@@ -115,6 +127,9 @@ function isDeliverablesPath() {
 }
 function isHarborJoinPath() {
   return /^\/harbor\/join\/[^/]+/.test(window.location.pathname);
+}
+function isTritonSsoPath() {
+  return /^\/triton-sso(\/|$)/.test(window.location.pathname);
 }
 
 export default function App() {
