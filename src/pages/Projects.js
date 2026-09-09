@@ -413,7 +413,7 @@ export default function Projects({ onNavigate }) {
           <h1 style={styles.pageTitle}>{view === 'ideas' ? 'Ideas' : 'Projects'}</h1>
           <p style={styles.pageSubtitle}>
             {view === 'ideas'
-              ? 'Sort ideas across categories. Drag rows to move them between sections.'
+              ? "One shared list. Tag ideas, and drag the next ones up into Up Next."
               : `${currentProjects.length + comingUpProjects.length} active${completedProjects.length > 0 ? ` · ${completedProjects.length} completed` : ''}${archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
           </p>
         </div>
@@ -421,6 +421,7 @@ export default function Projects({ onNavigate }) {
 
       {/* Filters (list view only — kanban columns are self-filtering) */}
       <div style={styles.filterRow}>
+        <div style={styles.filterRowSide}>
         {view === 'projects' && layout === 'list' ? (
           <div style={styles.statusFilters}>
             <button
@@ -447,24 +448,26 @@ export default function Projects({ onNavigate }) {
               </button>
             ))}
           </div>
-        ) : <div />}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {/* View: what you're looking at */}
-          <div style={styles.viewToggle}>
-            {VIEWS.map(v => (
-              <button
-                key={v.key}
-                onClick={() => setView(v.key)}
-                style={{
-                  ...styles.viewTabBtn,
-                  ...(view === v.key ? styles.viewToggleBtnActive : {}),
-                }}
-              >
-                {v.label}
-              </button>
-            ))}
-          </div>
+        ) : null}
+        </div>
 
+        {/* View: what you're looking at — centered between the side controls */}
+        <div style={styles.viewToggle}>
+          {VIEWS.map(v => (
+            <button
+              key={v.key}
+              onClick={() => setView(v.key)}
+              style={{
+                ...styles.viewTabBtn,
+                ...(view === v.key ? styles.viewToggleBtnActive : {}),
+              }}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'flex-end' }}>
           {/* Layout: how the Projects view is drawn. Ideas has one layout. */}
           {view === 'projects' && (
             <div style={styles.viewToggle}>
@@ -1452,9 +1455,10 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit',
   },
   filterRow: {
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: '20px', flexWrap: 'wrap', gap: '12px',
+    display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center',
+    marginBottom: '20px', gap: '12px',
   },
+  filterRowSide: { minWidth: 0 },
   statusFilters: { display: 'flex', gap: '6px', flexWrap: 'wrap' },
   filterBtn: {
     padding: '6px 14px', border: '1px solid rgba(255,255,255,0.08)',
