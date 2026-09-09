@@ -246,6 +246,31 @@ MS-Paint-style drawing tool in the **Filming** nav folder (`whiteboard` key → 
 - Desktop-only (`whiteboard: 'excluded'` in `src/config/mobileNavConfig.js`; the Filming folder is already stripped from the mobile nav).
 - Migration: `20260811120000_whiteboards.sql`.
 
+## Beat Sheet views (added 2026-09-08)
+
+An open beat sheet (`src/pages/Production.js`) has three views, switched from a segmented control in the config bar and remembered per user via `usePersistedTab('production-view')`. Desktop only — `ProductionMobile.js` still shows the beat sheet alone.
+
+- **Beat Sheet** — unchanged: the page keeps its own scroll.
+- **Research** — a Google Docs style rich-text editor, one document per sheet.
+- **Split** — both side by side with a draggable divider (ratio in `localStorage` under `production-split-ratio`, clamped 0.22–0.78, double-click to even out) and a Swap button (`production-split-swapped`).
+
+### How the panes are wired
+Research and Split render the same flex row; pane order is CSS `order` and the hidden pane in Research view is `display: none`, never unmounted. That's deliberate — remounting would refetch the doc and throw away Tiptap's undo history every time somebody switched or swapped. Only Beat Sheet ↔ the other two unmounts the editor (and `useAutoSave`'s cleanup flushes on the way out). Those two views also swap `styles.page` for `styles.pageFullHeight`, pinning the page to the viewport so the document toolbar can't scroll away.
+
+### The research document
+- `beat_sheet_research_docs`, one row per sheet with a **unique** `beat_sheet_id` — that constraint is what makes "exactly one doc" true, and `ensureResearchDoc` treats a `23505` on insert as "the other tab won" and re-selects rather than erroring.
+- Created lazily the first time Research or Split is opened, so sheets nobody researches never get a row.
+- `summary` column backs the Summary block in the left rail; the outline below it is derived from the document's headings on every transaction, never stored.
+- Content is `{ html }`, the same shape the other doc-editor tables use, saved by the shared `useAutoSave`.
+
+### Editor chrome
+`src/pages/editors/doc-editor/gdocs/` — `GDocsEditor.tsx` (Tiptap instance, load/save, templates, summary), `GDocsToolbar.tsx` (one scrolling row, Docs order), `menu.tsx` (File/Edit/View/Insert/Format/Tools menu-bar primitives), `OutlinePane.tsx`, `TemplateGallery.tsx`. It reuses the existing extensions, dialogs, `CommentPanel`, `FindReplace`, `LinkBubble`, `EditorContextMenu`, and `ExportMenu`'s export helpers rather than forking them; `DocumentEditor.tsx` (the older chrome used by resource/show/concept docs) is untouched. Shortcuts are scoped to the pane by a `contains(document.activeElement)` check, so ⌘F in a beat textarea doesn't open the document's find bar.
+
+### Templates
+`research_doc_templates` — staff read, admin write (`is_admin()`). A blank doc opens straight onto the gallery ("pick a template or start from scratch"); picking one over existing content needs a second click. Admins can save the current doc as a template, rename, and delete. Four are seeded: Topic Research, Interview Prep, Fact Check, Competitor Breakdown.
+
+Both new tables are `is_staff()`-scoped, deliberately narrower than the `auth.uid() IS NOT NULL` rule `beat_sheets` itself still carries. Migration `20260908140000_beat_sheet_research.sql`.
+
 ## Admin Mode / Work Mode
 
 Two sidebar modes toggled via button at bottom of sidebar (`AppLayout.js`).

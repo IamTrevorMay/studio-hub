@@ -7,10 +7,41 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { callWorkflowFn } from '../lib/workflowApi';
 import { fetchAllRows } from './analytics/utils';
 import FindAssetsModal from '../components/FindAssetsModal';
+import GDocsEditor from './editors/doc-editor/gdocs/GDocsEditor';
+import usePersistedTab from '../hooks/usePersistedTab';
 import { buttonReset } from '../lib/styleRecipes';
-import { colors, spacing } from '../lib/styleTokens';
+import { colors, fontFamily, fontSizes, fontWeights, radii, spacing, transitions } from '../lib/styleTokens';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
+
+// ─── view modes ────────────────────────────────────────────────────────────────
+
+const VIEW_BEATS = 'beats';
+const VIEW_RESEARCH = 'research';
+const VIEW_SPLIT = 'split';
+const VIEW_MODES = [VIEW_BEATS, VIEW_RESEARCH, VIEW_SPLIT];
+const VIEW_LABELS = { [VIEW_BEATS]: 'Beat Sheet', [VIEW_RESEARCH]: 'Research', [VIEW_SPLIT]: 'Split' };
+
+const RESEARCH_TABLE = 'beat_sheet_research_docs';
+
+// Split geometry lives in localStorage rather than the DB: it's a per-person
+// window preference, not a property of the sheet.
+const SPLIT_RATIO_KEY = 'production-split-ratio';
+const SPLIT_SWAP_KEY = 'production-split-swapped';
+const MIN_SPLIT_RATIO = 0.22;
+const MAX_SPLIT_RATIO = 0.78;
+
+function readSplitRatio() {
+  try {
+    const raw = parseFloat(localStorage.getItem(SPLIT_RATIO_KEY));
+    if (Number.isFinite(raw)) return Math.min(MAX_SPLIT_RATIO, Math.max(MIN_SPLIT_RATIO, raw));
+  } catch { /* storage unavailable — fall through */ }
+  return 0.5;
+}
+
+function readSplitSwapped() {
+  try { return localStorage.getItem(SPLIT_SWAP_KEY) === '1'; } catch { return false; }
+}
 
 // ─── helpers ───────────────────────────────────────────────────────────────────
 
@@ -144,7 +175,7 @@ const TYPE_WORKFLOW_EVENTS = {
 // ─── component ─────────────────────────────────────────────────────────────────
 
 export default function Production({ initialSheetId, onSheetOpened }) {
-  const { profile } = useAuth();
+  const { profile, isAdmin } = useAuth();
   const confirm = useConfirm();
 
   // ── landing state ──
@@ -162,6 +193,18 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   const saveTimer = useRef(null);
   const justLoadedSheet = useRef(false); // skip the autosave fired by openSheet's state writes
   const tagDragRef = useRef(null);
+
+  // ── view mode: Beat Sheet / Research / Split ──
+  // The research doc is a separate row (one per sheet) rather than a column on
+  // beat_sheets, so the Tiptap autosave can own its own table without racing
+  // the beat autosave that writes the sheet row every 1.5s.
+  const [viewMode, setViewMode] = usePersistedTab('production-view', VIEW_BEATS, VIEW_MODES);
+  const [splitSwapped, setSplitSwapped] = useState(() => readSplitSwapped());
+  const [splitRatio, setSplitRatio] = useState(() => readSplitRatio());
+  const [researchDoc, setResearchDoc] = useState(null);
+  const [researchError, setResearchError] = useState(null);
+  const splitWrapRef = useRef(null);
+  const dragRatio = useRef(null); // latest ratio during a drag, for the mouseup persist
 
   // ── folder browser state ──
   const [showFolderBrowser, setShowFolderBrowser] = useState(false);
@@ -317,6 +360,96 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     if (activeSheet) scheduleSave();
     return () => clearTimeout(saveTimer.current);
   }, [title, beats, driveFolderId, driveFolderName]);
+
+  // ─── research document ──────────────────────────────────────────────────────
+  // One doc per sheet, created the first time somebody opens Research. The
+  // unique constraint on beat_sheet_id is the real guard: if two tabs get here
+  // at once, one insert loses the race and we re-select the winner's row rather
+  // than surfacing an error.
+  const ensureResearchDoc = useCallback(async (sheetId) => {
+    setResearchError(null);
+
+    const selectDoc = () => supabase
+      .from(RESEARCH_TABLE)
+      .select('id, summary')
+      .eq('beat_sheet_id', sheetId)
+      .maybeSingle();
+
+    const { data: existing, error: selectError } = await selectDoc();
+    if (selectError) {
+      console.error('Research doc load failed:', selectError.message);
+      setResearchError(selectError.message);
+      return;
+    }
+    if (existing) { setResearchDoc(existing); return; }
+
+    const { data: created, error: insertError } = await supabase
+      .from(RESEARCH_TABLE)
+      .insert({ beat_sheet_id: sheetId, created_by: profile?.id ?? null })
+      .select('id, summary')
+      .single();
+
+    if (!insertError) { setResearchDoc(created); return; }
+
+    // 23505 = the other tab won. Anything else is a real failure.
+    if (insertError.code === '23505') {
+      const { data: winner } = await selectDoc();
+      if (winner) { setResearchDoc(winner); return; }
+    }
+    console.error('Research doc create failed:', insertError.message);
+    setResearchError(insertError.message);
+  }, [profile?.id]);
+
+  useEffect(() => { setResearchDoc(null); setResearchError(null); }, [activeSheet?.id]);
+
+  useEffect(() => {
+    if (!activeSheet || viewMode === VIEW_BEATS) return;
+    if (researchDoc || researchError) return;
+    ensureResearchDoc(activeSheet.id);
+  }, [activeSheet, viewMode, researchDoc, researchError, ensureResearchDoc]);
+
+  // ─── split divider drag ─────────────────────────────────────────────────────
+  const startSplitDrag = useCallback((e) => {
+    e.preventDefault();
+    const wrap = splitWrapRef.current;
+    if (!wrap) return;
+
+    const onMove = (moveEvent) => {
+      const rect = wrap.getBoundingClientRect();
+      if (!rect.width) return;
+      const ratio = Math.min(
+        MAX_SPLIT_RATIO,
+        Math.max(MIN_SPLIT_RATIO, (moveEvent.clientX - rect.left) / rect.width)
+      );
+      dragRatio.current = ratio;
+      setSplitRatio(ratio);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      if (dragRatio.current !== null) {
+        try { localStorage.setItem(SPLIT_RATIO_KEY, String(dragRatio.current)); } catch { /* ignore */ }
+        dragRatio.current = null;
+      }
+    };
+
+    // Suppress text selection for the duration — dragging over the beat
+    // textareas would otherwise select their contents.
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  const toggleSplitSwap = useCallback(() => {
+    setSplitSwapped(prev => {
+      const next = !prev;
+      try { localStorage.setItem(SPLIT_SWAP_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   // ─── toast auto-dismiss ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -1878,10 +2011,247 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   }
 
   // ── editor page ──
+  // ─── render: open sheet ─────────────────────────────────────────────────────
+  // The beat rows are built once and then placed into whichever pane the
+  // current view calls for, so Split doesn't need a second copy of the tree.
+  const isSplitLayout = viewMode !== VIEW_BEATS;
+
+  const beatSheetBody = (
+    <>
+    {/* Column headers */}
+    <div style={styles.columnHeaders}>
+      <div style={styles.colHeaderLeft}>Beat / Context</div>
+      <div style={styles.colHeader}>Graphics</div>
+      <div style={styles.colHeader}>Videos</div>
+      <div style={styles.colHeader}>Notes</div>
+      <div style={{ width: 36 }} />
+    </div>
+
+    {/* Add beat / segment (top) */}
+    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8, position: 'relative' }}>
+      <div style={{ width: '20%', minWidth: 120, position: 'relative' }}>
+        <button onClick={() => setShowAddMenuTop(prev => !prev)} style={{ ...styles.addBeatBtn, width: '100%' }}>+ Add</button>
+        {showAddMenuTop && (
+          <div data-add-menu style={styles.addMenuDropdown}>
+            <button style={styles.addMenuItem} onClick={() => { addBeatToTop(); setShowAddMenuTop(false); }}>Beat</button>
+            <button style={styles.addMenuItem} onClick={() => { addSegmentToTop(); setShowAddMenuTop(false); }}>Segment</button>
+          </div>
+        )}
+      </div>
+    </div>
+
+    {/* Beat rows */}
+    <DragDropContext onDragEnd={handleDragEnd}>
+      <Droppable droppableId="beat-list" type="ITEMS">
+        {(provided) => {
+          // Single flat droppable: segment headers and beats share one
+          // contiguous index space so beats drag freely in/out of segments.
+          let idx = 0;
+          return (
+          <div ref={provided.innerRef} {...provided.droppableProps}>
+            {beats.map((item) => {
+              if (isSegment(item)) {
+                const collapsed = collapsedSegments.has(item.id);
+                const headerIndex = idx++;
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      ...styles.segmentContainer,
+                      background: `${item.color || '#5b8fc7'}12`,
+                      border: `1px solid ${item.color || '#5b8fc7'}30`,
+                      borderLeft: `4px solid ${item.color || '#5b8fc7'}`,
+                    }}
+                  >
+                    {/* Segment header (draggable = moves the whole segment) */}
+                    <Draggable draggableId={item.id} index={headerIndex}>
+                      {(hProvided, hSnapshot) => (
+                        <div
+                          ref={hProvided.innerRef}
+                          {...hProvided.draggableProps}
+                          style={{
+                            ...styles.segmentHeader,
+                            ...(hSnapshot.isDragging ? { boxShadow: `0 8px 32px ${item.color || '#5b8fc7'}40`, borderRadius: 8, background: `${item.color || '#5b8fc7'}20` } : {}),
+                            ...hProvided.draggableProps.style,
+                          }}
+                          onContextMenu={e => {
+                            const tag = e.target.tagName;
+                            if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+                            e.preventDefault();
+                            setContextMenu({ x: e.clientX, y: e.clientY, segmentId: item.id, isSegmentHeader: true });
+                          }}
+                        >
+                          <div {...hProvided.dragHandleProps} style={styles.dragHandle} title="Drag to reorder segment">
+                            <svg width="12" height="16" viewBox="0 0 12 16" fill="rgba(255,255,255,0.25)">
+                              <circle cx="3" cy="2" r="1.5" /><circle cx="9" cy="2" r="1.5" />
+                              <circle cx="3" cy="6" r="1.5" /><circle cx="9" cy="6" r="1.5" />
+                              <circle cx="3" cy="10" r="1.5" /><circle cx="9" cy="10" r="1.5" />
+                              <circle cx="3" cy="14" r="1.5" /><circle cx="9" cy="14" r="1.5" />
+                            </svg>
+                          </div>
+                          <button
+                            onClick={() => setCollapsedSegments(prev => {
+                              const next = new Set(prev);
+                              const wasCollapsed = next.has(item.id);
+                              wasCollapsed ? next.delete(item.id) : next.add(item.id);
+                              if (wasCollapsed) requestAnimationFrame(() => document.querySelectorAll('[data-autoresize]').forEach(autoResize));
+                              return next;
+                            })}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                            title={collapsed ? 'Expand segment' : 'Collapse segment'}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke={item.color || '#5b8fc7'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                              style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
+                              <path d="M4 5l3 3 3-3" />
+                            </svg>
+                          </button>
+                          <input
+                            value={item.title}
+                            onChange={e => updateSegment(item.id, 'title', e.target.value)}
+                            placeholder="Segment title..."
+                            style={{ ...styles.segmentTitleInput, color: item.color || '#5b8fc7' }}
+                          />
+                          <div style={{ position: 'relative' }}>
+                            <button
+                              onClick={() => setShowColorDropdown(prev => prev === item.id ? null : item.id)}
+                              style={{ ...styles.colorDot, background: item.color || '#5b8fc7', width: 20, height: 20, flexShrink: 0 }}
+                              title="Change color"
+                            />
+                            {showColorDropdown === item.id && (
+                              <div data-color-dropdown style={styles.colorDropdown}>
+                                {SEGMENT_COLORS.map(c => (
+                                  <button
+                                    key={c}
+                                    onClick={() => { updateSegment(item.id, 'color', c); setShowColorDropdown(null); }}
+                                    style={{
+                                      ...styles.colorDot,
+                                      background: c,
+                                      width: 22,
+                                      height: 22,
+                                      outline: item.color === c ? '2px solid rgba(255,255,255,0.6)' : 'none',
+                                      outlineOffset: 2,
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {collapsed && (
+                            <span style={{ fontSize: fontSizes.sm, color: colors.textDim, marginLeft: 'auto', paddingRight: spacing.sm, flexShrink: 0 }}>
+                              {item.children.length} beat{item.children.length !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                          <button onClick={() => deleteSegment(item.id)} style={styles.deleteBeatBtn} title="Delete segment">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                              <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </Draggable>
+
+                    {/* Segment beats — draggables sharing the flat index space */}
+                    {!collapsed && item.children.map((beat) => {
+                      const beatIndex = idx++;
+                      return (
+                        <Draggable key={beat.id} draggableId={beat.id} index={beatIndex}>
+                          {(bProvided, bSnapshot) => renderBeatRow(beat, bProvided, bSnapshot, item.id)}
+                        </Draggable>
+                      );
+                    })}
+
+                    {!collapsed && (
+                      <button onClick={() => addBeatToSegment(item.id)} style={styles.addBeatInSegmentBtn}>+ Beat</button>
+                    )}
+                  </div>
+                );
+              }
+
+              // Top-level beat
+              const beat = item;
+              const beatIndex = idx++;
+              return (
+                <Draggable key={beat.id} draggableId={beat.id} index={beatIndex}>
+                  {(provided, snapshot) => renderBeatRow(beat, provided, snapshot, null)}
+                </Draggable>
+              );
+            })}
+            {provided.placeholder}
+          </div>
+          );
+        }}
+      </Droppable>
+    </DragDropContext>
+
+    {/* Add beat / segment (bottom) */}
+    <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4, position: 'relative' }}>
+      <div style={{ width: '20%', minWidth: 120, position: 'relative' }}>
+        <button onClick={() => setShowAddMenuBottom(prev => !prev)} style={{ ...styles.addBeatBtn, width: '100%' }}>+ Add</button>
+        {showAddMenuBottom && (
+          <div
+            data-add-menu
+            style={{
+              ...styles.addMenuDropdown,
+              bottom: '100%',
+              top: 'auto',
+              marginBottom: 6, // style-lint-ignore — mirrors addMenuDropdown's own 6px offset
+              marginTop: 0,
+            }}
+          >
+            <button style={styles.addMenuItem} onClick={() => { addBeat(); setShowAddMenuBottom(false); }}>Beat</button>
+            <button style={styles.addMenuItem} onClick={() => { addSegment(); setShowAddMenuBottom(false); }}>Segment</button>
+          </div>
+        )}
+      </div>
+    </div>
+    </>
+  );
+
+  const researchPane = researchError ? (
+    <div style={styles.researchFallback}>
+      <span style={{ fontWeight: fontWeights.semibold, color: colors.textMuted }}>Research document unavailable</span>
+      <span style={{ fontSize: fontSizes.sm }}>{researchError}</span>
+      <button
+        style={styles.btnSecondary}
+        onClick={() => { setResearchError(null); ensureResearchDoc(activeSheet.id); }}
+      >
+        Try again
+      </button>
+    </div>
+  ) : !researchDoc ? (
+    <div style={styles.researchFallback}>Opening research document…</div>
+  ) : (
+    <GDocsEditor
+      key={researchDoc.id}
+      docId={researchDoc.id}
+      tableName={RESEARCH_TABLE}
+      title={title}
+      initialSummary={researchDoc.summary || ''}
+      canManageTemplates={!!isAdmin}
+      compact={viewMode === VIEW_SPLIT}
+    />
+  );
+
+  // Pane order is CSS-only (flex `order`) and the hidden pane in Research view
+  // is display:none rather than unmounted. Both keep the Tiptap instance alive
+  // across Research → Split → Swap, so those switches don't refetch the
+  // document or throw away its undo history.
+  const beatPaneStyle = {
+    ...styles.splitPane,
+    order: splitSwapped ? 2 : 0,
+    flexBasis: `${splitRatio * 100}%`,
+    ...(viewMode === VIEW_RESEARCH ? { display: 'none' } : null),
+  };
+  const researchPaneStyle = {
+    ...styles.splitPane,
+    order: splitSwapped ? 0 : 2,
+    flexBasis: viewMode === VIEW_RESEARCH ? '100%' : `${(1 - splitRatio) * 100}%`,
+  };
+
   return (
-    <div style={styles.page}>
+    <div style={isSplitLayout ? { ...styles.page, ...styles.pageFullHeight } : styles.page}>
       {/* Top config bar */}
-      <div style={styles.configBar}>
+      <div style={styles.configBar} className="no-print">
         <button onClick={closeEditor} style={styles.backBtn} title="Back to list">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M11 4L6 9l5 5" />
@@ -1894,6 +2264,36 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           placeholder="Beat sheet title..."
           style={styles.titleInput}
         />
+
+        <div style={styles.viewSwitch}>
+          {VIEW_MODES.map(mode => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              style={{ ...styles.viewSwitchBtn, ...(viewMode === mode ? styles.viewSwitchBtnActive : null) }}
+              title={`${VIEW_LABELS[mode]} view`}
+            >
+              {VIEW_LABELS[mode]}
+            </button>
+          ))}
+        </div>
+
+        {viewMode === VIEW_SPLIT && (
+          <button onClick={toggleSplitSwap} style={styles.btnSecondary} title="Swap the two panes">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              style={{ marginRight: 6 }} // style-lint-ignore — matches the sibling icon buttons in this bar
+            >
+              <path d="M2 4.5h8L8 2.5M12 9.5H4l2 2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Swap
+          </button>
+        )}
 
         <select
           value={activeSheet?.type || ''}
@@ -1993,183 +2393,32 @@ export default function Production({ initialSheetId, onSheetOpened }) {
         )}
       </div>
 
-      {/* Column headers */}
-      <div style={styles.columnHeaders}>
-        <div style={styles.colHeaderLeft}>Beat / Context</div>
-        <div style={styles.colHeader}>Graphics</div>
-        <div style={styles.colHeader}>Videos</div>
-        <div style={styles.colHeader}>Notes</div>
-        <div style={{ width: 36 }} />
-      </div>
+      {viewMode === VIEW_BEATS ? beatSheetBody : (
+        <div ref={splitWrapRef} style={styles.splitWrap}>
+          <div style={beatPaneStyle}>
+            <div style={styles.beatPane}>{beatSheetBody}</div>
+          </div>
 
-      {/* Add beat / segment (top) */}
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8, position: 'relative' }}>
-        <div style={{ width: '20%', minWidth: 120, position: 'relative' }}>
-          <button onClick={() => setShowAddMenuTop(prev => !prev)} style={{ ...styles.addBeatBtn, width: '100%' }}>+ Add</button>
-          {showAddMenuTop && (
-            <div data-add-menu style={styles.addMenuDropdown}>
-              <button style={styles.addMenuItem} onClick={() => { addBeatToTop(); setShowAddMenuTop(false); }}>Beat</button>
-              <button style={styles.addMenuItem} onClick={() => { addSegmentToTop(); setShowAddMenuTop(false); }}>Segment</button>
+          {viewMode === VIEW_SPLIT && (
+            <div
+              style={styles.splitDivider}
+              onMouseDown={startSplitDrag}
+              onDoubleClick={() => {
+                setSplitRatio(0.5);
+                try { localStorage.setItem(SPLIT_RATIO_KEY, '0.5'); } catch { /* ignore */ }
+              }}
+              title="Drag to resize — double-click to even out"
+              className="no-print"
+            >
+              <div style={styles.splitDividerGrip} />
             </div>
           )}
+
+          <div style={researchPaneStyle}>
+            <div style={styles.researchPane}>{researchPane}</div>
+          </div>
         </div>
-      </div>
-
-      {/* Beat rows */}
-      <DragDropContext onDragEnd={handleDragEnd}>
-        <Droppable droppableId="beat-list" type="ITEMS">
-          {(provided) => {
-            // Single flat droppable: segment headers and beats share one
-            // contiguous index space so beats drag freely in/out of segments.
-            let idx = 0;
-            return (
-            <div ref={provided.innerRef} {...provided.droppableProps}>
-              {beats.map((item) => {
-                if (isSegment(item)) {
-                  const collapsed = collapsedSegments.has(item.id);
-                  const headerIndex = idx++;
-                  return (
-                    <div
-                      key={item.id}
-                      style={{
-                        ...styles.segmentContainer,
-                        background: `${item.color || '#5b8fc7'}12`,
-                        border: `1px solid ${item.color || '#5b8fc7'}30`,
-                        borderLeft: `4px solid ${item.color || '#5b8fc7'}`,
-                      }}
-                    >
-                      {/* Segment header (draggable = moves the whole segment) */}
-                      <Draggable draggableId={item.id} index={headerIndex}>
-                        {(hProvided, hSnapshot) => (
-                          <div
-                            ref={hProvided.innerRef}
-                            {...hProvided.draggableProps}
-                            style={{
-                              ...styles.segmentHeader,
-                              ...(hSnapshot.isDragging ? { boxShadow: `0 8px 32px ${item.color || '#5b8fc7'}40`, borderRadius: 8, background: `${item.color || '#5b8fc7'}20` } : {}),
-                              ...hProvided.draggableProps.style,
-                            }}
-                            onContextMenu={e => {
-                              const tag = e.target.tagName;
-                              if (tag === 'TEXTAREA' || tag === 'INPUT') return;
-                              e.preventDefault();
-                              setContextMenu({ x: e.clientX, y: e.clientY, segmentId: item.id, isSegmentHeader: true });
-                            }}
-                          >
-                            <div {...hProvided.dragHandleProps} style={styles.dragHandle} title="Drag to reorder segment">
-                              <svg width="12" height="16" viewBox="0 0 12 16" fill="rgba(255,255,255,0.25)">
-                                <circle cx="3" cy="2" r="1.5" /><circle cx="9" cy="2" r="1.5" />
-                                <circle cx="3" cy="6" r="1.5" /><circle cx="9" cy="6" r="1.5" />
-                                <circle cx="3" cy="10" r="1.5" /><circle cx="9" cy="10" r="1.5" />
-                                <circle cx="3" cy="14" r="1.5" /><circle cx="9" cy="14" r="1.5" />
-                              </svg>
-                            </div>
-                            <button
-                              onClick={() => setCollapsedSegments(prev => {
-                                const next = new Set(prev);
-                                const wasCollapsed = next.has(item.id);
-                                wasCollapsed ? next.delete(item.id) : next.add(item.id);
-                                if (wasCollapsed) requestAnimationFrame(() => document.querySelectorAll('[data-autoresize]').forEach(autoResize));
-                                return next;
-                              })}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                              title={collapsed ? 'Expand segment' : 'Collapse segment'}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke={item.color || '#5b8fc7'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                                style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
-                                <path d="M4 5l3 3 3-3" />
-                              </svg>
-                            </button>
-                            <input
-                              value={item.title}
-                              onChange={e => updateSegment(item.id, 'title', e.target.value)}
-                              placeholder="Segment title..."
-                              style={{ ...styles.segmentTitleInput, color: item.color || '#5b8fc7' }}
-                            />
-                            <div style={{ position: 'relative' }}>
-                              <button
-                                onClick={() => setShowColorDropdown(prev => prev === item.id ? null : item.id)}
-                                style={{ ...styles.colorDot, background: item.color || '#5b8fc7', width: 20, height: 20, flexShrink: 0 }}
-                                title="Change color"
-                              />
-                              {showColorDropdown === item.id && (
-                                <div data-color-dropdown style={styles.colorDropdown}>
-                                  {SEGMENT_COLORS.map(c => (
-                                    <button
-                                      key={c}
-                                      onClick={() => { updateSegment(item.id, 'color', c); setShowColorDropdown(null); }}
-                                      style={{
-                                        ...styles.colorDot,
-                                        background: c,
-                                        width: 22,
-                                        height: 22,
-                                        outline: item.color === c ? '2px solid rgba(255,255,255,0.6)' : 'none',
-                                        outlineOffset: 2,
-                                      }}
-                                    />
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                            {collapsed && (
-                              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginLeft: 'auto', paddingRight: 8, flexShrink: 0 }}>
-                                {item.children.length} beat{item.children.length !== 1 ? 's' : ''}
-                              </span>
-                            )}
-                            <button onClick={() => deleteSegment(item.id)} style={styles.deleteBeatBtn} title="Delete segment">
-                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                                <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
-                              </svg>
-                            </button>
-                          </div>
-                        )}
-                      </Draggable>
-
-                      {/* Segment beats — draggables sharing the flat index space */}
-                      {!collapsed && item.children.map((beat) => {
-                        const beatIndex = idx++;
-                        return (
-                          <Draggable key={beat.id} draggableId={beat.id} index={beatIndex}>
-                            {(bProvided, bSnapshot) => renderBeatRow(beat, bProvided, bSnapshot, item.id)}
-                          </Draggable>
-                        );
-                      })}
-
-                      {!collapsed && (
-                        <button onClick={() => addBeatToSegment(item.id)} style={styles.addBeatInSegmentBtn}>+ Beat</button>
-                      )}
-                    </div>
-                  );
-                }
-
-                // Top-level beat
-                const beat = item;
-                const beatIndex = idx++;
-                return (
-                  <Draggable key={beat.id} draggableId={beat.id} index={beatIndex}>
-                    {(provided, snapshot) => renderBeatRow(beat, provided, snapshot, null)}
-                  </Draggable>
-                );
-              })}
-              {provided.placeholder}
-            </div>
-            );
-          }}
-        </Droppable>
-      </DragDropContext>
-
-      {/* Add beat / segment (bottom) */}
-      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4, position: 'relative' }}>
-        <div style={{ width: '20%', minWidth: 120, position: 'relative' }}>
-          <button onClick={() => setShowAddMenuBottom(prev => !prev)} style={{ ...styles.addBeatBtn, width: '100%' }}>+ Add</button>
-          {showAddMenuBottom && (
-            <div data-add-menu style={{ ...styles.addMenuDropdown, bottom: '100%', top: 'auto', marginBottom: 6, marginTop: 0 }}>
-              <button style={styles.addMenuItem} onClick={() => { addBeat(); setShowAddMenuBottom(false); }}>Beat</button>
-              <button style={styles.addMenuItem} onClick={() => { addSegment(); setShowAddMenuBottom(false); }}>Segment</button>
-            </div>
-          )}
-        </div>
-      </div>
+      )}
 
       {renderFolderBrowser()}
       {renderVersionHistory()}
@@ -2566,6 +2815,98 @@ const styles = {
     gap: 10,
     marginBottom: 20,
     flexWrap: 'wrap',
+  },
+
+  // ── view modes: Beat Sheet / Research / Split ──
+  // Beats-only keeps the page's own scroll. The other two pin the page to the
+  // viewport instead, because a document pane that grows the page would push
+  // its own toolbar off-screen.
+  pageFullHeight: {
+    height: '100%',
+    minHeight: 0,
+    maxWidth: 'none',
+    padding: '20px 24px 20px',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  viewSwitch: {
+    display: 'flex',
+    gap: spacing.xs,
+    padding: spacing.xs,
+    background: colors.whiteA05,
+    border: `1px solid ${colors.border}`,
+    borderRadius: radii.lg,
+    flexShrink: 0,
+  },
+  viewSwitchBtn: {
+    ...buttonReset,
+    padding: '6px 12px',
+    borderRadius: radii.sm,
+    fontSize: fontSizes.sm,
+    fontWeight: fontWeights.semibold,
+    color: colors.textSubtle,
+    fontFamily,
+    cursor: 'pointer',
+    transition: transitions.fast,
+  },
+  viewSwitchBtnActive: {
+    background: colors.accentA22,
+    color: colors.text,
+  },
+  splitWrap: {
+    flex: 1,
+    display: 'flex',
+    minHeight: 0,
+  },
+  splitPane: {
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  beatPane: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: 'auto',
+    overflowX: 'hidden',
+    paddingRight: 8,
+  },
+  researchPane: {
+    flex: 1,
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    border: `1px solid ${colors.border}`,
+    borderRadius: radii.lg,
+    overflow: 'hidden',
+    background: colors.bg,
+  },
+  splitDivider: {
+    order: 1,
+    width: 12,
+    flexShrink: 0,
+    cursor: 'col-resize',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splitDividerGrip: {
+    width: 3,
+    height: 48,
+    borderRadius: radii.xs,
+    background: colors.borderStrong,
+  },
+  researchFallback: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+    fontSize: fontSizes.md,
+    color: colors.whiteA45,
+    fontFamily,
   },
   backBtn: {
     background: 'none',
