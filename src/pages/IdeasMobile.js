@@ -4,28 +4,41 @@ import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { colors } from '../lib/styleTokens';
 
-// Mobile Ideas page — one column per swipe pane. CSS scroll-snap drives
-// the swipe; we just listen to scroll events to keep the dot indicator
-// in sync. Cross-column drag is desktop-only; on phones the user moves
-// an idea by editing its category from the row menu.
+// Mobile Ideas page — mirrors the desktop restructure: one shared list plus a
+// shared "Up Next" bucket, with the old categories living on as multi-select
+// tags. Each bucket is a swipe pane (CSS scroll-snap, same pattern as the old
+// per-category panes); the row menu moves ideas between buckets.
 
-const CATEGORIES = [
-  { key: 'mayday_videos',      label: 'Mayday Videos' },
-  { key: 'tm_baseball_videos', label: 'TM Baseball' },
-  { key: 'short_form_only',    label: 'Short Form' },
-  { key: 'podcast_only',       label: 'Podcast' },
+const BUCKETS = [
+  { key: 'up_next', label: 'Up Next' },
+  { key: 'list', label: 'Ideas' },
 ];
-const CATEGORY_KEYS = CATEGORIES.map((c) => c.key);
+const BUCKET_KEYS = BUCKETS.map((b) => b.key);
 
-// Maps Ideas columns to the `type` used by Projects cards.
-const CATEGORY_TO_PROJECT_TYPE = {
-  mayday_videos: 'mayday_video',
-  tm_baseball_videos: 'tm_baseball_video',
-  short_form_only: 'short_form',
-  podcast_only: 'podcast',
+// Seeded tags still map to Projects types / the legacy `category` column
+// (kept in sync with desktop). Custom tags map to neither.
+const TAG_LABEL_TO_PROJECT_TYPE = {
+  'Mayday Videos': 'mayday_video',
+  'Trevor May Baseball Videos': 'tm_baseball_video',
+  'Short Form Only': 'short_form',
+  'Podcast Only': 'podcast',
 };
+const TAG_LABEL_TO_CATEGORY = {
+  'Mayday Videos': 'mayday_videos',
+  'Trevor May Baseball Videos': 'tm_baseball_videos',
+  'Short Form Only': 'short_form_only',
+  'Podcast Only': 'podcast_only',
+};
+const PROJECT_TYPE_OPTIONS = [
+  { value: 'mayday_video', label: 'Mayday Video' },
+  { value: 'tm_baseball_video', label: 'TM Baseball Video' },
+  { value: 'short_form', label: 'Short Form' },
+  { value: 'podcast', label: 'Podcast' },
+];
 
-const IDEA_FIELDS = 'id, text, checked, position, category, context, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
+const TAG_COLOR_CHOICES = ['#f87171', '#fb923c', '#fbbf24', '#34d399', '#22d3ee', '#8fb4d8', '#93c5fd', '#c084fc', '#f9a8d4'];
+
+const IDEA_FIELDS = 'id, text, checked, position, category, bucket, tag_ids, context, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
 
 // Stable per-user name color, hashed from the profile id — same palette and
 // hash as the desktop Ideas page so colors match across devices.
@@ -37,36 +50,57 @@ function userColor(userId) {
   return USER_COLORS[h % USER_COLORS.length];
 }
 
+function fmtDateAdded(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const opts = { month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString('en-US', opts);
+}
+
 export default function IdeasMobile() {
   const { profile } = useAuth();
-  const [byCategory, setByCategory] = useState(() =>
-    Object.fromEntries(CATEGORY_KEYS.map((k) => [k, []])),
+  const [byBucket, setByBucket] = useState(() =>
+    Object.fromEntries(BUCKET_KEYS.map((k) => [k, []])),
   );
+  const [tags, setTags] = useState([]);
   const [activeIdx, setActiveIdx] = useState(0);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [sending, setSending] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [tagEditFor, setTagEditFor] = useState(null); // idea id with the tag sheet open
+  const [typePicker, setTypePicker] = useState(null); // { items, ambiguous, choices }
   const scrollerRef = useRef(null);
 
   const fetchAll = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('write_ideas')
-      .select(IDEA_FIELDS)
-      .order('position', { ascending: true })
-      .order('created_at', { ascending: true });
-    if (error) { console.error('Ideas load error:', error); return; }
-    const grouped = Object.fromEntries(CATEGORY_KEYS.map((k) => [k, []]));
-    for (const row of data || []) {
-      const k = CATEGORY_KEYS.includes(row.category) ? row.category : 'mayday_videos';
+    const [ideasRes, tagsRes] = await Promise.all([
+      supabase
+        .from('write_ideas')
+        .select(IDEA_FIELDS)
+        .order('position', { ascending: true })
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('idea_tags')
+        .select('id, label, color, position')
+        .order('position', { ascending: true })
+        .order('created_at', { ascending: true }),
+    ]);
+    if (ideasRes.error) { console.error('Ideas load error:', ideasRes.error); return; }
+    if (tagsRes.error) console.error('Idea tags load error:', tagsRes.error);
+    else setTags(tagsRes.data || []);
+    const grouped = Object.fromEntries(BUCKET_KEYS.map((k) => [k, []]));
+    for (const row of ideasRes.data || []) {
+      const k = BUCKET_KEYS.includes(row.bucket) ? row.bucket : 'list';
       grouped[k].push(row);
     }
-    setByCategory(grouped);
+    setByBucket(grouped);
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
   useVisibilityRefresh(fetchAll);
 
-  // Track which column is centered as the user swipes. Scroll-snap
+  // Track which pane is centered as the user swipes. Scroll-snap
   // handles the motion; we only read scrollLeft / clientWidth to
   // compute the index. requestAnimationFrame throttles the work.
   useEffect(() => {
@@ -79,7 +113,7 @@ export default function IdeasMobile() {
         frame = null;
         const w = el.clientWidth || 1;
         const idx = Math.round(el.scrollLeft / w);
-        setActiveIdx(Math.max(0, Math.min(CATEGORIES.length - 1, idx)));
+        setActiveIdx(Math.max(0, Math.min(BUCKETS.length - 1, idx)));
       });
     };
     el.addEventListener('scroll', onScroll, { passive: true });
@@ -95,32 +129,78 @@ export default function IdeasMobile() {
     el.scrollTo({ left: idx * el.clientWidth, behavior: 'smooth' });
   }
 
-  async function addItem(category, text) {
+  function tagById(id) {
+    return tags.find((t) => t.id === id);
+  }
+
+  function tagsForIdea(idea) {
+    return (idea.tag_ids || []).map((id) => tagById(id)).filter(Boolean);
+  }
+
+  function categoryForTagIds(tagIds) {
+    for (const id of tagIds || []) {
+      const cat = TAG_LABEL_TO_CATEGORY[tagById(id)?.label];
+      if (cat) return cat;
+    }
+    return 'mayday_videos';
+  }
+
+  function projectTypesFor(idea) {
+    const types = [];
+    for (const t of tagsForIdea(idea)) {
+      const type = TAG_LABEL_TO_PROJECT_TYPE[t.label];
+      if (type && !types.includes(type)) types.push(type);
+    }
+    return types;
+  }
+
+  function findIdea(id) {
+    for (const k of BUCKET_KEYS) {
+      const found = (byBucket[k] || []).find((i) => i.id === id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function patchIdea(id, patch) {
+    setByBucket((prev) => {
+      const next = {};
+      for (const k of BUCKET_KEYS) next[k] = (prev[k] || []).map((i) => (i.id === id ? { ...i, ...patch } : i));
+      return next;
+    });
+  }
+
+  async function addItem({ text, context, tagIds }) {
     const trimmed = (text || '').trim();
-    if (!trimmed || !profile?.id) return;
-    const existing = byCategory[category] || [];
+    if (!trimmed || !profile?.id) return false;
+    const existing = byBucket.list || [];
     const nextPosition = existing.length > 0
       ? Math.max(...existing.map((i) => i.position || 0)) + 1
       : 0;
     const { data, error } = await supabase
       .from('write_ideas')
-      .insert({ text: trimmed, checked: false, position: nextPosition, category, created_by: profile.id })
+      .insert({
+        text: trimmed,
+        checked: false,
+        position: nextPosition,
+        bucket: 'list',
+        tag_ids: tagIds || [],
+        category: categoryForTagIds(tagIds),
+        context: (context || '').trim() || null,
+        created_by: profile.id,
+      })
       .select(IDEA_FIELDS)
       .single();
-    if (error) { alert(`Could not save: ${error.message}`); return; }
-    setByCategory((prev) => ({ ...prev, [category]: [...(prev[category] || []), data] }));
+    if (error) { alert(`Could not save: ${error.message}`); return false; }
+    setByBucket((prev) => ({ ...prev, list: [...(prev.list || []), data] }));
+    return true;
   }
 
   async function toggleItem(id) {
-    const allItems = CATEGORY_KEYS.flatMap((k) => byCategory[k] || []);
-    const current = allItems.find((i) => i.id === id);
+    const current = findIdea(id);
     if (!current) return;
     const nextChecked = !current.checked;
-    const cat = current.category;
-    setByCategory((prev) => ({
-      ...prev,
-      [cat]: prev[cat].map((i) => (i.id === id ? { ...i, checked: nextChecked } : i)),
-    }));
+    patchIdea(id, { checked: nextChecked });
     const { error } = await supabase
       .from('write_ideas')
       .update({ checked: nextChecked, updated_at: new Date().toISOString() })
@@ -128,27 +208,24 @@ export default function IdeasMobile() {
     if (error) { console.error(error); fetchAll(); }
   }
 
-  async function deleteItem(id, category) {
-    const previous = byCategory[category];
-    setByCategory((prev) => ({
+  async function deleteItem(id, bucket) {
+    const previous = byBucket[bucket];
+    setByBucket((prev) => ({
       ...prev,
-      [category]: prev[category].filter((i) => i.id !== id),
+      [bucket]: prev[bucket].filter((i) => i.id !== id),
     }));
     const { error } = await supabase.from('write_ideas').delete().eq('id', id);
     if (error) {
-      setByCategory((prev) => ({ ...prev, [category]: previous }));
+      setByBucket((prev) => ({ ...prev, [bucket]: previous }));
     }
   }
 
-  async function saveEdit(id, category, newText) {
+  async function saveEdit(id, newText) {
     const trimmed = (newText || '').trim();
     if (!trimmed) return;
-    const current = (byCategory[category] || []).find((i) => i.id === id);
+    const current = findIdea(id);
     if (!current || current.text === trimmed) return;
-    setByCategory((prev) => ({
-      ...prev,
-      [category]: prev[category].map((i) => (i.id === id ? { ...i, text: trimmed } : i)),
-    }));
+    patchIdea(id, { text: trimmed });
     const { error } = await supabase
       .from('write_ideas')
       .update({ text: trimmed, updated_at: new Date().toISOString() })
@@ -156,38 +233,66 @@ export default function IdeasMobile() {
     if (error) { console.error(error); fetchAll(); }
   }
 
-  async function moveItem(id, fromCat, toCat) {
-    if (fromCat === toCat) return;
-    const fromList = byCategory[fromCat] || [];
-    const item = fromList.find((i) => i.id === id);
+  async function moveItem(id, toBucket) {
+    const fromBucket = toBucket === 'list' ? 'up_next' : 'list';
+    const item = (byBucket[fromBucket] || []).find((i) => i.id === id);
     if (!item) return;
-    const toList = byCategory[toCat] || [];
+    const toList = byBucket[toBucket] || [];
     const nextPosition = toList.length > 0
       ? Math.max(...toList.map((i) => i.position || 0)) + 1
       : 0;
-    setByCategory((prev) => ({
+    setByBucket((prev) => ({
       ...prev,
-      [fromCat]: prev[fromCat].filter((i) => i.id !== id),
-      [toCat]: [...(prev[toCat] || []), { ...item, category: toCat, position: nextPosition }],
+      [fromBucket]: prev[fromBucket].filter((i) => i.id !== id),
+      [toBucket]: [...(prev[toBucket] || []), { ...item, bucket: toBucket, position: nextPosition }],
     }));
     const { error } = await supabase
       .from('write_ideas')
-      .update({ category: toCat, position: nextPosition, updated_at: new Date().toISOString() })
+      .update({ bucket: toBucket, position: nextPosition, updated_at: new Date().toISOString() })
       .eq('id', id);
     if (error) { console.error(error); fetchAll(); }
   }
 
-  async function saveContext(id, category, newContext) {
+  async function saveContext(id, newContext) {
     const value = (newContext || '').trim() || null;
-    setByCategory((prev) => ({
-      ...prev,
-      [category]: prev[category].map((i) => (i.id === id ? { ...i, context: value } : i)),
-    }));
+    patchIdea(id, { context: value });
     const { error } = await supabase
       .from('write_ideas')
       .update({ context: value, updated_at: new Date().toISOString() })
       .eq('id', id);
     if (error) { console.error(error); fetchAll(); }
+  }
+
+  async function saveTags(id, tagIds) {
+    patchIdea(id, { tag_ids: tagIds, category: categoryForTagIds(tagIds) });
+    const { error } = await supabase
+      .from('write_ideas')
+      .update({
+        tag_ids: tagIds,
+        category: categoryForTagIds(tagIds),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+    if (error) { console.error(error); fetchAll(); }
+  }
+
+  async function createTag(label, color) {
+    const trimmed = (label || '').trim();
+    if (!trimmed) return null;
+    const existing = tags.find((t) => t.label.toLowerCase() === trimmed.toLowerCase());
+    if (existing) return existing;
+    const nextPosition = tags.length > 0 ? Math.max(...tags.map((t) => t.position || 0)) + 1 : 0;
+    const { data, error } = await supabase
+      .from('idea_tags')
+      .insert({ label: trimmed, color, position: nextPosition, created_by: profile?.id || null })
+      .select('id, label, color, position')
+      .single();
+    if (error) {
+      alert(`Could not create tag: ${error.message || 'unknown error'}`);
+      return null;
+    }
+    setTags((prev) => [...prev, data]);
+    return data;
   }
 
   function toggleSelect(id) {
@@ -204,13 +309,28 @@ export default function IdeasMobile() {
     setSelectedIds(new Set());
   }
 
-  async function sendSelectedToProjects() {
-    const items = CATEGORY_KEYS.flatMap((k) => byCategory[k] || []).filter((i) => selectedIds.has(i.id));
+  function requestSendToProjects() {
+    const items = BUCKET_KEYS.flatMap((k) => byBucket[k] || []).filter((i) => selectedIds.has(i.id));
     if (items.length === 0 || sending) return;
+    // Ideas whose tags map to exactly one project type go straight through;
+    // zero or 2+ mapped types needs a human pick — same rule as desktop.
+    const ambiguous = items.filter((i) => projectTypesFor(i).length !== 1);
+    if (ambiguous.length > 0) {
+      setTypePicker({
+        items,
+        ambiguous,
+        choices: Object.fromEntries(ambiguous.map((i) => [i.id, projectTypesFor(i)[0] || 'mayday_video'])),
+      });
+      return;
+    }
+    sendToProjects(items, (i) => projectTypesFor(i)[0]);
+  }
+
+  async function sendToProjects(items, typeFor) {
     setSending(true);
     const rows = items.map((i) => ({
       name: i.text,
-      type: CATEGORY_TO_PROJECT_TYPE[i.category] || 'mayday_video',
+      type: typeFor(i) || 'mayday_video',
       status: 'queue',
       start_column: 'queue',
       notes: i.context || null,
@@ -224,31 +344,34 @@ export default function IdeasMobile() {
       return;
     }
     // Project cards created — remove the exported ideas from the board.
-    const ids = items.map((i) => i.id);
-    const { error: delError } = await supabase.from('write_ideas').delete().in('id', ids);
+    const ids = new Set(items.map((i) => i.id));
+    const { error: delError } = await supabase.from('write_ideas').delete().in('id', [...ids]);
     if (delError) console.error('Error removing exported ideas:', delError);
-    setByCategory((prev) => {
+    setByBucket((prev) => {
       const next = {};
-      for (const k of CATEGORY_KEYS) next[k] = (prev[k] || []).filter((i) => !selectedIds.has(i.id));
+      for (const k of BUCKET_KEYS) next[k] = (prev[k] || []).filter((i) => !ids.has(i.id));
       return next;
     });
     setSending(false);
+    setTypePicker(null);
     exitSelectMode();
   }
+
+  const tagEditIdea = tagEditFor ? findIdea(tagEditFor) : null;
 
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <div style={styles.titleRow}>
-          <h1 style={styles.pageTitle}>{CATEGORIES[activeIdx].label}</h1>
+          <h1 style={styles.pageTitle}>{BUCKETS[activeIdx].label}</h1>
           <span style={styles.countPill}>
-            {(byCategory[CATEGORIES[activeIdx].key] || []).length}
+            {(byBucket[BUCKETS[activeIdx].key] || []).length}
           </span>
           <div style={{ flex: 1 }} />
           {selectMode ? (
             <>
               <button
-                onClick={sendSelectedToProjects}
+                onClick={requestSendToProjects}
                 disabled={selectedIds.size === 0 || sending}
                 style={{
                   ...styles.addToProjectsBtn,
@@ -264,11 +387,11 @@ export default function IdeasMobile() {
           )}
         </div>
         <div style={styles.dots}>
-          {CATEGORIES.map((c, i) => (
+          {BUCKETS.map((b, i) => (
             <button
-              key={c.key}
+              key={b.key}
               onClick={() => jumpTo(i)}
-              aria-label={`Show ${c.label}`}
+              aria-label={`Show ${b.label}`}
               style={{
                 ...styles.dot,
                 ...(i === activeIdx ? styles.dotActive : {}),
@@ -279,36 +402,245 @@ export default function IdeasMobile() {
       </div>
 
       <div ref={scrollerRef} style={styles.scroller}>
-        {CATEGORIES.map((cat) => (
-          <Column
-            key={cat.key}
-            category={cat}
-            allCategories={CATEGORIES}
-            items={byCategory[cat.key] || []}
-            onAdd={(text) => addItem(cat.key, text)}
+        {BUCKETS.map((b) => (
+          <Pane
+            key={b.key}
+            bucket={b}
+            items={byBucket[b.key] || []}
+            emptyHint={b.key === 'up_next'
+              ? 'Nothing queued. Move an idea here from its ⋯ menu.'
+              : 'No ideas yet. Tap + to start.'}
+            tagsForIdea={tagsForIdea}
             onToggle={toggleItem}
-            onDelete={(id) => deleteItem(id, cat.key)}
-            onSaveEdit={(id, text) => saveEdit(id, cat.key, text)}
-            onMove={(id, toCat) => moveItem(id, cat.key, toCat)}
-            onSaveContext={(id, text) => saveContext(id, cat.key, text)}
+            onDelete={(id) => deleteItem(id, b.key)}
+            onSaveEdit={saveEdit}
+            onMove={moveItem}
+            onSaveContext={saveContext}
+            onEditTags={setTagEditFor}
+            onAdd={b.key === 'list' ? () => setShowAddModal(true) : null}
             selectMode={selectMode}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
           />
         ))}
       </div>
+
+      {showAddModal && (
+        <Sheet onClose={() => setShowAddModal(false)}>
+          <AddIdeaSheet
+            tags={tags}
+            onCreateTag={createTag}
+            onSubmit={async (draft) => {
+              const ok = await addItem(draft);
+              if (ok) setShowAddModal(false);
+            }}
+            onClose={() => setShowAddModal(false)}
+          />
+        </Sheet>
+      )}
+
+      {tagEditIdea && (
+        <Sheet onClose={() => setTagEditFor(null)}>
+          <div style={styles.sheetTitle}>Tags</div>
+          <div style={styles.sheetIdeaText}>{tagEditIdea.text}</div>
+          <TagPicker
+            tags={tags}
+            selectedIds={tagEditIdea.tag_ids || []}
+            onToggleTag={(tagId) => {
+              const current = tagEditIdea.tag_ids || [];
+              saveTags(
+                tagEditIdea.id,
+                current.includes(tagId) ? current.filter((t) => t !== tagId) : [...current, tagId],
+              );
+            }}
+            onCreateTag={createTag}
+          />
+          <button onClick={() => setTagEditFor(null)} style={styles.sheetDoneBtn}>Done</button>
+        </Sheet>
+      )}
+
+      {typePicker && (
+        <Sheet onClose={() => setTypePicker(null)}>
+          <div style={styles.sheetTitle}>Pick project types</div>
+          <div style={styles.sheetHint}>
+            These ideas don't map cleanly to a single project type from their tags — choose one for each.
+          </div>
+          <div style={styles.typePickList}>
+            {typePicker.ambiguous.map((i) => (
+              <div key={i.id} style={styles.typePickRow}>
+                <div style={styles.typePickIdea}>{i.text}</div>
+                <select
+                  value={typePicker.choices[i.id]}
+                  onChange={(e) => setTypePicker((prev) => ({
+                    ...prev,
+                    choices: { ...prev.choices, [i.id]: e.target.value },
+                  }))}
+                  style={styles.typeSelect}
+                >
+                  {PROJECT_TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => {
+              const { items, choices } = typePicker;
+              sendToProjects(items, (i) => choices[i.id] || projectTypesFor(i)[0]);
+            }}
+            disabled={sending}
+            style={{ ...styles.sheetDoneBtn, opacity: sending ? 0.4 : 1 }}
+          >
+            {sending ? 'Adding…' : `Add to Projects (${typePicker.items.length})`}
+          </button>
+        </Sheet>
+      )}
     </div>
   );
 }
 
-function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onSaveEdit, onMove, onSaveContext, selectMode, selectedIds, onToggleSelect }) {
-  const [showInput, setShowInput] = useState(false);
-  const [newText, setNewText] = useState('');
+// Bottom sheet shared by add / tags / type-picker flows.
+function Sheet({ children, onClose }) {
+  return (
+    <div style={styles.sheetOverlay} onClick={onClose}>
+      <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function TagPicker({ tags, selectedIds, onToggleTag, onCreateTag }) {
+  const [newLabel, setNewLabel] = useState('');
+  const [newColor, setNewColor] = useState(TAG_COLOR_CHOICES[5]);
+  const [creating, setCreating] = useState(false);
+
+  async function commitCreate() {
+    const trimmed = newLabel.trim();
+    if (!trimmed || creating) return;
+    setCreating(true);
+    const tag = await onCreateTag(trimmed, newColor);
+    setCreating(false);
+    if (tag) {
+      if (!selectedIds.includes(tag.id)) onToggleTag(tag.id);
+      setNewLabel('');
+    }
+  }
+
+  return (
+    <div>
+      <div style={styles.tagPickerList}>
+        {tags.map((t) => {
+          const on = selectedIds.includes(t.id);
+          return (
+            <button
+              key={t.id}
+              onClick={() => onToggleTag(t.id)}
+              style={{
+                ...styles.tagChip,
+                ...styles.tagPickerChip,
+                background: on ? `${t.color}26` : 'rgba(255,255,255,0.04)',
+                color: on ? t.color : 'rgba(255,255,255,0.45)',
+                borderColor: on ? `${t.color}55` : 'rgba(255,255,255,0.1)',
+              }}
+            >
+              {on ? '✓ ' : ''}{t.label}
+            </button>
+          );
+        })}
+      </div>
+      <div style={styles.tagCreateRow}>
+        <input
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(); }}
+          placeholder="New tag…"
+          style={styles.tagCreateInput}
+        />
+        <button
+          onClick={commitCreate}
+          disabled={!newLabel.trim() || creating}
+          style={{ ...styles.tagCreateBtn, opacity: newLabel.trim() && !creating ? 1 : 0.4 }}
+        >Add</button>
+      </div>
+      {newLabel.trim() && (
+        <div style={styles.tagColorRow}>
+          {TAG_COLOR_CHOICES.map((c) => (
+            <button
+              key={c}
+              onClick={() => setNewColor(c)}
+              style={{
+                ...styles.tagColorSwatch,
+                background: c,
+                outline: newColor === c ? '2px solid rgba(255,255,255,0.7)' : 'none',
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddIdeaSheet({ tags, onCreateTag, onSubmit, onClose }) {
+  const [text, setText] = useState('');
+  const [context, setContext] = useState('');
+  const [tagIds, setTagIds] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  function toggleTag(id) {
+    setTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
+  }
+
+  async function commit() {
+    if (!text.trim() || saving) return;
+    setSaving(true);
+    await onSubmit({ text, context, tagIds });
+    setSaving(false);
+  }
+
+  return (
+    <>
+      <div style={styles.sheetTitle}>Add Idea</div>
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="What's the idea?"
+        style={styles.sheetInput}
+        autoFocus
+      />
+      <textarea
+        value={context}
+        onChange={(e) => setContext(e.target.value)}
+        placeholder="Description (optional)…"
+        style={styles.contextTextarea}
+        rows={3}
+      />
+      <div style={styles.sheetSectionLabel}>Tags</div>
+      <TagPicker tags={tags} selectedIds={tagIds} onToggleTag={toggleTag} onCreateTag={onCreateTag} />
+      <div style={styles.sheetBtnRow}>
+        <button
+          onClick={commit}
+          disabled={!text.trim() || saving}
+          style={{ ...styles.sheetDoneBtn, flex: 1, marginTop: 0, opacity: text.trim() && !saving ? 1 : 0.4 }}
+        >
+          {saving ? 'Adding…' : 'Add Idea'}
+        </button>
+        <button onClick={onClose} style={styles.sheetCancelBtn}>Cancel</button>
+      </div>
+    </>
+  );
+}
+
+function Pane({ bucket, items, emptyHint, tagsForIdea, onToggle, onDelete, onSaveEdit, onMove, onSaveContext, onEditTags, onAdd, selectMode, selectedIds, onToggleSelect }) {
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [menuFor, setMenuFor] = useState(null);
   const [contextEditingId, setContextEditingId] = useState(null);
   const [contextDraft, setContextDraft] = useState('');
+
+  const otherBucket = BUCKETS.find((b) => b.key !== bucket.key);
 
   function openContextEditor(item) {
     setContextEditingId(item.id);
@@ -324,12 +656,13 @@ function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onS
   return (
     <section style={styles.column}>
       <div style={styles.list}>
-        {items.length === 0 && !showInput && (
-          <div style={styles.empty}>No ideas yet. Tap + to start.</div>
+        {items.length === 0 && (
+          <div style={styles.empty}>{emptyHint}</div>
         )}
         {items.map((item) => {
           const isEditing = editingId === item.id;
           const isSelected = selectMode && selectedIds.has(item.id);
+          const itemTags = tagsForIdea(item);
           return (
             <div
               key={item.id}
@@ -381,6 +714,18 @@ function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onS
                     {item.text}
                   </button>
                 )}
+                {itemTags.length > 0 && (
+                  <div style={styles.tagRow}>
+                    {itemTags.map((t) => (
+                      <span
+                        key={t.id}
+                        style={{ ...styles.tagChip, background: `${t.color}26`, color: t.color, borderColor: `${t.color}55` }}
+                      >
+                        {t.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {contextEditingId === item.id ? (
                   <div style={styles.contextEditWrap}>
                     <textarea
@@ -409,6 +754,7 @@ function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onS
                 ) : null}
                 <div style={styles.metaRow}>
                   <span style={{ ...styles.creatorName, color: userColor(item.created_by) }}>{item.creator?.full_name || 'Unknown'}</span>
+                  <span style={styles.dateAdded}>{fmtDateAdded(item.created_at)}</span>
                   {!selectMode && contextEditingId !== item.id && (
                     <button onClick={() => openContextEditor(item)} style={styles.contextLink}>
                       {item.context ? 'edit context' : '+ context'}
@@ -427,15 +773,18 @@ function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onS
               )}
               {menuFor === item.id && !selectMode && (
                 <div style={styles.menu} onClick={(e) => e.stopPropagation()}>
-                  {allCategories.filter((c) => c.key !== category.key).map((c) => (
-                    <button
-                      key={c.key}
-                      style={styles.menuItem}
-                      onClick={() => { onMove(item.id, c.key); setMenuFor(null); }}
-                    >
-                      Move to {c.label}
-                    </button>
-                  ))}
+                  <button
+                    style={styles.menuItem}
+                    onClick={() => { onMove(item.id, otherBucket.key); setMenuFor(null); }}
+                  >
+                    Move to {otherBucket.label}
+                  </button>
+                  <button
+                    style={styles.menuItem}
+                    onClick={() => { onEditTags(item.id); setMenuFor(null); }}
+                  >
+                    Edit tags
+                  </button>
                   <button
                     style={{ ...styles.menuItem, color: '#f87171' }}
                     onClick={() => { onDelete(item.id); setMenuFor(null); }}
@@ -447,36 +796,11 @@ function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onS
             </div>
           );
         })}
-
-        {showInput && (
-          <div style={styles.row}>
-            <span style={styles.checkPlaceholder}>+</span>
-            <input
-              autoFocus
-              value={newText}
-              onChange={(e) => setNewText(e.target.value)}
-              onBlur={() => {
-                if (newText.trim()) { onAdd(newText); }
-                setNewText(''); setShowInput(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  // Clear before onAdd so a fast second Enter can't re-read the
-                  // same text and insert a duplicate.
-                  const v = newText.trim();
-                  if (v) { setNewText(''); onAdd(v); }
-                  // Stay in input so the user can rattle off several ideas.
-                }
-                if (e.key === 'Escape') { setNewText(''); setShowInput(false); }
-              }}
-              placeholder="New idea…"
-              style={styles.editInput}
-            />
-          </div>
-        )}
       </div>
 
-      <button onClick={() => setShowInput(true)} style={styles.fab} aria-label="Add idea">+</button>
+      {onAdd && !selectMode && (
+        <button onClick={onAdd} style={styles.fab} aria-label="Add idea">+</button>
+      )}
     </section>
   );
 }
@@ -546,6 +870,7 @@ const styles = {
   rowMain: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 },
   metaRow: { display: 'flex', alignItems: 'center', gap: 10 },
   creatorName: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
+  dateAdded: { fontSize: 11, color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' },
   contextLink: {
     background: 'none', border: 'none', color: 'rgba(165,180,252,0.7)',
     fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', padding: 0,
@@ -581,10 +906,6 @@ const styles = {
     alignItems: 'center', justifyContent: 'center',
   },
   checkOn: { background: colors.accent, borderColor: colors.accent },
-  checkPlaceholder: {
-    flex: '0 0 24px', width: 24, height: 24, color: 'rgba(255,255,255,0.4)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
-  },
   text: {
     flex: 1, textAlign: 'left', background: 'transparent', border: 'none',
     padding: 0, fontSize: 15, fontFamily: 'inherit', cursor: 'pointer',
@@ -614,13 +935,86 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit',
   },
 
-  fab: {
-    position: 'absolute', bottom: 16, right: 16,
-    width: 52, height: 52, borderRadius: '50%',
-    background: colors.accent, color: colors.white, border: 'none',
-    fontSize: 28, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-    boxShadow: '0 6px 18px rgba(91, 143, 199,0.45)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    lineHeight: 1,
+  // ── Tags ──
+  tagRow: { display: 'flex', flexWrap: 'wrap', gap: 4 },
+  tagChip: {
+    display: 'inline-block', padding: '2px 8px', borderRadius: 10,
+    border: '1px solid', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+  },
+  tagPickerChip: { cursor: 'pointer', fontFamily: 'inherit' },
+  tagPickerList: { display: 'flex', flexWrap: 'wrap', gap: 6 },
+  tagCreateRow: { display: 'flex', gap: 6, marginTop: 10 },
+  tagCreateInput: {
+    flex: 1, minWidth: 0, padding: '7px 10px',
+    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none',
+  },
+  tagCreateBtn: {
+    padding: '7px 12px', background: colors.accent, border: 'none',
+    borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  tagColorRow: { display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' },
+  tagColorSwatch: {
+    width: 22, height: 22, borderRadius: '50%', border: 'none',
+    cursor: 'pointer', padding: 0,
+  },
+
+  // ── Bottom sheets ──
+  sheetOverlay: {
+    position: 'fixed', inset: 0, zIndex: 1100,
+    background: 'rgba(0,0,0,0.6)',
+    display: 'flex', alignItems: 'flex-end',
+  },
+  sheet: {
+    background: '#14141f',
+    borderTop: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '16px 16px 0 0',
+    padding: '18px 16px calc(18px + env(safe-area-inset-bottom))',
+    width: '100%',
+    maxHeight: '80vh',
+    overflowY: 'auto',
+    boxSizing: 'border-box',
+  },
+  sheetTitle: { fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 12 },
+  sheetHint: { fontSize: 12, color: 'rgba(255,255,255,0.5)', marginBottom: 12, lineHeight: 1.5 },
+  sheetIdeaText: {
+    fontSize: 13, color: 'rgba(255,255,255,0.6)', marginBottom: 12,
+    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+  },
+  sheetSectionLabel: {
+    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
+    color: 'rgba(255,255,255,0.35)', margin: '14px 0 8px',
+  },
+  sheetInput: {
+    width: '100%', padding: '9px 12px', marginBottom: 10,
+    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8, color: '#fff', fontSize: 15, fontFamily: 'inherit',
+    outline: 'none', boxSizing: 'border-box',
+  },
+  sheetBtnRow: { display: 'flex', gap: 8, marginTop: 16 },
+  sheetDoneBtn: {
+    display: 'block', width: '100%', marginTop: 16, padding: '10px 16px',
+    background: colors.accent, border: 'none', borderRadius: 10,
+    color: '#fff', fontSize: 14, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  sheetCancelBtn: {
+    padding: '10px 16px', background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
+    color: 'rgba(255,255,255,0.6)', fontSize: 14,
+    cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+  },
+  typePickList: { display: 'flex', flexDirection: 'column', gap: 8 },
+  typePickRow: {
+    padding: 10, background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10,
+    display: 'flex', flexDirection: 'column', gap: 8,
+  },
+  typePickIdea: { fontSize: 13, color: '#e2e8f0', wordBreak: 'break-word' },
+  typeSelect: {
+    padding: '8px 10px', background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+    color: '#e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none',
   },
 };
