@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { FilePlus2, FileText, Pencil, Trash2, X } from 'lucide-react'
+import { FilePlus2, FileText, Pencil, Tag, Trash2, X } from 'lucide-react'
+
+export type TemplateTag = 'mayday' | 'tm_baseball'
 
 export interface ResearchTemplate {
   id: string
@@ -7,7 +9,34 @@ export interface ResearchTemplate {
   description: string | null
   content: { html?: string } | null
   position: number
+  tag: TemplateTag
 }
+
+// Brand tint per tag — Mayday red, Trevor May Baseball orange.
+const TAG_STYLES: Record<TemplateTag, {
+  label: string
+  card: string
+  cardConfirm: string
+  icon: string
+  badge: string
+}> = {
+  mayday: {
+    label: 'Mayday',
+    card: 'border-red-500/35 bg-red-500/10 hover:border-red-400 hover:bg-red-500/15',
+    cardConfirm: 'border-red-400 bg-red-500/30',
+    icon: 'text-red-300/80 group-hover:text-red-200',
+    badge: 'bg-red-500/20 text-red-300',
+  },
+  tm_baseball: {
+    label: 'Trevor May Baseball',
+    card: 'border-orange-500/35 bg-orange-500/10 hover:border-orange-400 hover:bg-orange-500/15',
+    cardConfirm: 'border-orange-400 bg-orange-500/30',
+    icon: 'text-orange-300/80 group-hover:text-orange-200',
+    badge: 'bg-orange-500/20 text-orange-300',
+  },
+}
+
+const OTHER_TAG: Record<TemplateTag, TemplateTag> = { mayday: 'tm_baseball', tm_baseball: 'mayday' }
 
 interface Props {
   templates: ResearchTemplate[]
@@ -21,6 +50,7 @@ interface Props {
   onSaveCurrentAsTemplate: () => void
   onRename: (template: ResearchTemplate) => void
   onDelete: (template: ResearchTemplate) => void
+  onSetTag: (template: ResearchTemplate, tag: TemplateTag) => void
   onClose: () => void
 }
 
@@ -33,6 +63,7 @@ export default function TemplateGallery({
   onSaveCurrentAsTemplate,
   onRename,
   onDelete,
+  onSetTag,
   onClose,
 }: Props) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
@@ -94,13 +125,13 @@ export default function TemplateGallery({
             </div>
           )}
 
-          {!loading && templates.map((tpl) => (
+          {!loading && templates.map((tpl) => {
+            const tagStyle = TAG_STYLES[tpl.tag] || TAG_STYLES.mayday
+            return (
             <div
               key={tpl.id}
               className={`group relative flex flex-col items-start gap-2 p-4 h-36 rounded-xl border transition-colors ${
-                confirmId === tpl.id
-                  ? 'border-red-400 bg-red-500/10'
-                  : 'border-navy-700 bg-navy-900 hover:border-blue-500 hover:bg-navy-800'
+                confirmId === tpl.id ? tagStyle.cardConfirm : tagStyle.card
               }`}
             >
               <button
@@ -109,7 +140,7 @@ export default function TemplateGallery({
                 className="absolute inset-0 rounded-xl cursor-pointer"
                 title={`Use ${tpl.name}`}
               />
-              <FileText size={20} className="text-navy-400 group-hover:text-blue-300 pointer-events-none" />
+              <FileText size={20} className={`${tagStyle.icon} pointer-events-none`} />
               <span className="text-[13px] font-semibold text-white pointer-events-none line-clamp-2">
                 {tpl.name}
               </span>
@@ -119,8 +150,20 @@ export default function TemplateGallery({
                   : tpl.description || 'No description.'}
               </span>
 
+              <span className={`absolute bottom-2 right-2 px-1.5 py-0.5 rounded-full text-[9px] font-semibold leading-none pointer-events-none ${tagStyle.badge}`}>
+                {tagStyle.label}
+              </span>
+
               {canManage && (
                 <div className="absolute top-2 right-2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={() => onSetTag(tpl, OTHER_TAG[tpl.tag] || 'mayday')}
+                    title={`Tag as ${TAG_STYLES[OTHER_TAG[tpl.tag] || 'mayday'].label}`}
+                    className="h-6 w-6 flex items-center justify-center rounded bg-navy-800 text-navy-300 hover:text-white cursor-pointer"
+                  >
+                    <Tag size={12} />
+                  </button>
                   <button
                     type="button"
                     onClick={() => onRename(tpl)}
@@ -140,7 +183,7 @@ export default function TemplateGallery({
                 </div>
               )}
             </div>
-          ))}
+          )})}
         </div>
 
         {canManage && (

@@ -448,3 +448,127 @@
     height: auto !important;
   }
 }
+
+/* ── GDocs chrome: scoped UA reset ── */
+/* Tailwind preflight isn't imported (it would restyle the whole app), so
+   native button/select/input chrome bleeds through as white chips on the dark
+   toolbar. Neutralize it inside the gdocs editor only. :where() keeps these at
+   zero specificity so utility classes still win. */
+.gdocs-root {
+  color-scheme: dark;
+}
+
+:where(.gdocs-root) button {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+
+:where(.gdocs-root) select,
+:where(.gdocs-root) input:not([type='checkbox']):not([type='radio']),
+:where(.gdocs-root) textarea {
+  -webkit-appearance: none;
+  appearance: none;
+  font: inherit;
+}
+
+/* appearance:none drops the select's native arrow — draw our own. */
+.gdocs-root select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237080aa' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 20px;
+}
+
+/* ── GDocs dark page canvas ── */
+/* Background lives here rather than as bg-navy-900/border-navy-700 classes on
+   the element: the print block above hides those classes wholesale. */
+.gdocs-root .page-canvas {
+  background: var(--color-navy-900);
+  border: 1px solid var(--color-navy-700);
+}
+
+.gdocs-root .prose-editor {
+  color: var(--color-navy-100);
+}
+
+.gdocs-root .prose-editor h1,
+.gdocs-root .prose-editor h2,
+.gdocs-root .prose-editor h3 {
+  color: #f1f5f9;
+}
+
+.gdocs-root .prose-editor blockquote {
+  border-left-color: var(--color-navy-600);
+  color: var(--color-navy-300);
+}
+
+.gdocs-root .prose-editor code {
+  background: var(--color-navy-700);
+  color: var(--color-navy-100);
+}
+
+.gdocs-root .prose-editor pre {
+  border-color: var(--color-navy-700);
+}
+
+.gdocs-root .prose-editor hr {
+  border-color: var(--color-navy-600);
+}
+
+.gdocs-root .prose-editor a {
+  color: #818cf8;
+}
+
+.gdocs-root .prose-editor th,
+.gdocs-root .prose-editor td {
+  border-color: var(--color-navy-600);
+}
+
+.gdocs-root .prose-editor th {
+  background: var(--color-navy-800);
+  color: #f1f5f9;
+}
+
+.gdocs-root .prose-editor p.is-editor-empty:first-child::before {
+  color: var(--color-navy-500);
+}
+
+/* Print keeps the paper look: white page, dark ink. */
+@media print {
+  .gdocs-root .page-canvas {
+    background: white !important;
+    border: none !important;
+  }
+  .gdocs-root .prose-editor {
+    color: #1f2937 !important;
+  }
+  .gdocs-root .prose-editor h1,
+  .gdocs-root .prose-editor h2,
+  .gdocs-root .prose-editor h3 {
+    color: #111827 !important;
+  }
+  .gdocs-root .prose-editor blockquote {
+    border-left-color: #d1d5db !important;
+    color: #6b7280 !important;
+  }
+  .gdocs-root .prose-editor code {
+    background: #f3f4f6 !important;
+    color: #374151 !important;
+  }
+  .gdocs-root .prose-editor a {
+    color: #2563eb !important;
+  }
+  .gdocs-root .prose-editor th,
+  .gdocs-root .prose-editor td {
+    border-color: #d1d5db !important;
+  }
+  .gdocs-root .prose-editor th {
+    background: #f3f4f6 !important;
+    color: #111827 !important;
+  }
+}

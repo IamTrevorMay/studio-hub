@@ -31,7 +31,7 @@ import { Menu, MenuBar, MenuDivider, MenuItem, SubMenu } from './menu'
 import GDocsToolbar from './GDocsToolbar'
 import OutlinePane, { OutlineRailStub } from './OutlinePane'
 import TemplateGallery from './TemplateGallery'
-import type { ResearchTemplate } from './TemplateGallery'
+import type { ResearchTemplate, TemplateTag } from './TemplateGallery'
 import { Check, Loader2, MessageSquare } from 'lucide-react'
 import '../doc-editor.css'
 
@@ -131,7 +131,7 @@ export default function GDocsEditor({
     setTemplatesLoading(true)
     const { data, error } = await supabase
       .from(TEMPLATE_TABLE)
-      .select('id, name, description, content, position')
+      .select('id, name, description, content, position, tag')
       .order('position', { ascending: true })
       .order('created_at', { ascending: true })
     if (error) console.error('Fetch research templates failed:', error.message)
@@ -181,6 +181,15 @@ export default function GDocsEditor({
       .update({ name, updated_at: new Date().toISOString() })
       .eq('id', tpl.id)
     if (error) { console.error('Rename template failed:', error.message); return }
+    fetchTemplates()
+  }
+
+  const setTemplateTag = async (tpl: ResearchTemplate, tag: TemplateTag) => {
+    const { error } = await supabase
+      .from(TEMPLATE_TABLE)
+      .update({ tag, updated_at: new Date().toISOString() })
+      .eq('id', tpl.id)
+    if (error) { console.error('Set template tag failed:', error.message); return }
     fetchTemplates()
   }
 
@@ -414,7 +423,7 @@ export default function GDocsEditor({
             style={{ width: pageDim.width, transform: `scale(${scale})`, transformOrigin: 'top center' }}
           >
             <div
-              className="page-canvas bg-white rounded shadow-lg shadow-black/30"
+              className="page-canvas rounded shadow-lg shadow-black/30"
               style={{
                 width: pageDim.width,
                 minHeight: pageDim.height,
@@ -463,6 +472,7 @@ export default function GDocsEditor({
             onSaveCurrentAsTemplate={saveCurrentAsTemplate}
             onRename={renameTemplate}
             onDelete={deleteTemplate}
+            onSetTag={setTemplateTag}
             onClose={() => setShowGallery(false)}
           />
         )}

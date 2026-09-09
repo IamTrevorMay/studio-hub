@@ -2250,21 +2250,13 @@ export default function Production({ initialSheetId, onSheetOpened }) {
 
   return (
     <div style={isSplitLayout ? { ...styles.page, ...styles.pageFullHeight } : styles.page}>
-      {/* Top config bar */}
-      <div style={styles.configBar} className="no-print">
-        <button onClick={closeEditor} style={styles.backBtn} title="Back to list">
+      {/* View toggle — its own centered row above everything else */}
+      <div style={styles.viewSwitchRow} className="no-print">
+        <button onClick={closeEditor} style={styles.viewSwitchRowBack} title="Back to list">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M11 4L6 9l5 5" />
           </svg>
         </button>
-
-        <input
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="Beat sheet title..."
-          style={styles.titleInput}
-        />
-
         <div style={styles.viewSwitch}>
           {VIEW_MODES.map(mode => (
             <button
@@ -2277,6 +2269,17 @@ export default function Production({ initialSheetId, onSheetOpened }) {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Beat sheet toolbar — only when the beat sheet itself is on screen */}
+      {viewMode !== VIEW_RESEARCH && (
+      <div style={styles.configBar} className="no-print">
+        <input
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="Beat sheet title..."
+          style={styles.titleInput}
+        />
 
         {viewMode === VIEW_SPLIT && (
           <button onClick={toggleSplitSwap} style={styles.btnSecondary} title="Swap the two panes">
@@ -2392,6 +2395,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           </span>
         )}
       </div>
+      )}
 
       {viewMode === VIEW_BEATS ? beatSheetBody : (
         <div ref={splitWrapRef} style={styles.splitWrap}>
@@ -2809,6 +2813,26 @@ const styles = {
   },
 
   // ── editor ──
+  viewSwitchRow: {
+    position: 'relative',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 14,
+    flexShrink: 0,
+  },
+  viewSwitchRowBack: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    padding: 4,
+    display: 'flex',
+    position: 'absolute',
+    left: 0,
+    top: '50%',
+    transform: 'translateY(-50%)',
+  },
   configBar: {
     display: 'flex',
     alignItems: 'center',
@@ -2907,14 +2931,6 @@ const styles = {
     fontSize: fontSizes.md,
     color: colors.whiteA45,
     fontFamily,
-  },
-  backBtn: {
-    background: 'none',
-    border: 'none',
-    color: 'rgba(255,255,255,0.5)',
-    cursor: 'pointer',
-    padding: 4,
-    display: 'flex',
   },
   titleInput: {
     flex: 1,

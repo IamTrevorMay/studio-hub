@@ -192,7 +192,7 @@ export default function GDocsToolbar({ editor, onAddComment, onInsertImage, onIn
   const attrs = editor.getAttributes('textStyle')
   const fontFamily = attrs.fontFamily || 'Arial, sans-serif'
   const fontSizePx = parseInt(attrs.fontSize || '11', 10) || 11
-  const color = attrs.color || '#000000'
+  const color = attrs.color || '#d0d6e4'
   const highlight = editor.getAttributes('highlight').color || ''
   const lineHeight = attrs.lineHeight || '1.15'
 
