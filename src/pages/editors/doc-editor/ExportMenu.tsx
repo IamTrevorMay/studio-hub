@@ -13,7 +13,7 @@ interface Props {
   title: string
 }
 
-function downloadFile(filename: string, content: string, mimeType: string) {
+export function downloadFile(filename: string, content: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -25,11 +25,11 @@ function downloadFile(filename: string, content: string, mimeType: string) {
   URL.revokeObjectURL(url)
 }
 
-function sanitizeFilename(title: string): string {
+export function sanitizeFilename(title: string): string {
   return (title || 'Untitled').replace(/[/\\?%*:|"<>]/g, '-')
 }
 
-function jsonToMarkdown(doc: Record<string, unknown>): string {
+export function jsonToMarkdown(doc: Record<string, unknown>): string {
   const content = doc.content as Record<string, unknown>[] | undefined
   if (!content) return ''
   return content.map((node) => nodeToMd(node, 0)).join('\n')
@@ -137,7 +137,7 @@ function inlineContent(content: Record<string, unknown>[] | undefined): string {
   }).join('')
 }
 
-function buildHtmlDocument(title: string, bodyHtml: string): string {
+export function buildHtmlDocument(title: string, bodyHtml: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

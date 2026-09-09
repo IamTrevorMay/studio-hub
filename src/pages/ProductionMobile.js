@@ -53,13 +53,20 @@ function countBeats(items) {
 
 function timeAgo(iso) {
   if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
+  const d = new Date(iso);
+  const diff = Date.now() - d.getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  // Past a week "412d ago" stops meaning anything — show the date instead.
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-US', sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export default function ProductionMobile({ initialSheetId, onSheetOpened }) {
@@ -156,7 +163,7 @@ export default function ProductionMobile({ initialSheetId, onSheetOpened }) {
                       const n = Array.isArray(s.beats) ? countBeats(s.beats) : 0;
                       return `${n} beat${n === 1 ? '' : 's'}`;
                     })()}
-                    {s.updated_at && <> · {timeAgo(s.updated_at)}</>}
+                    {s.updated_at && <> · Updated {timeAgo(s.updated_at)}</>}
                   </div>
                 </div>
               </button>
@@ -220,6 +227,7 @@ function SheetEditor({ sheet, onSheetUpdated }) {
     Array.isArray(sheet.beats) && sheet.beats.length ? sheet.beats : [newBeat()],
   );
   const [saveStatus, setSaveStatus] = useState('saved');
+  const [lastSavedAt, setLastSavedAt] = useState(sheet.updated_at || null);
   const [type, setType] = useState(sheet.type || null);
   const [collapsedSegments, setCollapsedSegments] = useState(() => new Set());
 
@@ -247,6 +255,7 @@ function SheetEditor({ sheet, onSheetUpdated }) {
         .eq('id', sheet.id);
       if (error) { setSaveStatus('unsaved'); return; }
       setSaveStatus('saved');
+      setLastSavedAt(updated_at);
       onSheetUpdated && onSheetUpdated({ ...sheet, title: nextTitle, beats: nextItems, updated_at });
     }, 800);
   }
@@ -367,7 +376,10 @@ function SheetEditor({ sheet, onSheetUpdated }) {
       </div>
 
       <div style={editStyles.metaRow}>
-        <div style={editStyles.counter}>{totalBeats} beat{totalBeats === 1 ? '' : 's'}</div>
+        <div style={editStyles.counter}>
+          {totalBeats} beat{totalBeats === 1 ? '' : 's'}
+          {lastSavedAt && <> · Updated {timeAgo(lastSavedAt)}</>}
+        </div>
         <select
           value={type || ''}
           onChange={(e) => persistType(e.target.value || null)}

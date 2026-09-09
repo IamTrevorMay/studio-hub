@@ -412,3 +412,39 @@
     max-width: 100% !important;
   }
 }
+
+/* ── Research view (Google Docs style chrome) ── */
+
+/* The toolbar is one row that scrolls rather than wraps, so a narrow Split
+   pane loses controls off the right edge instead of growing taller. */
+.gdocs-toolbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+.gdocs-toolbar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.gdocs-toolbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+}
+
+.gdocs-toolbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Page chrome outside the document itself — the beat sheet's own config bar
+   and the split divider opt in with this class so File > Print gives the
+   document, not the app. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .gdocs-root {
+    display: block !important;
+    height: auto !important;
+  }
+}
