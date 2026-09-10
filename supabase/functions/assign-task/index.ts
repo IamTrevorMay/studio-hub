@@ -19,6 +19,7 @@ import {
   jsonResp,
   notifyUser,
   logEvent,
+  maybeCreateSprintCards,
 } from "../shared/workflow-engine.ts";
 
 Deno.serve(async (req: Request) => {
@@ -116,6 +117,8 @@ Deno.serve(async (req: Request) => {
       await logEvent(admin, t.id, "created", auth.userId, { direct: true });
       if (t.assignee_id) {
         await notifyUser(admin, t.assignee_id, "New task assigned", title, t.id);
+        // Route to Sprint Board for opted-in users (same as workflow tasks).
+        await maybeCreateSprintCards(admin, [t.assignee_id], t.id, title);
       }
     }
 

@@ -140,7 +140,7 @@ export async function logEvent(
 
 // ─── Sprint card routing ──────────────────────────────────────────
 
-async function maybeCreateSprintCards(
+export async function maybeCreateSprintCards(
   admin: SupabaseClient,
   userIds: string[],
   taskId: string,
