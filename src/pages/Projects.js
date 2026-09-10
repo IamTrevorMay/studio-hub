@@ -8,7 +8,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import UnifiedBoard from './projects/UnifiedBoard';
 import Ideas from './Ideas';
 import Pipeline from './projects/Pipeline';
-import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
+import { labelFor as stageTaskLabel, SHORT_FORM_PLATFORMS } from '../lib/kanbanStages';
 import { callEdgeFn } from '../lib/edgeFn';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
@@ -334,6 +334,7 @@ export default function Projects({ onNavigate }) {
     const { error } = await supabase.from('projects').insert({
       name: `${project.name} (copy)`,
       type: project.type,
+      short_form_platforms: project.short_form_platforms || [],
       status: 'queue',
       start_column: 'queue',
       deadline: project.deadline || null,
@@ -998,7 +999,13 @@ function ProjectRow({
                 {editingField === 'type' ? (
                   <select
                     value={editType}
-                    onChange={(e) => { setEditType(e.target.value); saveField('type', e.target.value); }}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setEditType(v);
+                      // Leaving short_form makes the platform list meaningless — clear it.
+                      onUpdateProject(project.id, { type: v, ...(v !== 'short_form' ? { short_form_platforms: [] } : {}) });
+                      setEditingField(null);
+                    }}
                     onBlur={() => setEditingField(null)}
                     style={styles.inlineInput}
                     autoFocus
@@ -1011,6 +1018,35 @@ function ProjectRow({
                   </div>
                 )}
               </div>
+              {project.type === 'short_form' && (
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <label style={styles.detailLabel}>Platforms</label>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', paddingTop: '4px' }}>
+                    {SHORT_FORM_PLATFORMS.map(p => {
+                      const current = project.short_form_platforms || [];
+                      const on = current.includes(p.value);
+                      return (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() => onUpdateProject(project.id, {
+                            short_form_platforms: on ? current.filter(x => x !== p.value) : [...current, p.value],
+                          })}
+                          style={{
+                            padding: '3px 10px', borderRadius: 999,
+                            border: `1px solid ${on ? colors.accentBorder : 'rgba(255,255,255,0.12)'}`,
+                            background: on ? colors.accentSoft : 'transparent',
+                            color: on ? colors.accentFg : 'rgba(255,255,255,0.45)',
+                            fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+                          }}
+                        >
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {!isBusiness && (
                 <div style={{ flex: 1, minWidth: '140px' }}>
                   <label style={styles.detailLabel}>Channel</label>

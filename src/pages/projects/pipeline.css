@@ -9,61 +9,68 @@
  * animation is decoration over state that is already legible from colour
  * and text. */
 
-/* Connector flow — dashes crawling downstream along an active chain.
-   Drawn as a second path on top of the base connector so the base line
-   stays solid and full-contrast underneath. */
-@keyframes pipe-flow {
-  to { stroke-dashoffset: -24; }
+/* Cards glide between the cloud, desks, and buckets. left/top (not
+   transform) so the float animation below can own transform. */
+.pipe-card {
+  position: absolute;
+  transition: left 0.9s cubic-bezier(0.4, 0, 0.2, 1), top 0.9s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.pipe-flow {
-  stroke-dasharray: 5 19;
-  animation: pipe-flow 1.1s linear infinite;
+/* Gentle bob for unassigned cards in the cloud. Per-card delay/duration are
+   set inline so the cluster drifts out of phase instead of marching. */
+@keyframes pipe-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-7px); }
 }
 
-/* Work tokens riding the connectors. Opacity ramps at both ends so a token
-   fades in leaving a node and fades out arriving, instead of popping. */
-@keyframes pipe-token {
-  0%   { opacity: 0; }
-  18%  { opacity: 1; }
-  82%  { opacity: 1; }
-  100% { opacity: 0; }
+.pipe-float {
+  animation: pipe-float 5.2s ease-in-out infinite;
 }
 
-.pipe-token {
-  animation: pipe-token 2.6s ease-in-out infinite;
+/* Status label breathing on every card. */
+@keyframes pipe-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
 }
 
-/* Active node breathing. Uses box-shadow rather than transform so it never
-   shifts layout or blurs text on a scaled canvas. */
-@keyframes pipe-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(234,179,8,0.28); }
-  50%      { box-shadow: 0 0 0 7px rgba(234,179,8,0); }
+.pipe-blink {
+  animation: pipe-blink 2.4s ease-in-out infinite;
 }
 
-.pipe-active {
-  animation: pipe-pulse 2.2s ease-out infinite;
+/* Routing arrows — faint dotted lines crawling toward the next destination,
+   with a slow whole-line pulse layered on top. */
+@keyframes pipe-arrow-flow {
+  to { stroke-dashoffset: -22; }
 }
 
-/* Blocked node. Faster and red — it should read as more urgent than active
-   at a glance, from across a room. */
-@keyframes pipe-alarm {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
-  50%      { box-shadow: 0 0 0 7px rgba(239,68,68,0); }
+@keyframes pipe-arrow-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.18; }
 }
 
-.pipe-blocked {
-  animation: pipe-alarm 1.5s ease-out infinite;
+.pipe-arrow {
+  stroke-dasharray: 3 8;
+  animation: pipe-arrow-flow 1.6s linear infinite, pipe-arrow-pulse 3.2s ease-in-out infinite;
+}
+
+/* A bucket indicator lighting up. */
+@keyframes pipe-light {
+  from { transform: scale(0.4); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+.pipe-light {
+  animation: pipe-light 0.5s ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pipe-flow,
-  .pipe-token,
-  .pipe-active,
-  .pipe-blocked {
+  .pipe-card { transition: none !important; }
+  .pipe-float,
+  .pipe-blink,
+  .pipe-arrow,
+  .pipe-light {
     animation: none !important;
   }
-  /* Keep the flow dashes visible as a static pattern — they still mark
-     which chains are live. */
-  .pipe-flow { stroke-dasharray: 5 19; }
+  /* Keep the arrow dots visible as a static pattern — they still mark routes. */
+  .pipe-arrow { stroke-dasharray: 3 8; opacity: 0.4; }
 }

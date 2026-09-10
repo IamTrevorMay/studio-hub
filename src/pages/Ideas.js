@@ -4,6 +4,8 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { colors } from '../lib/styleTokens';
+import { callEdgeFn } from '../lib/edgeFn';
+import { SHORT_FORM_PLATFORMS, defaultStageConfigForType, fetchDefaultAssigneeRows } from '../lib/kanbanStages';
 
 // One shared list + a shared "Up Next" bucket above it. The old category
 // sections live on as multi-select tags (idea_tags table, custom tags allowed).
@@ -33,7 +35,7 @@ const PROJECT_TYPE_OPTIONS = [
 
 const TAG_COLOR_CHOICES = ['#f87171', '#fb923c', '#fbbf24', '#34d399', '#22d3ee', '#8fb4d8', '#93c5fd', '#c084fc', '#f9a8d4'];
 
-const IDEA_FIELDS = 'id, text, checked, position, category, bucket, tag_ids, context, potential_titles, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
+const IDEA_FIELDS = 'id, text, checked, position, category, bucket, tag_ids, context, potential_titles, project_id, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
 
 // Ratings: admins + directors only — RLS on idea_ratings enforces the same
 // set server-side, so other roles never receive rating rows at all.
@@ -69,6 +71,7 @@ export default function Ideas({ embedded = false }) {
   const [sending, setSending] = useState(false);
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, id, bucket }
   const [showAddModal, setShowAddModal] = useState(false);
+  const [projectModal, setProjectModal] = useState(null); // idea getting a project
   const [typePicker, setTypePicker] = useState(null); // { items, choices: { ideaId: type } }
   const [tagEditorId, setTagEditorId] = useState(null); // idea id with open tag popover
   const [tags, setTags] = useState([]);
@@ -510,6 +513,51 @@ export default function Ideas({ embedded = false }) {
     exitSelectMode();
   }
 
+  // Ideas → Up Next → "Add Project": creates a real project card that starts
+  // in Research (created in Queue, then advanced through card-move so the
+  // research assignees get their tasks). The idea stays on the board, linked
+  // via project_id, and its button flips to "In Production".
+  async function createProjectFromIdea(idea, { name, type, platforms, deadline }) {
+    const titles = (Array.isArray(idea.potential_titles) ? idea.potential_titles : []).filter(Boolean);
+    const titleNote = titles.length ? `Potential titles:\n- ${titles.join('\n- ')}` : null;
+    // This flow always starts in Research, so drop any default research skip
+    // (podcast / short_form skip it by default).
+    const cfg = defaultStageConfigForType(type);
+    delete cfg.research;
+    const { data: created, error } = await supabase.from('projects').insert({
+      name,
+      type,
+      short_form_platforms: type === 'short_form' ? platforms : [],
+      status: 'queue',
+      start_column: 'research',
+      deadline: deadline || null,
+      notes: [titleNote, idea.context].filter(Boolean).join('\n\n') || null,
+      stage_config: cfg,
+      created_by: profile?.id || null,
+    }).select('id').single();
+    if (error) throw new Error(error.message);
+    // Seed default assignees + a queue-stage row for the creator so a
+    // non-admin's card-move passes its current-stage-assignee check.
+    const seedRows = await fetchDefaultAssigneeRows(supabase, type, created.id);
+    if (profile?.id && !seedRows.some((r) => r.stage === 'queue' && r.user_id === profile.id)) {
+      seedRows.push({ project_id: created.id, stage: 'queue', user_id: profile.id });
+    }
+    const { error: aErr } = await supabase.from('project_stage_assignments').insert(seedRows);
+    if (aErr) console.error('Assignee seed failed:', aErr);
+    await callEdgeFn('card-move', { project_id: created.id, target_stage: 'research' });
+    const { error: linkErr } = await supabase.from('write_ideas')
+      .update({ project_id: created.id })
+      .eq('id', idea.id);
+    if (linkErr) console.error('Idea link failed:', linkErr);
+    setByBucket((prev) => {
+      const next = {};
+      for (const k of BUCKETS) {
+        next[k] = (prev[k] || []).map((i) => (i.id === idea.id ? { ...i, project_id: created.id } : i));
+      }
+      return next;
+    });
+  }
+
   function cycleSort(key) {
     setSort((prev) => {
       if (prev?.key !== key) return { key, dir: 'asc' };
@@ -542,6 +590,7 @@ export default function Ideas({ embedded = false }) {
     selectMode,
     selectedIds,
     onToggleSelect: toggleSelect,
+    onAddProject: (item) => setProjectModal(item),
   };
 
   // Rendered inline in the Ideas section header, next to the title.
@@ -633,6 +682,14 @@ export default function Ideas({ embedded = false }) {
         </>
       )}
 
+      {projectModal && (
+        <IdeaProjectModal
+          idea={projectModal}
+          defaultType={projectTypesFor(projectModal)[0] || 'mayday_video'}
+          onCreate={createProjectFromIdea}
+          onClose={() => setProjectModal(null)}
+        />
+      )}
       {showAddModal && (
         <AddIdeaModal
           tags={tags}
@@ -807,6 +864,97 @@ function AddIdeaModal({ tags, onCreateTag, onSubmit, onClose }) {
   );
 }
 
+// "Add Project" from an Up Next idea. Creates the card straight into the
+// Research stage; the idea stays on the board flagged In Production.
+function IdeaProjectModal({ idea, defaultType, onCreate, onClose }) {
+  const [name, setName] = useState(idea.text || '');
+  const [type, setType] = useState(defaultType);
+  const [platforms, setPlatforms] = useState([]);
+  const [deadline, setDeadline] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function commit() {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    try {
+      await onCreate(idea, { name: name.trim(), type, platforms, deadline });
+      onClose();
+    } catch (err) {
+      alert(`Could not create project: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={styles.modalOverlay} onClick={onClose}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <h3 style={styles.modalTitle}>Add Project</h3>
+        <p style={styles.modalHint}>
+          Creates a project card from this idea, starting in the Research stage.
+        </p>
+        <div style={styles.modalSectionLabel}>Name</div>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+          style={styles.input}
+          autoFocus
+        />
+        <div style={styles.modalSectionLabel}>Type</div>
+        <select value={type} onChange={(e) => setType(e.target.value)} style={{ ...styles.typeSelect, width: '100%' }}>
+          {PROJECT_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        {type === 'short_form' && (
+          <>
+            <div style={styles.modalSectionLabel}>Platforms</div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {SHORT_FORM_PLATFORMS.map((p) => {
+                const on = platforms.includes(p.value);
+                return (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setPlatforms(on ? platforms.filter((x) => x !== p.value) : [...platforms, p.value])}
+                    style={{
+                      padding: '3px 10px', borderRadius: 999,
+                      border: `1px solid ${on ? colors.accentBorder : 'rgba(255,255,255,0.12)'}`,
+                      background: on ? colors.accentSoft : 'transparent',
+                      color: on ? colors.accentFg : 'rgba(255,255,255,0.45)',
+                      fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+        <div style={styles.modalSectionLabel}>Post Date (optional)</div>
+        <input
+          type="date"
+          value={deadline}
+          onChange={(e) => setDeadline(e.target.value)}
+          style={styles.input}
+        />
+        <div style={styles.modalBtnRow}>
+          <button
+            onClick={commit}
+            disabled={!name.trim() || saving}
+            style={{ ...styles.submitBtn, flex: 'none', padding: '8px 20px', opacity: name.trim() && !saving ? 1 : 0.4 }}
+          >
+            {saving ? 'Creating…' : 'Create Project'}
+          </button>
+          <button onClick={onClose} style={{ ...styles.cancelBtn, flex: 'none', padding: '8px 16px' }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TypePickerModal({ picker, tagsForIdea, sending, onChoose, onConfirm, onClose }) {
   return (
     <div style={styles.modalOverlay} onClick={onClose}>
@@ -855,7 +1003,7 @@ function TypePickerModal({ picker, tagsForIdea, sending, onChoose, onConfirm, on
   );
 }
 
-function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, tags, tagsForIdea, sort, onSort, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, onSaveTitles, onSaveTags, onCreateTag, tagEditorId, setTagEditorId, canRate, currentUserId, ratingsByIdea, onRate, selectMode, selectedIds, onToggleSelect }) {
+function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, tags, tagsForIdea, sort, onSort, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, onSaveTitles, onSaveTags, onCreateTag, tagEditorId, setTagEditorId, canRate, currentUserId, ratingsByIdea, onRate, selectMode, selectedIds, onToggleSelect, onAddProject }) {
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [contextEditingId, setContextEditingId] = useState(null);
@@ -863,8 +1011,13 @@ function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, t
   const [titleAddingId, setTitleAddingId] = useState(null);
   const [titleDraft, setTitleDraft] = useState('');
 
-  // Grid template gains a Rating column only for rater roles.
-  const grid = canRate ? styles.rowGridRate : styles.rowGrid;
+  // Grid template gains a Rating column only for rater roles, and Up Next
+  // carries a trailing Project column ("Add Project" / "In Production").
+  const baseGrid = canRate ? styles.rowGridRate : styles.rowGrid;
+  const hasProjectCol = bucket === 'up_next';
+  const grid = hasProjectCol
+    ? { ...baseGrid, gridTemplateColumns: `${baseGrid.gridTemplateColumns} 108px` }
+    : baseGrid;
 
   function commitEdit(id) {
     onSaveEdit(id, editingText);
@@ -909,6 +1062,7 @@ function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, t
         <span style={styles.th}>Potential Titles</span>
         {canRate && <SortableTh label="Rating" k="rating" sort={sort} onSort={onSort} />}
         <SortableTh label="Added by" k="addedBy" sort={sort} onSort={onSort} />
+        {hasProjectCol && <span style={styles.th}>Project</span>}
       </div>
 
       <Droppable droppableId={bucket}>
@@ -1150,6 +1304,25 @@ function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, t
                           {item.creator?.full_name || 'Unknown'}
                         </span>
                       </div>
+
+                      {hasProjectCol && (
+                        <div style={styles.cell}>
+                          {item.project_id ? (
+                            <span style={styles.inProductionTag} title="A project card already exists for this idea.">
+                              In Production
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onAddProject(item); }}
+                              disabled={selectMode}
+                              style={{ ...styles.addProjectBtn, opacity: selectMode ? 0.4 : 1 }}
+                            >
+                              + Add Project
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </Draggable>
@@ -1426,6 +1599,18 @@ const styles = {
     color: 'rgba(255,255,255,0.35)', margin: '14px 0 8px',
   },
   modalBtnRow: { display: 'flex', gap: '8px', marginTop: '18px', justifyContent: 'flex-end' },
+  addProjectBtn: {
+    padding: '3px 10px', borderRadius: '999px',
+    border: `1px solid ${colors.accentBorder}`, background: colors.accentSoft,
+    color: colors.accentFg, fontSize: '11px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+  },
+  inProductionTag: {
+    display: 'inline-block', padding: '3px 10px', borderRadius: '999px',
+    border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.12)',
+    color: '#4ade80', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap',
+    cursor: 'default',
+  },
   typePickList: { display: 'flex', flexDirection: 'column', gap: '10px' },
   typePickRow: {
     display: 'flex', alignItems: 'center', gap: '12px',
