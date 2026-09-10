@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
@@ -145,31 +145,173 @@ function fullTimestamp(dateStr) {
   });
 }
 
-// Fixed Beat Sheet type taxonomy. NULL type = "Unassigned" catch-all.
-const BEAT_SHEET_TYPES = [
-  { key: 'mayday', label: 'Mayday' },
-  { key: 'tm_baseball', label: 'Trevor May Baseball' },
-  { key: 'podcast', label: 'Podcast' },
-  { key: 'short_form', label: 'Short Form' },
-  { key: 'ad_read', label: 'Ad Read' },
+// The three hand-curated sections. Only Active/Backlog live in the `section`
+// column — Completed is `is_archived`, which is what keeps a finished sheet out
+// of the Deliverables / Timeline / UnifiedBoard / WriteAdReadModal pickers.
+const SECTIONS = [
+  { key: 'active',    label: 'Active' },
+  { key: 'backlog',   label: 'Backlog' },
+  { key: 'completed', label: 'Completed' },
 ];
 
-// Section-title colors, matched to the content-type hues used elsewhere (the
-// Projects board type chips in kanbanStages TYPE_COLORS). Ad Read has no project
-// equivalent, so it gets a distinct info-blue. Unassigned/Archive stay neutral.
-const BEAT_SHEET_TYPE_COLORS = {
-  mayday: '#f87171',
-  tm_baseball: '#34d399',
-  podcast: '#c084fc',
-  short_form: '#fbbf24',
-  ad_read: '#38bdf8',
+function sectionOf(sheet) {
+  if (sheet.is_archived) return 'completed';
+  return sheet.section === 'active' ? 'active' : 'backlog';
+}
+
+// Tags that fire a workflow trigger event when first applied to a sheet.
+// Carries over the old type-assignment integration; keyed by tag LABEL because
+// tag ids are generated per environment.
+const TAG_WORKFLOW_EVENTS = {
+  'Mayday': 'new_beat_sheet_mayday',
+  'Trevor May Baseball': 'new_beat_sheet_tm_baseball',
 };
 
-// Types that fire a workflow trigger event when a sheet is assigned to them
-// (preserves the old "sheet dropped into folder" workflow integration).
-const TYPE_WORKFLOW_EVENTS = {
-  mayday: 'new_beat_sheet_mayday',
-  tm_baseball: 'new_beat_sheet_tm_baseball',
+const TAG_PALETTE = ['#f87171', '#34d399', '#c084fc', '#fbbf24', '#38bdf8', '#8fb4d8', '#f0a3b5', '#10b981'];
+
+function shortDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-US', sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: '2-digit' });
+}
+
+// ─── table chrome ──────────────────────────────────────────────────────────────
+
+function SortableTh({ label, k, sort, onSort }) {
+  const active = sort?.k === k;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(k)}
+      style={{ ...buttonReset, ...thStyle, ...(active ? { color: colors.text } : {}) }}
+      title={`Sort by ${label}`}
+    >
+      {label}
+      {active && <span style={{ marginLeft: 4 }}>{sort.dir === 'asc' ? '\u2191' : '\u2193'}</span>}
+    </button>
+  );
+}
+
+// Multi-select tag popover. Mirrors the Ideas board: toggle existing tags,
+// or type a new label to create one on the spot.
+function TagEditor({ tags, selected, onToggle, onCreate, onClose }) {
+  const [draft, setDraft] = useState('');
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  const known = new Set(tags.map(t => t.label.toLowerCase()));
+  const trimmed = draft.trim();
+  const canCreate = trimmed.length > 0 && !known.has(trimmed.toLowerCase());
+
+  return (
+    <div ref={wrapRef} style={tagPopoverStyle} onClick={(e) => e.stopPropagation()}>
+      {tags.map(t => {
+        const on = (selected || []).includes(t.id);
+        return (
+          <button
+            key={t.id}
+            type="button"
+            style={{ ...buttonReset, ...tagOptionStyle, ...(on ? { background: colors.accentA12 } : {}) }}
+            onClick={() => onToggle(t.id)}
+          >
+            <span style={{ width: 12, flexShrink: 0, color: colors.accentFg }}>{on ? '\u2713' : ''}</span>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.label}</span>
+          </button>
+        );
+      })}
+      <div style={{ height: 1, background: colors.border, margin: `${spacing.xs}px 0` }} />
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && canCreate) { onCreate(trimmed); setDraft(''); }
+        }}
+        placeholder="New tag..."
+        style={tagInputStyle}
+      />
+      {canCreate && (
+        <button
+          type="button"
+          style={{ ...buttonReset, ...tagOptionStyle, color: colors.accentFg }}
+          onClick={() => { onCreate(trimmed); setDraft(''); }}
+        >
+          + Create "{trimmed}"
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Header and data rows share one column spec so they can never drift apart.
+const TABLE_COLS = '24px minmax(200px, 2.2fr) minmax(150px, 1.4fr) 64px 96px 104px minmax(90px, 0.7fr)';
+
+const thStyle = {
+  fontSize: fontSizes.xxs,
+  fontWeight: fontWeights.semibold,
+  color: colors.textSubtle,
+  textTransform: 'uppercase',
+  letterSpacing: '0.5px',
+  textAlign: 'left',
+  cursor: 'pointer',
+  padding: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const tagPopoverStyle = {
+  position: 'absolute',
+  top: '100%',
+  left: 0,
+  zIndex: 200,
+  minWidth: 200,
+  maxHeight: 280,
+  overflowY: 'auto',
+  padding: spacing.xs,
+  background: colors.bgModal,
+  border: `1px solid ${colors.borderStrong}`,
+  borderRadius: radii.md,
+  boxShadow: '0 10px 32px rgba(0,0,0,0.55)',
+};
+
+const tagOptionStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: spacing.sm,
+  width: '100%',
+  padding: `${spacing.xs}px ${spacing.sm}px`,
+  borderRadius: radii.xs,
+  fontSize: fontSizes.sm,
+  color: colors.text,
+  cursor: 'pointer',
+  textAlign: 'left',
+};
+
+const tagInputStyle = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: `${spacing.xs}px ${spacing.sm}px`,
+  background: colors.bgInput,
+  border: `1px solid ${colors.border}`,
+  borderRadius: radii.xs,
+  color: colors.text,
+  fontSize: fontSizes.sm,
+  fontFamily: 'inherit',
+  outline: 'none',
 };
 
 // ─── component ─────────────────────────────────────────────────────────────────
@@ -275,7 +417,15 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   // ── landing list: type sections + row context menu ──
   // Sections are keyed by type key ('mayday', …), plus '__unassigned' and
   // 'archive'. Only Archive is collapsed by default.
-  const [collapsedSections, setCollapsedSections] = useState(new Set(['archive']));
+  // Completed holds the majority of sheets, so it starts collapsed and the page
+  // opens on live work instead of a wall of finished ones.
+  const [collapsedSections, setCollapsedSections] = useState(new Set(['completed']));
+  const [tags, setTags] = useState([]);
+  const [people, setPeople] = useState({});
+  const [tagEditorId, setTagEditorId] = useState(null);
+  // View-only sort override. null = manual drag order, which is the default and
+  // the only mode where dragging makes sense.
+  const [sort, setSort] = useState(null);
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, sheet }
   const [renamingSheetId, setRenamingSheetId] = useState(null);
   const [renameSheetValue, setRenameSheetValue] = useState('');
@@ -300,13 +450,21 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   // and renders archived ones in the collapsed Archive section.
   const fetchSheets = useCallback(async () => {
     setLoading(true);
-    const data = await fetchAllRows(
-      supabase
-        .from('beat_sheets')
-        .select('*')
-        .order('updated_at', { ascending: false })
-    );
+    const [data, tagRes, peopleRes] = await Promise.all([
+      fetchAllRows(
+        supabase
+          .from('beat_sheets')
+          .select('*')
+          .order('position', { ascending: true })
+      ),
+      supabase.from('beat_sheet_tags').select('*').order('position', { ascending: true }),
+      supabase.from('profiles').select('id, full_name'),
+    ]);
     setSheets(data || []);
+    setTags(tagRes.data || []);
+    const map = {};
+    for (const row of (peopleRes.data || [])) map[row.id] = row.full_name;
+    setPeople(map);
     setLoading(false);
   }, []);
 
@@ -476,9 +634,14 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       const cloned = cloneBeatsFresh(tpl?.beats || []);
       if (cloned.length) initialBeats = cloned;
     }
+    // New sheets land at the end of Active: you just made it, so it's what
+    // you're on. Position is computed rather than left to the column default,
+    // which would park every new sheet at 0 and make their relative order
+    // arbitrary.
+    const activeCount = sheets.filter(sheet => !sheet.is_archived && sheet.section === 'active').length;
     const { data, error } = await supabase
       .from('beat_sheets')
-      .insert({ user_id: profile.id, title: name, beats: initialBeats })
+      .insert({ user_id: profile.id, title: name, beats: initialBeats, section: 'active', position: activeCount })
       .select()
       .single();
     setCreateBusy(false);
@@ -513,27 +676,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   };
 
   // ─── type assignment ──────────────────────────────────────────────────────────
-  // Optimistic + immediate persist. Used by both the editor Type dropdown and the
-  // landing-list right-click menu. Fires the workflow trigger event when a sheet
-  // is (re)assigned to a tracked type, preserving the old folder-drop integration.
-  const persistSheetType = useCallback(async (sheet, newType) => {
-    const value = newType || null;
-    if ((sheet.type || null) === value) return;
-    setSheets(prev => prev.map(s => (s.id === sheet.id ? { ...s, type: value } : s)));
-    setActiveSheet(prev => (prev && prev.id === sheet.id ? { ...prev, type: value } : prev));
-    const { error } = await supabase.from('beat_sheets').update({ type: value }).eq('id', sheet.id);
-    if (error) { console.error('Type update error:', error); fetchSheets(); return; }
-    const ev = TYPE_WORKFLOW_EVENTS[value];
-    if (ev) {
-      try {
-        await callWorkflowFn('workflow-trigger-event', {
-          event: ev,
-          payload: { beat_sheet_id: sheet.id, title: sheet.title || 'Untitled' },
-        });
-      } catch (e) { console.error('Beat sheet trigger failed:', e); }
-    }
-  }, [fetchSheets]);
-
   const renameSheet = async (id, newTitle) => {
     const t = newTitle.trim();
     if (!t) return;
@@ -548,12 +690,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     if (error) console.error('Rename error:', error);
   };
 
-  const unarchiveSheet = async (id) => {
-    setSheets(prev => prev.map(s => (s.id === id ? { ...s, is_archived: false } : s)));
-    const { error } = await supabase.from('beat_sheets').update({ is_archived: false }).eq('id', id);
-    if (error) { console.error('Unarchive error:', error); fetchSheets(); }
-  };
-
   // ── landing helpers: section collapse + row context menu + inline rename ──
   const toggleSection = (key) => {
     setCollapsedSections(prev => {
@@ -562,6 +698,169 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       return next;
     });
   };
+  // ── landing table: tags, grouping, sorting, drag ──
+
+  const tagById = useMemo(() => Object.fromEntries(tags.map(t => [t.id, t])), [tags]);
+  const tagsForSheet = useCallback(
+    (sheet) => (sheet.tag_ids || []).map(id => tagById[id]).filter(Boolean),
+    [tagById],
+  );
+  const creatorName = useCallback((userId) => people[userId] || '\u2014', [people]);
+
+  const onSort = (k) => {
+    setSort(prev => {
+      if (prev?.k !== k) return { k, dir: 'asc' };
+      if (prev.dir === 'asc') return { k, dir: 'desc' };
+      return null;   // third click returns to manual order
+    });
+  };
+
+  // Sheets bucketed by section, each in position order — or in the sort order
+  // when a column sort is active.
+  const groupedSheets = useMemo(() => {
+    const out = { active: [], backlog: [], completed: [] };
+    for (const sheet of sheets) out[sectionOf(sheet)].push(sheet);
+
+    const cmp = (a, b) => {
+      if (!sort) return (a.position ?? 0) - (b.position ?? 0);
+      const dir = sort.dir === 'asc' ? 1 : -1;
+      const val = (x) => {
+        switch (sort.k) {
+          case 'title':   return (x.title || '').toLowerCase();
+          case 'tags':    return tagsForSheet(x).map(t => t.label).join(', ').toLowerCase();
+          case 'beats':   return countBeats(x.beats || []);
+          case 'created': return x.created_at || '';
+          case 'updated': return x.updated_at || '';
+          case 'who':     return creatorName(x.user_id).toLowerCase();
+          default:        return 0;
+        }
+      };
+      const av = val(a), bv = val(b);
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return (a.position ?? 0) - (b.position ?? 0);
+    };
+
+    for (const key of Object.keys(out)) out[key].sort(cmp);
+    return out;
+  }, [sheets, sort, tagsForSheet, creatorName]);
+
+  // Apply a move optimistically, then persist only the rows that actually
+  // changed. Writing every row in both sections would mean ~44 round-trips to
+  // drop one sheet at the top of Completed.
+  const applyMove = useCallback(async (sheetId, dstKey, insertIndex) => {
+    const moved = sheets.find(s => s.id === sheetId);
+    if (!moved) return;
+    const srcKey = sectionOf(moved);
+    const sameSection = srcKey === dstKey;
+
+    const src = (groupedSheets[srcKey] || []).filter(s => s.id !== sheetId);
+    const dst = sameSection ? src : [...(groupedSheets[dstKey] || [])];
+    const at = insertIndex == null || insertIndex < 0 || insertIndex > dst.length ? dst.length : insertIndex;
+    dst.splice(at, 0, moved);
+
+    const isCompleted = dstKey === 'completed';
+    const desired = new Map();
+    if (!sameSection) {
+      // The source section closes its gap, but its section/archived flags are
+      // unchanged — only position moves.
+      src.forEach((sheet, idx) => desired.set(sheet.id, {
+        position: idx,
+        is_archived: sheet.is_archived,
+        section: sheet.section,
+      }));
+    }
+    dst.forEach((sheet, idx) => desired.set(sheet.id, {
+      position: idx,
+      is_archived: isCompleted,
+      // Completed keeps no section of its own; dragging back out lands in
+      // Backlog, so that is what gets written on the way in as well.
+      section: isCompleted ? 'backlog' : dstKey,
+    }));
+
+    // Drop no-ops before touching the network.
+    const byId = new Map(sheets.map(sheet => [sheet.id, sheet]));
+    const changed = [...desired.entries()].filter(([id, next]) => {
+      const cur = byId.get(id);
+      return !cur
+        || (cur.position ?? 0) !== next.position
+        || Boolean(cur.is_archived) !== Boolean(next.is_archived)
+        || (cur.section || 'backlog') !== next.section;
+    });
+    if (!changed.length) return;
+
+    const patch = new Map(changed);
+    setSheets(prev => prev.map(sheet => (patch.has(sheet.id) ? { ...sheet, ...patch.get(sheet.id) } : sheet)));
+
+    const results = await Promise.all(changed.map(([id, next]) => supabase
+      .from('beat_sheets')
+      .update(next)
+      .eq('id', id)));
+    const failed = results.filter(r => r.error);
+    if (failed.length) {
+      console.error('Beat sheet reorder failed:', failed.map(r => r.error));
+      fetchSheets();
+    }
+  }, [sheets, groupedSheets, fetchSheets]);
+
+  const onSheetDragEnd = useCallback((result) => {
+    const { draggableId, source, destination } = result;
+    if (!destination) return;
+    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+    applyMove(draggableId, destination.droppableId, destination.index);
+  }, [applyMove]);
+
+  // Context-menu fallback for moving without dragging.
+  const moveSheetToSection = useCallback((sheet, dstKey) => {
+    applyMove(sheet.id, dstKey, null);
+  }, [applyMove]);
+
+  // ── tags ──
+
+  const fireTagWorkflow = useCallback(async (sheet, label) => {
+    const ev = TAG_WORKFLOW_EVENTS[label];
+    if (!ev) return;
+    try {
+      await callWorkflowFn('workflow-trigger-event', {
+        event: ev,
+        payload: { beat_sheet_id: sheet.id, title: sheet.title || 'Untitled' },
+      });
+    } catch (e) {
+      console.error('Beat sheet trigger failed:', e);
+    }
+  }, []);
+
+  const writeTagIds = useCallback(async (sheet, nextIds) => {
+    setSheets(prev => prev.map(s => (s.id === sheet.id ? { ...s, tag_ids: nextIds } : s)));
+    setActiveSheet(prev => (prev && prev.id === sheet.id ? { ...prev, tag_ids: nextIds } : prev));
+    const { error } = await supabase.from('beat_sheets').update({ tag_ids: nextIds }).eq('id', sheet.id);
+    if (error) { console.error('Tag update error:', error); fetchSheets(); return false; }
+    return true;
+  }, [fetchSheets]);
+
+  const toggleSheetTag = useCallback(async (sheet, tagId) => {
+    const current = sheet.tag_ids || [];
+    const adding = !current.includes(tagId);
+    const next = adding ? [...current, tagId] : current.filter(id => id !== tagId);
+    const ok = await writeTagIds(sheet, next);
+    // Only an ADD fires the workflow, and only the first time — removing and
+    // re-adding is the one case that can legitimately re-fire.
+    if (ok && adding) await fireTagWorkflow(sheet, tagById[tagId]?.label);
+  }, [writeTagIds, fireTagWorkflow, tagById]);
+
+  const createTagFor = useCallback(async (sheet, label) => {
+    const color = TAG_PALETTE[tags.length % TAG_PALETTE.length];
+    const { data, error } = await supabase
+      .from('beat_sheet_tags')
+      .insert({ label, color, position: tags.length, created_by: profile?.id })
+      .select()
+      .single();
+    if (error) { console.error('Tag create error:', error); return; }
+    setTags(prev => [...prev, data]);
+    const ok = await writeTagIds(sheet, [...(sheet.tag_ids || []), data.id]);
+    if (ok) await fireTagWorkflow(sheet, data.label);
+  }, [tags.length, profile?.id, writeTagIds, fireTagWorkflow]);
+
   const openCtx = (e, sheet) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, sheet }); };
   const closeCtx = () => setCtxMenu(null);
   const startRename = (sheet) => { setRenamingSheetId(sheet.id); setRenameSheetValue(sheet.title || ''); };
@@ -634,12 +933,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     setVersions([]);
     setPreviewVersion(null);
     fetchSheets();
-  };
-
-  const archiveSheet = async (id) => {
-    setSheets(prev => prev.map(s => (s.id === id ? { ...s, is_archived: true } : s)));
-    const { error } = await supabase.from('beat_sheets').update({ is_archived: true }).eq('id', id);
-    if (error) { console.error('Archive error:', error); fetchSheets(); }
   };
 
   const deleteSheet = async (id, title) => {
@@ -1883,61 +2176,128 @@ export default function Production({ initialSheetId, onSheetOpened }) {
 
   // ── landing page ──
   if (!activeSheet) {
-    const activeSheets = sheets.filter(s => !s.is_archived);
-    const archivedSheets = sheets.filter(s => s.is_archived);
-    const sheetsOfType = (key) => activeSheets.filter(s => (s.type || null) === key);
-    const unassignedSheets = activeSheets.filter(s => !s.type);
+    const bySection = groupedSheets;
 
-    const renderSheetRow = (sheet) => {
-      const renaming = renamingSheetId === sheet.id;
-      const n = countBeats(sheet.beats || []);
+    const renderTagCell = (sheet) => {
+      const mine = tagsForSheet(sheet);
       return (
-        <div key={sheet.id} style={styles.sheetRow} onContextMenu={(e) => openCtx(e, sheet)}>
-          {renaming ? (
-            <input
-              autoFocus
-              value={renameSheetValue}
-              onChange={(e) => setRenameSheetValue(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') commitRename(sheet.id); if (e.key === 'Escape') setRenamingSheetId(null); }}
-              onBlur={() => commitRename(sheet.id)}
-              style={styles.rowRenameInput}
+        <div style={styles.tagCell}>
+          {mine.map(t => (
+            <span key={t.id} style={{ ...styles.tagChip, background: `${t.color}22`, color: t.color, borderColor: `${t.color}55` }}>
+              {t.label}
+            </span>
+          ))}
+          <button
+            type="button"
+            style={styles.tagAddBtn}
+            title="Edit tags"
+            onClick={(e) => { e.stopPropagation(); setTagEditorId(prev => (prev === sheet.id ? null : sheet.id)); }}
+          >
+            {mine.length ? '+' : 'Add tag'}
+          </button>
+          {tagEditorId === sheet.id && (
+            <TagEditor
+              tags={tags}
+              selected={sheet.tag_ids || []}
+              onToggle={(tagId) => toggleSheetTag(sheet, tagId)}
+              onCreate={(label) => createTagFor(sheet, label)}
+              onClose={() => setTagEditorId(null)}
             />
-          ) : (
-            <button type="button" style={{ ...buttonReset, ...styles.rowMain }} onClick={() => openSheet(sheet)}>
-              <span style={styles.sheetTitle}>{sheet.title || 'Untitled'}</span>
-              <span
-                style={styles.sheetMeta}
-                title={sheet.updated_at ? `Last updated ${fullTimestamp(sheet.updated_at)}` : undefined}
-              >
-                {n} beat{n !== 1 ? 's' : ''}
-                {sheet.updated_at && <>{' · '}Updated {timeAgo(sheet.updated_at)}</>}
-              </span>
-            </button>
           )}
         </div>
       );
     };
 
-    const renderSection = (label, key, rows) => {
+    const renderSheetRow = (sheet, index) => {
+      const renaming = renamingSheetId === sheet.id;
+      const n = countBeats(sheet.beats || []);
+      return (
+        <Draggable draggableId={sheet.id} index={index} key={sheet.id} isDragDisabled={!!sort}>
+          {(dp, snap) => (
+            <div
+              ref={dp.innerRef}
+              {...dp.draggableProps}
+              style={{
+                ...styles.tableRow,
+                ...(snap.isDragging ? styles.tableRowDragging : {}),
+                ...dp.draggableProps.style,
+              }}
+              onContextMenu={(e) => openCtx(e, sheet)}
+            >
+              <span {...dp.dragHandleProps} style={styles.dragHandle} title="Drag to move between sections">⋮⋮</span>
+
+              {renaming ? (
+                <input
+                  autoFocus
+                  value={renameSheetValue}
+                  onChange={(e) => setRenameSheetValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') commitRename(sheet.id); if (e.key === 'Escape') setRenamingSheetId(null); }}
+                  onBlur={() => commitRename(sheet.id)}
+                  style={styles.rowRenameInput}
+                />
+              ) : (
+                <button type="button" style={{ ...buttonReset, ...styles.cellTitle }} onClick={() => openSheet(sheet)}>
+                  {sheet.title || 'Untitled'}
+                </button>
+              )}
+
+              {renderTagCell(sheet)}
+
+              <span style={styles.cellNum}>{n}</span>
+              <span style={styles.cellDate} title={fullTimestamp(sheet.created_at)}>{shortDate(sheet.created_at)}</span>
+              <span style={styles.cellDate} title={fullTimestamp(sheet.updated_at)}>{timeAgo(sheet.updated_at)}</span>
+              <span style={styles.cellWho} title={creatorName(sheet.user_id)}>{creatorName(sheet.user_id)}</span>
+            </div>
+          )}
+        </Draggable>
+      );
+    };
+
+    const renderSection = ({ key, label }) => {
+      const rows = bySection[key] || [];
       const collapsed = collapsedSections.has(key);
       return (
         <section key={key} style={styles.section}>
           <button style={styles.sectionHeaderBtn} onClick={() => toggleSection(key)}>
             <svg
               width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"
-              style={{ color: 'rgba(255,255,255,0.35)', transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0 }}
+              style={{ color: colors.textSubtle, transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0 }}
             >
               <path d="M2 3.5l3 3 3-3" />
             </svg>
-            <span style={{ ...styles.sectionTitle, ...(BEAT_SHEET_TYPE_COLORS[key] ? { color: BEAT_SHEET_TYPE_COLORS[key] } : {}) }}>{label}</span>
+            <span style={styles.sectionTitle}>{label}</span>
             <span style={styles.sectionCount}>{rows.length}</span>
           </button>
+
           {!collapsed && (
-            <div style={styles.sectionRows}>
-              {rows.length === 0
-                ? <div style={styles.sectionEmpty}>No beat sheets</div>
-                : rows.map(renderSheetRow)}
-            </div>
+            <>
+              <div style={styles.theadRow}>
+                <span />
+                <SortableTh label="Title" k="title" sort={sort} onSort={onSort} />
+                <SortableTh label="Tags" k="tags" sort={sort} onSort={onSort} />
+                <SortableTh label="Beats" k="beats" sort={sort} onSort={onSort} />
+                <SortableTh label="Created" k="created" sort={sort} onSort={onSort} />
+                <SortableTh label="Updated" k="updated" sort={sort} onSort={onSort} />
+                <SortableTh label="Created by" k="who" sort={sort} onSort={onSort} />
+              </div>
+
+              <Droppable droppableId={key}>
+                {(provided, snapshot) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    style={snapshot.isDraggingOver ? styles.sectionRowsOver : styles.sectionRows}
+                  >
+                    {rows.length === 0
+                      ? <div style={styles.sectionEmpty}>
+                          {key === 'active' ? 'Drag sheets here as you start working on them' : 'No beat sheets'}
+                        </div>
+                      : rows.map(renderSheetRow)}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </>
           )}
         </section>
       );
@@ -1947,18 +2307,32 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       <div style={styles.page}>
         {renderCreateModal()}
         <div style={styles.header}>
-          <h1 style={styles.pageTitle}>Beat Sheet</h1>
-          <button onClick={openCreateModal} style={styles.btnPrimary}>+ New Beat Sheet</button>
+          <h1 style={styles.pageTitle}>Beat Sheets</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: spacing.md }}>
+            {sort && (
+              <button onClick={() => setSort(null)} style={styles.clearSortBtn} title="Return to manual drag order">
+                Clear sort
+              </button>
+            )}
+            <button onClick={openCreateModal} style={styles.btnPrimary}>+ New Beat Sheet</button>
+          </div>
         </div>
+
+        {sort && (
+          <div style={styles.sortNote}>
+            Sorted by {sort.k} — dragging is off while sorted. Right-click a row to move it
+            between sections, or clear the sort to drag.
+          </div>
+        )}
 
         {loading ? (
           <div style={styles.emptyState}>Loading...</div>
         ) : (
-          <div style={styles.sectionsWrap}>
-            {BEAT_SHEET_TYPES.map(t => renderSection(t.label, t.key, sheetsOfType(t.key)))}
-            {unassignedSheets.length > 0 && renderSection("Unassigned", "__unassigned", unassignedSheets)}
-            {renderSection("Archive", "archive", archivedSheets)}
-          </div>
+          <DragDropContext onDragEnd={onSheetDragEnd}>
+            <div style={styles.sectionsWrap}>
+              {SECTIONS.map(renderSection)}
+            </div>
+          </DragDropContext>
         )}
 
         {ctxMenu && (
@@ -1971,36 +2345,28 @@ export default function Production({ initialSheetId, onSheetOpened }) {
             <div
               style={{
                 ...styles.ctxMenu,
-                top: Math.min(ctxMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 420),
+                top: Math.min(ctxMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 340),
                 left: Math.min(ctxMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 210),
               }}
             >
               <button style={styles.ctxItem} onClick={() => { startRename(ctxMenu.sheet); closeCtx(); }}>Edit title</button>
               <button style={styles.ctxItem} onClick={() => { duplicateSheet(ctxMenu.sheet); closeCtx(); }}>Duplicate</button>
-              {ctxMenu.sheet.is_archived ? (
-                <button style={styles.ctxItem} onClick={() => { unarchiveSheet(ctxMenu.sheet.id); closeCtx(); }}>Unarchive</button>
-              ) : (
-                <button style={styles.ctxItem} onClick={() => { archiveSheet(ctxMenu.sheet.id); closeCtx(); }}>Archive</button>
-              )}
               <div style={styles.ctxDivider} />
-              <div style={styles.ctxLabel}>Change type</div>
-              {BEAT_SHEET_TYPES.map(t => (
-                <button
-                  key={t.key}
-                  style={{ ...styles.ctxItem, ...styles.ctxTypeItem, ...(ctxMenu.sheet.type === t.key ? { color: "#8fb4d8" } : {}) }}
-                  onClick={() => { persistSheetType(ctxMenu.sheet, t.key); closeCtx(); }}
-                >
-                  {ctxMenu.sheet.type === t.key ? "✓ " : ""}{t.label}
-                </button>
-              ))}
-              <button
-                style={{ ...styles.ctxItem, ...styles.ctxTypeItem, color: "rgba(255,255,255,0.45)" }}
-                onClick={() => { persistSheetType(ctxMenu.sheet, null); closeCtx(); }}
-              >
-                {!ctxMenu.sheet.type ? "✓ " : ""}Unassigned
-              </button>
+              <div style={styles.ctxLabel}>Move to</div>
+              {SECTIONS.map(s => {
+                const current = sectionOf(ctxMenu.sheet) === s.key;
+                return (
+                  <button
+                    key={s.key}
+                    style={{ ...styles.ctxItem, ...styles.ctxTypeItem, ...(current ? { color: colors.accentFg } : {}) }}
+                    onClick={() => { if (!current) moveSheetToSection(ctxMenu.sheet, s.key); closeCtx(); }}
+                  >
+                    {current ? "✓ " : ""}{s.label}
+                  </button>
+                );
+              })}
               <div style={styles.ctxDivider} />
-              <button style={{ ...styles.ctxItem, color: "#f87171" }} onClick={() => { deleteSheet(ctxMenu.sheet.id, ctxMenu.sheet.title); closeCtx(); }}>Delete</button>
+              <button style={{ ...styles.ctxItem, color: colors.danger.fg }} onClick={() => { deleteSheet(ctxMenu.sheet.id, ctxMenu.sheet.title); closeCtx(); }}>Delete</button>
             </div>
           </>
         )}
@@ -2009,7 +2375,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       </div>
     );
   }
-
   // ── editor page ──
   // ─── render: open sheet ─────────────────────────────────────────────────────
   // The beat rows are built once and then placed into whichever pane the
@@ -2298,17 +2663,32 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           </button>
         )}
 
-        <select
-          value={activeSheet?.type || ''}
-          onChange={e => persistSheetType(activeSheet, e.target.value || null)}
-          style={styles.typeSelect}
-          title="Beat sheet type"
-        >
-          <option value="">— Type —</option>
-          {BEAT_SHEET_TYPES.map(t => (
-            <option key={t.key} value={t.key}>{t.label}</option>
+        {/* Tags replaced the single `type` select. Same place in the bar, but
+            multi-select and shared with the landing table's vocabulary. */}
+        <div style={styles.configTagWrap}>
+          {tagsForSheet(activeSheet).map(t => (
+            <span key={t.id} style={{ ...styles.tagChip, background: `${t.color}22`, color: t.color, borderColor: `${t.color}55` }}>
+              {t.label}
+            </span>
           ))}
-        </select>
+          <button
+            type="button"
+            style={styles.tagAddBtn}
+            title="Edit tags"
+            onClick={() => setTagEditorId(prev => (prev === activeSheet.id ? null : activeSheet.id))}
+          >
+            {tagsForSheet(activeSheet).length ? '+' : 'Add tag'}
+          </button>
+          {tagEditorId === activeSheet.id && (
+            <TagEditor
+              tags={tags}
+              selected={activeSheet.tag_ids || []}
+              onToggle={(tagId) => toggleSheetTag(activeSheet, tagId)}
+              onCreate={(label) => createTagFor(activeSheet, label)}
+              onClose={() => setTagEditorId(null)}
+            />
+          )}
+        </div>
 
         <button onClick={openFolderBrowser} style={styles.folderBtn} title="Select Google Drive folder">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
@@ -2800,16 +3180,119 @@ const styles = {
     borderTop: '1px solid rgba(255,255,255,0.08)',
     margin: '4px 0',
   },
-  typeSelect: {
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 8,
-    padding: '8px 12px',
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 13,
+  // ── landing table ──
+  theadRow: {
+    display: 'grid',
+    gridTemplateColumns: TABLE_COLS,
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: `${spacing.xs}px ${spacing.md}px`,
+    borderBottom: `1px solid ${colors.border}`,
+  },
+  tableRow: {
+    display: 'grid',
+    gridTemplateColumns: TABLE_COLS,
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: `${spacing.sm}px ${spacing.md}px`,
+    borderBottom: `1px solid ${colors.whiteA03}`,
+    background: colors.bg,
+  },
+  tableRowDragging: {
+    background: colors.bgHover,
+    borderRadius: radii.sm,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+  },
+  dragHandle: {
+    cursor: 'grab',
+    color: colors.textDim,
+    fontSize: fontSizes.xs,
+    lineHeight: 1,
+    userSelect: 'none',
+    letterSpacing: '-2px',
+  },
+  cellTitle: {
+    fontSize: fontSizes.md,
+    color: colors.text,
+    textAlign: 'left',
     cursor: 'pointer',
-    fontFamily: "'DM Sans', sans-serif",
-    outline: 'none',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    padding: 0,
+  },
+  cellNum: {
+    fontSize: fontSizes.sm,
+    color: colors.textMuted,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  cellDate: {
+    fontSize: fontSizes.xs,
+    color: colors.textSubtle,
+    whiteSpace: 'nowrap',
+  },
+  cellWho: {
+    fontSize: fontSizes.xs,
+    color: colors.textSubtle,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  tagCell: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexWrap: 'wrap',
+    minWidth: 0,
+  },
+  tagChip: {
+    display: 'inline-block',
+    padding: `1px ${spacing.sm}px`,
+    border: '1px solid',
+    borderRadius: radii.pill,
+    fontSize: fontSizes.xxs,
+    fontWeight: fontWeights.semibold,
+    whiteSpace: 'nowrap',
+  },
+  tagAddBtn: {
+    padding: `1px ${spacing.sm}px`,
+    background: 'transparent',
+    border: `1px dashed ${colors.borderStrong}`,
+    borderRadius: radii.pill,
+    color: colors.textDim,
+    fontSize: fontSizes.xxs,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  configTagWrap: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexWrap: 'wrap',
+    maxWidth: 300,
+  },
+  sectionRowsOver: {
+    background: colors.accentA06,
+    borderRadius: radii.sm,
+    outline: `1px dashed ${colors.accentBorder}`,
+  },
+  clearSortBtn: {
+    padding: `${spacing.xs}px ${spacing.md}px`,
+    background: colors.bgInput,
+    border: `1px solid ${colors.border}`,
+    borderRadius: radii.sm,
+    color: colors.textMuted,
+    fontSize: fontSizes.sm,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+  },
+  sortNote: {
+    margin: `0 0 ${spacing.md}px`,
+    fontSize: fontSizes.xs,
+    color: colors.textDim,
   },
 
   // ── editor ──
