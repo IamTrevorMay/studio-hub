@@ -1,0 +1,6393 @@
+{
+  "scope": "Read-only production audit; sanitized aggregate evidence. Browser samples are unauthenticated; API logs are real traffic.",
+  "project_ref": "ytfjkoxowfskuibdsfea",
+  "collected_date": "2026-09-10",
+  "evidence": {
+    "database": {
+      "at": "2026-09-10T19:15:50.266Z",
+      "status": 201,
+      "data": [
+        {
+          "observed_at": "2026-09-10 19:15:50.264961+00",
+          "server_started": "2026-08-30 14:53:13.909633+00",
+          "statement_timeout": "2min",
+          "stats_reset": null,
+          "numbackends": 18,
+          "xact_commit": 3314479,
+          "xact_rollback": 149944,
+          "blks_read": 66461,
+          "blks_hit": 4341490561,
+          "temp_files": 0,
+          "temp_bytes": 0,
+          "deadlocks": 0,
+          "database_bytes": 727674003
+        }
+      ]
+    },
+    "statement_info": {
+      "at": "2026-09-10T19:16:28.581Z",
+      "status": 201,
+      "data": [
+        {
+          "dealloc": 0,
+          "stats_reset": "2026-08-30 14:53:13.845903+00"
+        }
+      ]
+    },
+    "role_context": {
+      "at": "2026-09-10T19:17:29.645Z",
+      "status": 201,
+      "data": [
+        {
+          "rolname": "supabase_read_only_user",
+          "rolsuper": false,
+          "rolbypassrls": true
+        }
+      ]
+    },
+    "exact_counts": {
+      "at": "2026-09-10T19:17:31.176Z",
+      "status": 201,
+      "data": [
+        {
+          "relation": "bd_tasks",
+          "rows": 38
+        },
+        {
+          "relation": "bd_initiatives",
+          "rows": 16
+        },
+        {
+          "relation": "workflow_instances",
+          "rows": 6
+        },
+        {
+          "relation": "tasks",
+          "rows": 6931
+        },
+        {
+          "relation": "personal_tasks",
+          "rows": 440
+        },
+        {
+          "relation": "cut_records",
+          "rows": 6179
+        },
+        {
+          "relation": "automation_runs",
+          "rows": 6711
+        },
+        {
+          "relation": "whiteboards",
+          "rows": 1
+        },
+        {
+          "relation": "concept_documents",
+          "rows": 9
+        },
+        {
+          "relation": "beat_sheets",
+          "rows": 73
+        },
+        {
+          "relation": "conversations",
+          "rows": 20
+        }
+      ]
+    },
+    "workflow_states": {
+      "at": "2026-09-10T19:17:31.784Z",
+      "status": 201,
+      "data": [
+        {
+          "status": "cancelled",
+          "rows": 6,
+          "earliest": "2026-05-29 20:15:29.714883+00",
+          "latest": "2026-06-10 13:58:11.184511+00"
+        }
+      ]
+    },
+    "task_states": {
+      "at": "2026-09-10T19:17:32.421Z",
+      "status": 201,
+      "data": [
+        {
+          "status": "complete",
+          "rows": 6908,
+          "workflow_linked": 22
+        },
+        {
+          "status": "skipped",
+          "rows": 5,
+          "workflow_linked": 0
+        },
+        {
+          "status": "declined",
+          "rows": 7,
+          "workflow_linked": 0
+        },
+        {
+          "status": "active",
+          "rows": 10,
+          "workflow_linked": 0
+        },
+        {
+          "status": "pending",
+          "rows": 1,
+          "workflow_linked": 0
+        }
+      ]
+    },
+    "bd_states": {
+      "at": "2026-09-10T19:17:33.506Z",
+      "status": 201,
+      "data": [
+        {
+          "relation": "bd_tasks",
+          "rows": 38,
+          "incomplete": 14,
+          "latest_update": "2026-07-24 20:02:13.724342+00"
+        },
+        {
+          "relation": "bd_initiatives",
+          "rows": 16,
+          "incomplete": 16,
+          "latest_update": "2026-05-28 03:39:17.276041+00"
+        }
+      ]
+    },
+    "personal_links": {
+      "at": "2026-09-10T19:17:34.334Z",
+      "status": 201,
+      "data": [
+        {
+          "total": 440,
+          "bd_links": 5,
+          "task_links": 49
+        }
+      ]
+    },
+    "beat_payload": {
+      "at": "2026-09-10T19:17:35.454Z",
+      "status": 201,
+      "data": [
+        {
+          "is_archived": false,
+          "rows": 30,
+          "json_bytes": 225305,
+          "beats_json_bytes": 195172
+        },
+        {
+          "is_archived": true,
+          "rows": 43,
+          "json_bytes": 436610,
+          "beats_json_bytes": 417643
+        }
+      ]
+    },
+    "ingestion_health": {
+      "at": "2026-09-10T19:17:36.283Z",
+      "status": 201,
+      "data": [
+        {
+          "job_type": "content_sync",
+          "status": "success",
+          "runs": 84,
+          "records_processed": 46998,
+          "records_created": 0,
+          "records_updated": 0,
+          "mean_seconds": "16.14",
+          "latest": "2026-09-10 19:00:31.889+00"
+        },
+        {
+          "job_type": "fourthwall_sync",
+          "status": "success",
+          "runs": 7,
+          "records_processed": 3,
+          "records_created": 3,
+          "records_updated": 0,
+          "mean_seconds": "3.39",
+          "latest": "2026-09-10 01:07:00.489+00"
+        },
+        {
+          "job_type": "google_calendar_pull",
+          "status": "success",
+          "runs": 1007,
+          "records_processed": 111,
+          "records_created": 8,
+          "records_updated": 2,
+          "mean_seconds": "1.63",
+          "latest": "2026-09-10 19:10:00.601+00"
+        },
+        {
+          "job_type": "metricool_sync",
+          "status": "success",
+          "runs": 56,
+          "records_processed": 762,
+          "records_created": 762,
+          "records_updated": 0,
+          "mean_seconds": "0.74",
+          "latest": "2026-09-10 18:31:24.789873+00"
+        },
+        {
+          "job_type": "simplecast_sync",
+          "status": "success",
+          "runs": 7,
+          "records_processed": 1113,
+          "records_created": 1113,
+          "records_updated": 0,
+          "mean_seconds": "11.45",
+          "latest": "2026-09-10 01:13:00.501+00"
+        },
+        {
+          "job_type": "substack_sync",
+          "status": "success",
+          "runs": 7,
+          "records_processed": 140,
+          "records_created": 140,
+          "records_updated": 0,
+          "mean_seconds": "2.19",
+          "latest": "2026-09-10 01:11:00.509+00"
+        },
+        {
+          "job_type": "twitch_sync",
+          "status": "success",
+          "runs": 7,
+          "records_processed": 14,
+          "records_created": 0,
+          "records_updated": 0,
+          "mean_seconds": "0.81",
+          "latest": "2026-09-10 01:09:00.459+00"
+        },
+        {
+          "job_type": "youtube_dimensions_sync",
+          "status": "running",
+          "runs": 1,
+          "records_processed": 0,
+          "records_created": 0,
+          "records_updated": 0,
+          "mean_seconds": null,
+          "latest": "2026-09-05 01:02:36.658+00"
+        },
+        {
+          "job_type": "youtube_dimensions_sync",
+          "status": "success",
+          "runs": 13,
+          "records_processed": 41890,
+          "records_created": 0,
+          "records_updated": 0,
+          "mean_seconds": "80.96",
+          "latest": "2026-09-10 01:02:47.559+00"
+        }
+      ]
+    },
+    "harbor_state": {
+      "at": "2026-09-10T19:17:36.965Z",
+      "status": 201,
+      "data": [
+        {
+          "status": "archived",
+          "tracks": 2,
+          "archived": 2,
+          "nas_path_present": 2,
+          "bytes": "1189233349"
+        }
+      ]
+    },
+    "cron": {
+      "at": "2026-09-10T19:16:30.141Z",
+      "status": 201,
+      "data": [
+        {
+          "jobid": 11,
+          "jobname": "cleanup-done-personal-tasks",
+          "schedule": "0 8 * * *",
+          "active": true,
+          "edge_target": null,
+          "kind": "delete"
+        },
+        {
+          "jobid": 13,
+          "jobname": "weekly-clear-posted-shorts",
+          "schedule": "0 8 * * 0",
+          "active": true,
+          "edge_target": null,
+          "kind": "delete"
+        },
+        {
+          "jobid": 18,
+          "jobname": "nightly-archive-mayday-videos",
+          "schedule": "0 8 * * *",
+          "active": true,
+          "edge_target": null,
+          "kind": "sql"
+        },
+        {
+          "jobid": 22,
+          "jobname": "nightly-prune-beat-versions",
+          "schedule": "0 8 * * *",
+          "active": true,
+          "edge_target": null,
+          "kind": "delete"
+        },
+        {
+          "jobid": 23,
+          "jobname": "daily-bd-due-notifications",
+          "schedule": "0 15 * * *",
+          "active": true,
+          "edge_target": null,
+          "kind": "sql"
+        },
+        {
+          "jobid": 48,
+          "jobname": "prune-public-rate-limits",
+          "schedule": "0 4 * * *",
+          "active": true,
+          "edge_target": null,
+          "kind": "sql"
+        },
+        {
+          "jobid": 49,
+          "jobname": "daily-generate-trends",
+          "schedule": "0 15 * * *",
+          "active": true,
+          "edge_target": "generate-trends",
+          "kind": "http"
+        },
+        {
+          "jobid": 50,
+          "jobname": "run-reports",
+          "schedule": "5 15 * * *",
+          "active": true,
+          "edge_target": "run-report",
+          "kind": "http"
+        },
+        {
+          "jobid": 51,
+          "jobname": "daily-fetch-graphics",
+          "schedule": "0 13 * * *",
+          "active": true,
+          "edge_target": "fetch-daily-graphics",
+          "kind": "http"
+        },
+        {
+          "jobid": 52,
+          "jobname": "daily-post-graphics",
+          "schedule": "15 13 * * *",
+          "active": true,
+          "edge_target": "post-daily-graphics",
+          "kind": "http"
+        },
+        {
+          "jobid": 53,
+          "jobname": "nightly-snapshot-daily-work",
+          "schedule": "59 7 * * *",
+          "active": true,
+          "edge_target": "snapshot-daily-work",
+          "kind": "http"
+        },
+        {
+          "jobid": 54,
+          "jobname": "minutely-drive-watch-poll",
+          "schedule": "* * * * *",
+          "active": true,
+          "edge_target": "drive-watch-poll",
+          "kind": "http"
+        },
+        {
+          "jobid": 55,
+          "jobname": "hourly-run-automations",
+          "schedule": "0 * * * *",
+          "active": true,
+          "edge_target": "run-automations",
+          "kind": "http"
+        },
+        {
+          "jobid": 56,
+          "jobname": "sync-tiller",
+          "schedule": "0 7 * * *",
+          "active": true,
+          "edge_target": "sync-tiller",
+          "kind": "http"
+        },
+        {
+          "jobid": 57,
+          "jobname": "sync-metricool",
+          "schedule": "3 1 * * *",
+          "active": true,
+          "edge_target": "sync-metricool",
+          "kind": "http"
+        },
+        {
+          "jobid": 58,
+          "jobname": "sync-youtube",
+          "schedule": "0 1,7,13,19 * * *",
+          "active": true,
+          "edge_target": "sync-youtube",
+          "kind": "http"
+        },
+        {
+          "jobid": 59,
+          "jobname": "sync-fourthwall",
+          "schedule": "7 1 * * *",
+          "active": true,
+          "edge_target": "sync-fourthwall",
+          "kind": "http"
+        },
+        {
+          "jobid": 60,
+          "jobname": "sync-twitch",
+          "schedule": "9 1 * * *",
+          "active": true,
+          "edge_target": "sync-twitch",
+          "kind": "http"
+        },
+        {
+          "jobid": 61,
+          "jobname": "sync-stripe",
+          "schedule": "5 1 * * *",
+          "active": true,
+          "edge_target": "sync-stripe",
+          "kind": "http"
+        },
+        {
+          "jobid": 62,
+          "jobname": "sync-substack",
+          "schedule": "11 1 * * *",
+          "active": true,
+          "edge_target": "sync-substack",
+          "kind": "http"
+        },
+        {
+          "jobid": 63,
+          "jobname": "sync-youtube-dimensions",
+          "schedule": "1 1 * * *",
+          "active": true,
+          "edge_target": "sync-youtube-dimensions",
+          "kind": "http"
+        },
+        {
+          "jobid": 64,
+          "jobname": "sync-progress-cards",
+          "schedule": "*/2 * * * *",
+          "active": true,
+          "edge_target": "sync-progress-cards",
+          "kind": "http"
+        },
+        {
+          "jobid": 65,
+          "jobname": "archive-complete-workflow-cards",
+          "schedule": "0 4 * * 1",
+          "active": true,
+          "edge_target": null,
+          "kind": "sql"
+        },
+        {
+          "jobid": 67,
+          "jobname": "archive-published-cards",
+          "schedule": "0 8 * * *",
+          "active": true,
+          "edge_target": "archive-published-cards",
+          "kind": "http"
+        },
+        {
+          "jobid": 68,
+          "jobname": "mailer-tick",
+          "schedule": "* * * * *",
+          "active": true,
+          "edge_target": "mailer-cron-tick",
+          "kind": "http"
+        },
+        {
+          "jobid": 70,
+          "jobname": "generate-weekly-report",
+          "schedule": "0 15 * * 6",
+          "active": true,
+          "edge_target": "generate-weekly-report",
+          "kind": "http"
+        },
+        {
+          "jobid": 73,
+          "jobname": "daily-jobs-retention",
+          "schedule": "30 4 * * *",
+          "active": true,
+          "edge_target": "jobs-retention",
+          "kind": "http"
+        },
+        {
+          "jobid": 75,
+          "jobname": "run-backfills",
+          "schedule": "30 */2 * * *",
+          "active": true,
+          "edge_target": "run-backfills",
+          "kind": "http"
+        },
+        {
+          "jobid": 76,
+          "jobname": "check-data-integrity",
+          "schedule": "0 17 * * *",
+          "active": true,
+          "edge_target": "check-data-integrity",
+          "kind": "http"
+        },
+        {
+          "jobid": 77,
+          "jobname": "hourly-refresh-rollups",
+          "schedule": "15 * * * *",
+          "active": true,
+          "edge_target": null,
+          "kind": "sql"
+        },
+        {
+          "jobid": 79,
+          "jobname": "sync-simplecast",
+          "schedule": "13 1 * * *",
+          "active": true,
+          "edge_target": "sync-simplecast",
+          "kind": "http"
+        },
+        {
+          "jobid": 80,
+          "jobname": "email-due-soon-assignments",
+          "schedule": "0 15 * * *",
+          "active": true,
+          "edge_target": "send-notification-email",
+          "kind": "http"
+        },
+        {
+          "jobid": 81,
+          "jobname": "mailer-arm-daily",
+          "schedule": "0 15 * * *",
+          "active": true,
+          "edge_target": "mailer-arm-daily",
+          "kind": "http"
+        },
+        {
+          "jobid": 82,
+          "jobname": "plaid-sync-nightly",
+          "schedule": "0 12 * * *",
+          "active": true,
+          "edge_target": "plaid-sync",
+          "kind": "http"
+        },
+        {
+          "jobid": 83,
+          "jobname": "generate-monthly-report",
+          "schedule": "0 15 3 * *",
+          "active": true,
+          "edge_target": "generate-monthly-report",
+          "kind": "http"
+        },
+        {
+          "jobid": 84,
+          "jobname": "generate-ashley-read",
+          "schedule": "0 15 * * 6",
+          "active": true,
+          "edge_target": "generate-ashley-read",
+          "kind": "http"
+        },
+        {
+          "jobid": 85,
+          "jobname": "alert-failed-cron-jobs",
+          "schedule": "30 16 * * *",
+          "active": true,
+          "edge_target": null,
+          "kind": "sql"
+        },
+        {
+          "jobid": 86,
+          "jobname": "google-calendar-pull",
+          "schedule": "*/10 * * * *",
+          "active": true,
+          "edge_target": "google-calendar-pull",
+          "kind": "http"
+        },
+        {
+          "jobid": 88,
+          "jobname": "sync-social-posts",
+          "schedule": "15 1 * * *",
+          "active": true,
+          "edge_target": "sync-social-posts",
+          "kind": "http"
+        },
+        {
+          "jobid": 89,
+          "jobname": "harbor-end-idle-sessions",
+          "schedule": "20 * * * *",
+          "active": true,
+          "edge_target": null,
+          "kind": "sql"
+        }
+      ]
+    },
+    "cron_runs": {
+      "at": "2026-09-10T19:16:32.356Z",
+      "status": 201,
+      "data": [
+        {
+          "jobid": 11,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 08:00:00.146863+00",
+          "latest": "2026-09-10 08:00:00.183332+00",
+          "avg_seconds": "0.017",
+          "max_seconds": "0.032603"
+        },
+        {
+          "jobid": 13,
+          "status": "succeeded",
+          "runs": 1,
+          "earliest": "2026-09-06 08:00:00.173921+00",
+          "latest": "2026-09-06 08:00:00.173921+00",
+          "avg_seconds": "0.034",
+          "max_seconds": "0.034235"
+        },
+        {
+          "jobid": 18,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 08:00:00.139069+00",
+          "latest": "2026-09-10 08:00:00.192714+00",
+          "avg_seconds": "0.019",
+          "max_seconds": "0.043489"
+        },
+        {
+          "jobid": 22,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 08:00:00.160204+00",
+          "latest": "2026-09-10 08:00:00.169502+00",
+          "avg_seconds": "0.064",
+          "max_seconds": "0.080056"
+        },
+        {
+          "jobid": 23,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 15:00:00.225229+00",
+          "latest": "2026-09-10 15:00:00.20404+00",
+          "avg_seconds": "0.070",
+          "max_seconds": "0.094277"
+        },
+        {
+          "jobid": 48,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 04:00:00.121842+00",
+          "latest": "2026-09-10 04:00:00.155461+00",
+          "avg_seconds": "0.020",
+          "max_seconds": "0.045750"
+        },
+        {
+          "jobid": 49,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 15:00:00.217456+00",
+          "latest": "2026-09-10 15:00:00.246095+00",
+          "avg_seconds": "0.016",
+          "max_seconds": "0.027383"
+        },
+        {
+          "jobid": 50,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 15:05:00.043118+00",
+          "latest": "2026-09-10 15:05:00.060946+00",
+          "avg_seconds": "0.009",
+          "max_seconds": "0.011577"
+        },
+        {
+          "jobid": 51,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 13:00:00.145425+00",
+          "latest": "2026-09-10 13:00:00.197219+00",
+          "avg_seconds": "0.016",
+          "max_seconds": "0.027483"
+        },
+        {
+          "jobid": 52,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 13:15:00.079328+00",
+          "latest": "2026-09-10 13:15:00.09945+00",
+          "avg_seconds": "0.012",
+          "max_seconds": "0.031326"
+        },
+        {
+          "jobid": 53,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 07:59:00.028422+00",
+          "latest": "2026-09-10 07:59:00.069953+00",
+          "avg_seconds": "0.005",
+          "max_seconds": "0.007020"
+        },
+        {
+          "jobid": 54,
+          "status": "succeeded",
+          "runs": 10080,
+          "earliest": "2026-09-03 19:17:00.0432+00",
+          "latest": "2026-09-10 19:16:00.063571+00",
+          "avg_seconds": "0.008",
+          "max_seconds": "0.105375"
+        },
+        {
+          "jobid": 55,
+          "status": "succeeded",
+          "runs": 168,
+          "earliest": "2026-09-03 20:00:00.114555+00",
+          "latest": "2026-09-10 19:00:00.149465+00",
+          "avg_seconds": "0.017",
+          "max_seconds": "0.052194"
+        },
+        {
+          "jobid": 56,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 07:00:00.07876+00",
+          "latest": "2026-09-10 07:00:00.193326+00",
+          "avg_seconds": "0.013",
+          "max_seconds": "0.024322"
+        },
+        {
+          "jobid": 57,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 01:03:00.054454+00",
+          "latest": "2026-09-10 01:03:00.042658+00",
+          "avg_seconds": "0.008",
+          "max_seconds": "0.011111"
+        },
+        {
+          "jobid": 58,
+          "status": "succeeded",
+          "runs": 28,
+          "earliest": "2026-09-04 01:00:00.129079+00",
+          "latest": "2026-09-10 19:00:00.139073+00",
+          "avg_seconds": "0.018",
+          "max_seconds": "0.048980"
+        },
+        {
+          "jobid": 59,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 01:07:00.045592+00",
+          "latest": "2026-09-10 01:07:00.060699+00",
+          "avg_seconds": "0.008",
+          "max_seconds": "0.010484"
+        },
+        {
+          "jobid": 60,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 01:09:00.056123+00",
+          "latest": "2026-09-10 01:09:00.060037+00",
+          "avg_seconds": "0.007",
+          "max_seconds": "0.012121"
+        },
+        {
+          "jobid": 61,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 01:05:00.057154+00",
+          "latest": "2026-09-10 01:05:00.066863+00",
+          "avg_seconds": "0.008",
+          "max_seconds": "0.014110"
+        },
+        {
+          "jobid": 62,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 01:11:00.051917+00",
+          "latest": "2026-09-10 01:11:00.054568+00",
+          "avg_seconds": "0.007",
+          "max_seconds": "0.010369"
+        },
+        {
+          "jobid": 63,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 01:01:00.046382+00",
+          "latest": "2026-09-10 01:01:00.082107+00",
+          "avg_seconds": "0.009",
+          "max_seconds": "0.011271"
+        },
+        {
+          "jobid": 64,
+          "status": "failed",
+          "runs": 1,
+          "earliest": "2026-09-04 17:00:00.000209+00",
+          "latest": "2026-09-04 17:00:00.000209+00",
+          "avg_seconds": "0.109",
+          "max_seconds": "0.109132"
+        },
+        {
+          "jobid": 64,
+          "status": "succeeded",
+          "runs": 5039,
+          "earliest": "2026-09-03 19:18:00.06926+00",
+          "latest": "2026-09-10 19:16:00.053063+00",
+          "avg_seconds": "0.009",
+          "max_seconds": "0.110150"
+        },
+        {
+          "jobid": 65,
+          "status": "succeeded",
+          "runs": 1,
+          "earliest": "2026-09-07 04:00:00.084197+00",
+          "latest": "2026-09-07 04:00:00.084197+00",
+          "avg_seconds": "0.028",
+          "max_seconds": "0.028147"
+        },
+        {
+          "jobid": 67,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 08:00:00.185393+00",
+          "latest": "2026-09-10 08:00:00.188475+00",
+          "avg_seconds": "0.017",
+          "max_seconds": "0.024084"
+        },
+        {
+          "jobid": 68,
+          "status": "succeeded",
+          "runs": 10080,
+          "earliest": "2026-09-03 19:17:00.047008+00",
+          "latest": "2026-09-10 19:16:00.067404+00",
+          "avg_seconds": "0.008",
+          "max_seconds": "0.108133"
+        },
+        {
+          "jobid": 70,
+          "status": "succeeded",
+          "runs": 1,
+          "earliest": "2026-09-05 15:00:00.205961+00",
+          "latest": "2026-09-05 15:00:00.205961+00",
+          "avg_seconds": "0.007",
+          "max_seconds": "0.006963"
+        },
+        {
+          "jobid": 73,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 04:30:00.071419+00",
+          "latest": "2026-09-10 04:30:00.120204+00",
+          "avg_seconds": "0.012",
+          "max_seconds": "0.017031"
+        },
+        {
+          "jobid": 75,
+          "status": "succeeded",
+          "runs": 84,
+          "earliest": "2026-09-03 20:30:00.115816+00",
+          "latest": "2026-09-10 18:30:00.126336+00",
+          "avg_seconds": "0.016",
+          "max_seconds": "0.054576"
+        },
+        {
+          "jobid": 76,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 17:00:00.093066+00",
+          "latest": "2026-09-10 17:00:00.212886+00",
+          "avg_seconds": "0.020",
+          "max_seconds": "0.032193"
+        },
+        {
+          "jobid": 77,
+          "status": "succeeded",
+          "runs": 168,
+          "earliest": "2026-09-03 20:15:00.078874+00",
+          "latest": "2026-09-10 19:15:00.05051+00",
+          "avg_seconds": "3.799",
+          "max_seconds": "5.609486"
+        },
+        {
+          "jobid": 79,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 01:13:00.051631+00",
+          "latest": "2026-09-10 01:13:00.064396+00",
+          "avg_seconds": "0.007",
+          "max_seconds": "0.010646"
+        },
+        {
+          "jobid": 80,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 15:00:00.175306+00",
+          "latest": "2026-09-10 15:00:00.193681+00",
+          "avg_seconds": "0.028",
+          "max_seconds": "0.042602"
+        },
+        {
+          "jobid": 81,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 15:00:00.220203+00",
+          "latest": "2026-09-10 15:00:00.207946+00",
+          "avg_seconds": "0.017",
+          "max_seconds": "0.023742"
+        },
+        {
+          "jobid": 82,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 12:00:00.099049+00",
+          "latest": "2026-09-10 12:00:00.19628+00",
+          "avg_seconds": "0.020",
+          "max_seconds": "0.049514"
+        },
+        {
+          "jobid": 84,
+          "status": "succeeded",
+          "runs": 1,
+          "earliest": "2026-09-05 15:00:00.181926+00",
+          "latest": "2026-09-05 15:00:00.181926+00",
+          "avg_seconds": "0.012",
+          "max_seconds": "0.012412"
+        },
+        {
+          "jobid": 85,
+          "status": "succeeded",
+          "runs": 7,
+          "earliest": "2026-09-04 16:30:00.12643+00",
+          "latest": "2026-09-10 16:30:00.1733+00",
+          "avg_seconds": "1.979",
+          "max_seconds": "2.158698"
+        },
+        {
+          "jobid": 86,
+          "status": "failed",
+          "runs": 1,
+          "earliest": "2026-09-04 17:00:00.000209+00",
+          "latest": "2026-09-04 17:00:00.000209+00",
+          "avg_seconds": "0.122",
+          "max_seconds": "0.122385"
+        },
+        {
+          "jobid": 86,
+          "status": "succeeded",
+          "runs": 1007,
+          "earliest": "2026-09-03 19:20:00.08242+00",
+          "latest": "2026-09-10 19:10:00.084639+00",
+          "avg_seconds": "0.010",
+          "max_seconds": "0.110482"
+        },
+        {
+          "jobid": 88,
+          "status": "succeeded",
+          "runs": 6,
+          "earliest": "2026-09-05 01:15:00.073463+00",
+          "latest": "2026-09-10 01:15:00.074041+00",
+          "avg_seconds": "0.015",
+          "max_seconds": "0.047087"
+        },
+        {
+          "jobid": 89,
+          "status": "succeeded",
+          "runs": 145,
+          "earliest": "2026-09-04 18:20:00.084856+00",
+          "latest": "2026-09-10 18:20:00.096795+00",
+          "avg_seconds": "0.016",
+          "max_seconds": "0.087453"
+        }
+      ]
+    },
+    "cron_failure_classes": {
+      "at": "2026-09-10T19:18:57.974Z",
+      "status": 201,
+      "data": [
+        {
+          "jobid": 64,
+          "failures": 1,
+          "error_class": "connection"
+        },
+        {
+          "jobid": 86,
+          "failures": 1,
+          "error_class": "connection"
+        }
+      ]
+    },
+    "triggers": {
+      "at": "2026-09-10T19:16:34.709Z",
+      "status": 201,
+      "data": [
+        {
+          "schema": "auth",
+          "table_name": "users",
+          "tgname": "on_auth_user_created",
+          "tgenabled": "O",
+          "function_name": "handle_new_user",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "analytics_youtube_daily",
+          "tgname": "trg_youtube_daily_to_pdm",
+          "tgenabled": "O",
+          "function_name": "sync_youtube_daily_to_pdm",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "automations",
+          "tgname": "set_automations_updated_at",
+          "tgenabled": "O",
+          "function_name": "set_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "bd_initiatives",
+          "tgname": "bd_initiative_cleanup_notifications",
+          "tgenabled": "O",
+          "function_name": "trg_bd_initiative_cleanup_notifications",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "bd_initiatives",
+          "tgname": "bd_initiatives_touch",
+          "tgenabled": "O",
+          "function_name": "bd_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "bd_phases",
+          "tgname": "bd_phases_touch",
+          "tgenabled": "O",
+          "function_name": "bd_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "bd_tasks",
+          "tgname": "bd_task_cleanup_notifications",
+          "tgenabled": "O",
+          "function_name": "trg_bd_task_cleanup_notifications",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "bd_tasks",
+          "tgname": "bd_tasks_recur",
+          "tgenabled": "O",
+          "function_name": "bd_spawn_recurring_task",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "bd_tasks",
+          "tgname": "bd_tasks_touch",
+          "tgenabled": "O",
+          "function_name": "bd_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "beat_sheets",
+          "tgname": "mayday_video_start",
+          "tgenabled": "O",
+          "function_name": "trg_mayday_video_start",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "broadcast_assets",
+          "tgname": "broadcast_assets_touch",
+          "tgenabled": "O",
+          "function_name": "broadcast_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "broadcast_projects",
+          "tgname": "broadcast_projects_touch",
+          "tgenabled": "O",
+          "function_name": "broadcast_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "broadcast_scenes",
+          "tgname": "broadcast_scenes_touch",
+          "tgenabled": "O",
+          "function_name": "broadcast_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "broadcast_sessions",
+          "tgname": "broadcast_sessions_touch",
+          "tgenabled": "O",
+          "function_name": "broadcast_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "broadcast_widget_state",
+          "tgname": "broadcast_widget_state_touch",
+          "tgenabled": "O",
+          "function_name": "broadcast_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "calendar_events",
+          "tgname": "trg_harbor_ensure_meeting_session",
+          "tgenabled": "O",
+          "function_name": "harbor_ensure_meeting_session",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "client_documents",
+          "tgname": "client_doc_lock_fields_trg",
+          "tgenabled": "O",
+          "function_name": "client_doc_lock_fields",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "client_editors",
+          "tgname": "client_editors_validate_trg",
+          "tgenabled": "O",
+          "function_name": "client_editors_validate",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "client_profiles",
+          "tgname": "client_profile_lock_admin_fields_trg",
+          "tgenabled": "O",
+          "function_name": "client_profile_lock_admin_fields",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "clipping_tool_recipients",
+          "tgname": "trg_clipping_recipients_updated_at",
+          "tgenabled": "O",
+          "function_name": "set_clipping_recipients_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "content_items",
+          "tgname": "trg_content_items_updated",
+          "tgenabled": "O",
+          "function_name": "update_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignment_comments",
+          "tgname": "client_assignment_comment_notify_trg",
+          "tgenabled": "O",
+          "function_name": "client_assignment_comment_notify",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignments",
+          "tgname": "client_assignment_lock_fields_trg",
+          "tgenabled": "O",
+          "function_name": "client_assignment_lock_fields",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignments",
+          "tgname": "client_assignment_new_notify_trg",
+          "tgenabled": "O",
+          "function_name": "client_assignment_new_notify",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignments",
+          "tgname": "client_assignment_sanitize_trg",
+          "tgenabled": "O",
+          "function_name": "client_assignment_sanitize",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignments",
+          "tgname": "client_assignment_status_notify_trg",
+          "tgenabled": "O",
+          "function_name": "client_assignment_status_notify",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignments",
+          "tgname": "fl_assignment_notify_new_owner",
+          "tgenabled": "O",
+          "function_name": "trg_fl_assignment_notify_new_owner",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignments",
+          "tgname": "fl_overtime_check_on_start",
+          "tgenabled": "O",
+          "function_name": "fl_overtime_check_on_start",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignments",
+          "tgname": "mayday_video_match_film",
+          "tgenabled": "O",
+          "function_name": "trg_mayday_video_match_film",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignments",
+          "tgname": "mayday_video_match_wait",
+          "tgenabled": "O",
+          "function_name": "trg_mayday_video_match_wait",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignments",
+          "tgname": "tr_auto_complete_edit_on_assignment",
+          "tgenabled": "O",
+          "function_name": "auto_complete_edit_on_assignment_complete",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_assignments",
+          "tgname": "tr_auto_complete_film_on_assignment",
+          "tgenabled": "O",
+          "function_name": "auto_complete_film_on_assignment_insert",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_profiles",
+          "tgname": "fl_profile_lock_admin_fields",
+          "tgenabled": "O",
+          "function_name": "fl_profile_lock_admin_fields",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "contractor_profiles",
+          "tgname": "fl_profile_set_payment_from_invitation",
+          "tgenabled": "O",
+          "function_name": "fl_profile_set_payment_from_invitation",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "daily_checkins",
+          "tgname": "daily_checkins_updated_at",
+          "tgenabled": "O",
+          "function_name": "update_daily_checkins_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "direct_messages",
+          "tgname": "direct_messages_push_trigger",
+          "tgenabled": "O",
+          "function_name": "forward_dm_to_push",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "email_products",
+          "tgname": "email_products_touch_updated_at",
+          "tgenabled": "O",
+          "function_name": "email_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "email_sends",
+          "tgname": "email_sends_touch_updated_at",
+          "tgenabled": "O",
+          "function_name": "email_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "email_templates",
+          "tgname": "email_templates_touch_updated_at",
+          "tgenabled": "O",
+          "function_name": "email_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "harbor_sessions",
+          "tgname": "harbor_sessions_guard_delete",
+          "tgenabled": "O",
+          "function_name": "harbor_guard_session_delete",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "harbor_sessions",
+          "tgname": "set_harbor_sessions_updated_at",
+          "tgenabled": "O",
+          "function_name": "set_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "harbor_shows",
+          "tgname": "harbor_shows_touch",
+          "tgenabled": "O",
+          "function_name": "set_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "harbor_track_renditions",
+          "tgname": "harbor_track_renditions_touch",
+          "tgenabled": "O",
+          "function_name": "set_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "harbor_tracks",
+          "tgname": "set_harbor_tracks_updated_at",
+          "tgenabled": "O",
+          "function_name": "set_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "invoice_contacts",
+          "tgname": "invoice_contacts_updated_at",
+          "tgenabled": "O",
+          "function_name": "set_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "invoice_templates",
+          "tgname": "invoice_templates_updated_at",
+          "tgenabled": "O",
+          "function_name": "set_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "invoices",
+          "tgname": "invoices_updated_at",
+          "tgenabled": "O",
+          "function_name": "set_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "mailer_audiences",
+          "tgname": "mailer_audiences_touch",
+          "tgenabled": "O",
+          "function_name": "mailer_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "mailer_campaigns",
+          "tgname": "mailer_campaigns_touch",
+          "tgenabled": "O",
+          "function_name": "mailer_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "margin_inputs",
+          "tgname": "margin_inputs_touch",
+          "tgenabled": "O",
+          "function_name": "margin_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "margin_people",
+          "tgname": "margin_people_touch",
+          "tgenabled": "O",
+          "function_name": "margin_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "margin_products",
+          "tgname": "margin_products_touch",
+          "tgenabled": "O",
+          "function_name": "margin_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "margin_settings",
+          "tgname": "margin_settings_touch",
+          "tgenabled": "O",
+          "function_name": "margin_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "notifications",
+          "tgname": "notifications_push_trigger",
+          "tgenabled": "O",
+          "function_name": "forward_notification_to_push",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "personal_tasks",
+          "tgname": "personal_tasks_delete_badge",
+          "tgenabled": "O",
+          "function_name": "card_delete_clears_badge",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "personal_tasks",
+          "tgname": "personal_tasks_insert_badge",
+          "tgenabled": "O",
+          "function_name": "card_insert_restores_badge",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "platform_accounts",
+          "tgname": "trg_platform_accounts_updated",
+          "tgenabled": "O",
+          "function_name": "update_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "profiles",
+          "tgname": "profiles_lock_admin_fields",
+          "tgenabled": "O",
+          "function_name": "profiles_lock_admin_fields",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "profiles",
+          "tgname": "profiles_lock_pay_method",
+          "tgenabled": "O",
+          "function_name": "profiles_lock_pay_method",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "profiles",
+          "tgname": "profiles_protect_privileged",
+          "tgenabled": "O",
+          "function_name": "protect_profile_privileged_cols",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "progress_cards",
+          "tgname": "trg_progress_card_archived",
+          "tgenabled": "O",
+          "function_name": "on_progress_card_archived",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "progress_cards",
+          "tgname": "trg_progress_card_revoke_on_archive",
+          "tgenabled": "O",
+          "function_name": "progress_card_revoke_on_archive",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "progress_cards",
+          "tgname": "trg_progress_card_stamp_ready_at",
+          "tgenabled": "O",
+          "function_name": "progress_card_stamp_ready_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "progress_cards",
+          "tgname": "trg_progress_card_to_assignment",
+          "tgenabled": "O",
+          "function_name": "progress_card_to_assignment",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "report_card_templates",
+          "tgname": "report_card_templates_touch_updated_at",
+          "tgenabled": "O",
+          "function_name": "report_card_templates_touch_updated_at",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "resource_guides",
+          "tgname": "resource_guides_stamp_trg",
+          "tgenabled": "O",
+          "function_name": "resource_guides_stamp",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "review_client_shares",
+          "tgname": "review_share_guard_trg",
+          "tgenabled": "O",
+          "function_name": "review_share_guard",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "review_client_shares",
+          "tgname": "review_share_notify_trg",
+          "tgenabled": "O",
+          "function_name": "review_share_notify",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "review_versions",
+          "tgname": "review_version_notify_client_trg",
+          "tgenabled": "O",
+          "function_name": "review_version_notify_client",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "review_versions",
+          "tgname": "review_version_verdict_guard_trg",
+          "tgenabled": "O",
+          "function_name": "review_version_verdict_guard",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "reviews",
+          "tgname": "review_lock_assignment_link_trg",
+          "tgenabled": "O",
+          "function_name": "review_lock_assignment_link",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "roadmap_milestones",
+          "tgname": "roadmap_milestone_cascade",
+          "tgenabled": "O",
+          "function_name": "roadmap_milestone_cascade_complete",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "roadmap_milestones",
+          "tgname": "roadmap_milestones_set_created_by",
+          "tgenabled": "O",
+          "function_name": "roadmap_set_created_by",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "roadmap_tasks",
+          "tgname": "roadmap_tasks_set_created_by",
+          "tgenabled": "O",
+          "function_name": "roadmap_set_created_by",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "roadmaps",
+          "tgname": "roadmaps_set_created_by",
+          "tgenabled": "O",
+          "function_name": "roadmap_set_created_by",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "sponsor_campaigns",
+          "tgname": "trg_campaign_brief_auto_complete",
+          "tgenabled": "O",
+          "function_name": "fn_campaign_brief_auto_complete",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "sponsor_deliverables",
+          "tgname": "trg_sync_campaign_fully_delivered",
+          "tgenabled": "O",
+          "function_name": "sync_campaign_fully_delivered",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "tasks",
+          "tgname": "fl_overtime_task_completed",
+          "tgenabled": "O",
+          "function_name": "fl_overtime_task_completed",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "tasks",
+          "tgname": "fl_overtime_task_declined",
+          "tgenabled": "O",
+          "function_name": "fl_overtime_task_declined",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "tasks",
+          "tgname": "overtime_check_on_task_complete_trg",
+          "tgenabled": "O",
+          "function_name": "overtime_check_on_task_complete",
+          "function_schema": "public"
+        },
+        {
+          "schema": "public",
+          "table_name": "whiteboards",
+          "tgname": "whiteboards_guard_update",
+          "tgenabled": "O",
+          "function_name": "whiteboards_guard_update",
+          "function_schema": "public"
+        }
+      ]
+    },
+    "dependency_fks": {
+      "at": "2026-09-10T19:21:28.961Z",
+      "status": 201,
+      "data": [
+        {
+          "child": "bd_initiative_links",
+          "parent": "bd_initiatives",
+          "conname": "bd_initiative_links_initiative_id_fkey"
+        },
+        {
+          "child": "bd_tasks",
+          "parent": "bd_initiatives",
+          "conname": "bd_tasks_initiative_id_fkey"
+        },
+        {
+          "child": "personal_tasks",
+          "parent": "bd_tasks",
+          "conname": "personal_tasks_bd_task_id_fkey"
+        },
+        {
+          "child": "personal_tasks",
+          "parent": "tasks",
+          "conname": "personal_tasks_task_id_fkey"
+        },
+        {
+          "child": "task_events",
+          "parent": "tasks",
+          "conname": "task_events_task_id_fkey"
+        },
+        {
+          "child": "task_sign_offs",
+          "parent": "tasks",
+          "conname": "task_sign_offs_task_id_fkey"
+        },
+        {
+          "child": "ad_read_proposals",
+          "parent": "workflow_instances",
+          "conname": "ad_read_proposals_workflow_instance_id_fkey"
+        },
+        {
+          "child": "tasks",
+          "parent": "workflow_instances",
+          "conname": "tasks_workflow_instance_id_fkey"
+        },
+        {
+          "child": "workflow_card_audit",
+          "parent": "workflow_instances",
+          "conname": "workflow_card_audit_instance_id_fkey"
+        },
+        {
+          "child": "workflow_instances",
+          "parent": "workflows",
+          "conname": "workflow_instances_workflow_id_fkey"
+        },
+        {
+          "child": "workflow_steps",
+          "parent": "workflows",
+          "conname": "workflow_steps_workflow_id_fkey"
+        },
+        {
+          "child": "workflow_versions",
+          "parent": "workflows",
+          "conname": "workflow_versions_workflow_id_fkey"
+        }
+      ]
+    },
+    "routine_dependencies": {
+      "at": "2026-09-10T19:18:54.122Z",
+      "status": 201,
+      "data": [
+        {
+          "proname": "bd_emit_due_notifications",
+          "targets": [
+            "bd_initiatives",
+            "bd_tasks"
+          ]
+        },
+        {
+          "proname": "bd_spawn_recurring_task",
+          "targets": [
+            "bd_tasks"
+          ]
+        },
+        {
+          "proname": "get_badge_task_list",
+          "targets": [
+            "personal_tasks",
+            "tasks"
+          ]
+        },
+        {
+          "proname": "get_kpi_summary",
+          "targets": [
+            "daily_platform_rollups"
+          ]
+        },
+        {
+          "proname": "get_notification_summary",
+          "targets": [
+            "personal_tasks",
+            "tasks"
+          ]
+        },
+        {
+          "proname": "is_bd_viewer",
+          "targets": [
+            "bd_phases"
+          ]
+        },
+        {
+          "proname": "refresh_daily_platform_rollups",
+          "targets": []
+        },
+        {
+          "proname": "refresh_daily_rollups",
+          "targets": []
+        },
+        {
+          "proname": "trg_bd_initiative_cleanup_notifications",
+          "targets": []
+        },
+        {
+          "proname": "trg_bd_task_cleanup_notifications",
+          "targets": []
+        }
+      ]
+    },
+    "realtime_publication": {
+      "at": "2026-09-10T19:17:38.976Z",
+      "status": 201,
+      "data": [
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "ad_read_proposals"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "announcement_reads"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "announcements"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "bd_initiative_links"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "bd_initiatives"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "bd_milestones"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "bd_phases"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "bd_settings"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "bd_tasks"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "beat_sheet_folders"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "broadcast_chat_messages"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "broadcast_sessions"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "broadcast_widget_state"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "channel_messages"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "deliverable_stage_assignments"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "direct_messages"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "harbor_tracks"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "ingestion_logs"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "invoice_contacts"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "invoice_line_items"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "invoice_templates"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "invoices"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "nav_config"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "notifications"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "ooo_requests"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "personal_tasks"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "pitch_video_searches"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "platform_accounts"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "project_comments"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "project_stage_assignments"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "projects"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "sponsor_campaigns"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "sponsor_deliverables"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "sponsors"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "task_sign_offs"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "tasks"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "whiteboards"
+        },
+        {
+          "pubname": "supabase_realtime",
+          "schemaname": "public",
+          "tablename": "workflow_steps"
+        },
+        {
+          "pubname": "supabase_realtime_messages_publication",
+          "schemaname": "realtime",
+          "tablename": "messages_2026_09_07"
+        },
+        {
+          "pubname": "supabase_realtime_messages_publication",
+          "schemaname": "realtime",
+          "tablename": "messages_2026_09_08"
+        },
+        {
+          "pubname": "supabase_realtime_messages_publication",
+          "schemaname": "realtime",
+          "tablename": "messages_2026_09_09"
+        },
+        {
+          "pubname": "supabase_realtime_messages_publication",
+          "schemaname": "realtime",
+          "tablename": "messages_2026_09_10"
+        },
+        {
+          "pubname": "supabase_realtime_messages_publication",
+          "schemaname": "realtime",
+          "tablename": "messages_2026_09_11"
+        },
+        {
+          "pubname": "supabase_realtime_messages_publication",
+          "schemaname": "realtime",
+          "tablename": "messages_2026_09_12"
+        },
+        {
+          "pubname": "supabase_realtime_messages_publication",
+          "schemaname": "realtime",
+          "tablename": "messages_2026_09_13"
+        }
+      ]
+    },
+    "realtime_subscriptions": {
+      "at": "2026-09-10T19:18:54.775Z",
+      "status": 201,
+      "data": [
+        {
+          "relation": "nav_config",
+          "subscriptions": 2,
+          "distinct_subscription_ids": 2
+        },
+        {
+          "relation": "notifications",
+          "subscriptions": 1,
+          "distinct_subscription_ids": 1
+        },
+        {
+          "relation": "tasks",
+          "subscriptions": 1,
+          "distinct_subscription_ids": 1
+        }
+      ]
+    },
+    "replication": {
+      "at": "2026-09-10T19:18:55.589Z",
+      "status": 201,
+      "data": [
+        {
+          "slot_name": "supabase_realtime_replication_slot_2_134_6_a886414",
+          "slot_type": "logical",
+          "active": true,
+          "retained_wal_bytes": "56"
+        },
+        {
+          "slot_name": "supabase_realtime_messages_replication_slot_2_134_6_a886414",
+          "slot_type": "logical",
+          "active": true,
+          "retained_wal_bytes": "56"
+        }
+      ]
+    },
+    "table_estimates": {
+      "at": "2026-09-10T19:18:56.617Z",
+      "status": 201,
+      "data": [
+        {
+          "relname": "workflow_instances",
+          "planner_rows": 10,
+          "n_live_tup": 0,
+          "last_analyze": null,
+          "last_autoanalyze": null,
+          "last_vacuum": null,
+          "last_autovacuum": null
+        },
+        {
+          "relname": "tasks",
+          "planner_rows": 6878,
+          "n_live_tup": 29,
+          "last_analyze": null,
+          "last_autoanalyze": null,
+          "last_vacuum": null,
+          "last_autovacuum": null
+        },
+        {
+          "relname": "automation_runs",
+          "planner_rows": 6666,
+          "n_live_tup": 1,
+          "last_analyze": null,
+          "last_autoanalyze": null,
+          "last_vacuum": null,
+          "last_autovacuum": null
+        },
+        {
+          "relname": "content_metrics",
+          "planner_rows": 857296,
+          "n_live_tup": 861624,
+          "last_analyze": null,
+          "last_autoanalyze": "2026-09-10 07:00:32.624278+00",
+          "last_vacuum": null,
+          "last_autovacuum": null
+        },
+        {
+          "relname": "bd_tasks",
+          "planner_rows": 39,
+          "n_live_tup": 0,
+          "last_analyze": null,
+          "last_autoanalyze": null,
+          "last_vacuum": null,
+          "last_autovacuum": null
+        },
+        {
+          "relname": "cut_records",
+          "planner_rows": 6021,
+          "n_live_tup": 0,
+          "last_analyze": null,
+          "last_autoanalyze": null,
+          "last_vacuum": null,
+          "last_autovacuum": null
+        }
+      ]
+    },
+    "indexes_duplicate": {
+      "at": "2026-09-10T19:19:27.719Z",
+      "status": 201,
+      "data": []
+    },
+    "missing_relations": {
+      "at": "2026-09-10T19:21:25.928Z",
+      "status": 201,
+      "data": [
+        {
+          "authenticated_rate_limits": null,
+          "platform_accounts": "platform_accounts"
+        }
+      ]
+    },
+    "role_counts": {
+      "at": "2026-09-10T19:21:26.653Z",
+      "status": 201,
+      "data": [
+        {
+          "role": "admin",
+          "profiles": 1
+        },
+        {
+          "role": "client",
+          "profiles": 1
+        },
+        {
+          "role": "contractor",
+          "profiles": 3
+        },
+        {
+          "role": "director",
+          "profiles": 2
+        },
+        {
+          "role": "member",
+          "profiles": 5
+        }
+      ]
+    },
+    "workflow_config": {
+      "at": "2026-09-10T19:21:27.793Z",
+      "status": 201,
+      "data": [
+        {
+          "is_active": false,
+          "trigger_mode": "auto",
+          "workflows": 2
+        },
+        {
+          "is_active": true,
+          "trigger_mode": "auto",
+          "workflows": 1
+        }
+      ]
+    },
+    "automation_state_corrected": {
+      "at": "2026-09-10T19:22:39.744Z",
+      "status": 201,
+      "data": [
+        {
+          "is_enabled": true,
+          "trigger_type": "schedule",
+          "automations": 1,
+          "historical_runs": 6,
+          "latest_run": "2026-09-01 15:00:08.988+00"
+        },
+        {
+          "is_enabled": true,
+          "trigger_type": "event",
+          "automations": 1,
+          "historical_runs": 141,
+          "latest_run": "2026-08-28 18:03:32.518+00"
+        }
+      ]
+    },
+    "routine_cron_targets": {
+      "at": "2026-09-10T19:22:07.179Z",
+      "status": 201,
+      "data": [
+        {
+          "jobname": "alert-failed-cron-jobs",
+          "active": true,
+          "routine": "alert_failed_cron_jobs"
+        },
+        {
+          "jobname": "archive-complete-workflow-cards",
+          "active": true,
+          "routine": null
+        },
+        {
+          "jobname": "cleanup-done-personal-tasks",
+          "active": true,
+          "routine": null
+        },
+        {
+          "jobname": "daily-bd-due-notifications",
+          "active": true,
+          "routine": "bd_emit_due_notifications"
+        },
+        {
+          "jobname": "harbor-end-idle-sessions",
+          "active": true,
+          "routine": "harbor_end_idle_sessions"
+        },
+        {
+          "jobname": "hourly-refresh-rollups",
+          "active": true,
+          "routine": "refresh_daily_platform_rollups"
+        },
+        {
+          "jobname": "nightly-archive-mayday-videos",
+          "active": true,
+          "routine": null
+        },
+        {
+          "jobname": "nightly-prune-beat-versions",
+          "active": true,
+          "routine": "v"
+        },
+        {
+          "jobname": "prune-public-rate-limits",
+          "active": true,
+          "routine": "prune_public_rate_limits"
+        },
+        {
+          "jobname": "weekly-clear-posted-shorts",
+          "active": true,
+          "routine": null
+        }
+      ]
+    },
+    "rollup_stats_context": {
+      "at": "2026-09-10T19:23:07.507Z",
+      "status": 201,
+      "data": [
+        {
+          "role": "postgres",
+          "toplevel": true,
+          "calls": 269,
+          "total_ms": "1001608.56",
+          "mean_ms": "3723.45"
+        },
+        {
+          "role": "service_role",
+          "toplevel": true,
+          "calls": 134,
+          "total_ms": "380130.82",
+          "mean_ms": "2836.80"
+        }
+      ]
+    },
+    "rollup_definition": {
+      "at": "2026-09-10T19:18:53.013Z",
+      "status": 201,
+      "data": [
+        {
+          "definition": " SELECT d.date,\n    pa.id AS platform_account_id,\n    pa.platform,\n    pa.account_name,\n    COALESCE(pdm.views, 0::bigint)::numeric AS total_views,\n        CASE\n            WHEN pdm.likes IS NOT NULL THEN pdm.likes::numeric\n            ELSE COALESCE(cm_agg.total_likes, 0::numeric)\n        END AS total_likes,\n        CASE\n            WHEN pdm.comments IS NOT NULL THEN pdm.comments::numeric\n            ELSE COALESCE(cm_agg.total_comments, 0::numeric)\n        END AS total_comments,\n        CASE\n            WHEN pdm.shares IS NOT NULL THEN pdm.shares::numeric\n            ELSE COALESCE(cm_agg.total_shares, 0::numeric)\n        END AS total_shares,\n    COALESCE(cm_agg.avg_engagement_rate, 0::numeric) AS avg_engagement_rate,\n        CASE\n            WHEN pdm.watch_time_seconds IS NOT NULL THEN pdm.watch_time_seconds\n            ELSE COALESCE(cm_agg.total_watch_time_seconds, 0::numeric)\n        END AS total_watch_time_seconds,\n    COALESCE(cm_agg.posts_published, 0::bigint) AS posts_published,\n    COALESCE(aud.followers_total, 0::bigint) AS followers_eod,\n    COALESCE(aud.followers_gained, 0) AS followers_gained,\n    COALESCE(rev_agg.revenue_cents, 0::bigint) AS revenue_cents,\n    COALESCE(rev_agg.transaction_count, 0::bigint) AS revenue_transactions\n   FROM generate_series(CURRENT_DATE - '730 days'::interval, CURRENT_DATE::timestamp without time zone, '1 day'::interval) d(date)\n     CROSS JOIN platform_accounts pa\n     LEFT JOIN LATERAL ( SELECT count(DISTINCT ci.id) AS posts_published,\n            sum(cm_latest.views) AS total_views,\n            sum(cm_latest.likes) AS total_likes,\n            sum(cm_latest.comments) AS total_comments,\n            sum(cm_latest.shares) AS total_shares,\n            COALESCE(sum(cm_latest.views::numeric * cm_latest.engagement_rate) / NULLIF(sum(cm_latest.views), 0::numeric), avg(cm_latest.engagement_rate)) AS avg_engagement_rate,\n            sum(cm_latest.watch_time_seconds) AS total_watch_time_seconds\n           FROM content_items ci\n             JOIN LATERAL ( SELECT cm.views,\n                    cm.likes,\n                    cm.comments,\n                    cm.shares,\n                    cm.engagement_rate,\n                    cm.watch_time_seconds\n                   FROM content_metrics cm\n                  WHERE cm.content_item_id = ci.id\n                  ORDER BY cm.captured_at DESC\n                 LIMIT 1) cm_latest ON true\n          WHERE ci.platform_account_id = pa.id AND ci.published_at::date = d.date) cm_agg ON true\n     LEFT JOIN platform_daily_metrics pdm ON pdm.platform_account_id = pa.id AND pdm.date = d.date\n     LEFT JOIN audience_snapshots aud ON aud.platform_account_id = pa.id AND aud.date = d.date\n     LEFT JOIN LATERAL ( SELECT sum(re.net_amount_cents) AS revenue_cents,\n            count(*) AS transaction_count\n           FROM revenue_events re\n          WHERE re.occurred_at::date = d.date AND re.platform_account_id = pa.id) rev_agg ON true\n  WHERE pa.is_active = true AND (pdm.id IS NOT NULL OR aud.id IS NOT NULL OR cm_agg.posts_published > 0 OR rev_agg.revenue_cents > 0);"
+        }
+      ]
+    },
+    "rollup_plan": {
+      "at": "2026-09-10T19:19:26.521Z",
+      "status": 201,
+      "data": [
+        {
+          "QUERY PLAN": [
+            {
+              "Plan": {
+                "Node Type": "Nested Loop",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Join Type": "Left",
+                "Startup Cost": 624.47,
+                "Total Cost": 4407014.86,
+                "Plan Rows": 10000,
+                "Plan Width": 273,
+                "Inner Unique": true,
+                "Filter": "((pdm.id IS NOT NULL) OR (aud.id IS NOT NULL) OR ((count(DISTINCT ci.id)) > 0) OR ((sum(re.net_amount_cents)) > 0))",
+                "Plans": [
+                  {
+                    "Node Type": "Nested Loop",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Join Type": "Left",
+                    "Startup Cost": 335.44,
+                    "Total Cost": 1516457.36,
+                    "Plan Rows": 10000,
+                    "Plan Width": 294,
+                    "Inner Unique": true,
+                    "Join Filter": "(pdm.platform_account_id = pa.id)",
+                    "Plans": [
+                      {
+                        "Node Type": "Nested Loop",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Join Type": "Left",
+                        "Startup Cost": 335.16,
+                        "Total Cost": 1510194.36,
+                        "Plan Rows": 10000,
+                        "Plan Width": 241,
+                        "Inner Unique": false,
+                        "Plans": [
+                          {
+                            "Node Type": "Hash Join",
+                            "Parent Relationship": "Outer",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Join Type": "Left",
+                            "Startup Cost": 184.21,
+                            "Total Cost": 346.61,
+                            "Plan Rows": 10000,
+                            "Plan Width": 73,
+                            "Inner Unique": true,
+                            "Hash Cond": "(pa.id = aud.platform_account_id)",
+                            "Join Filter": "(aud.date = d.date)",
+                            "Plans": [
+                              {
+                                "Node Type": "Nested Loop",
+                                "Parent Relationship": "Outer",
+                                "Parallel Aware": false,
+                                "Async Capable": false,
+                                "Join Type": "Inner",
+                                "Startup Cost": 0.01,
+                                "Total Cost": 136.16,
+                                "Plan Rows": 10000,
+                                "Plan Width": 45,
+                                "Inner Unique": false,
+                                "Plans": [
+                                  {
+                                    "Node Type": "Function Scan",
+                                    "Parent Relationship": "Outer",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Function Name": "generate_series",
+                                    "Alias": "d",
+                                    "Startup Cost": 0.01,
+                                    "Total Cost": 10.01,
+                                    "Plan Rows": 1000,
+                                    "Plan Width": 8
+                                  },
+                                  {
+                                    "Node Type": "Materialize",
+                                    "Parent Relationship": "Inner",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Startup Cost": 0,
+                                    "Total Cost": 1.17,
+                                    "Plan Rows": 10,
+                                    "Plan Width": 37,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Seq Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Relation Name": "platform_accounts",
+                                        "Alias": "pa",
+                                        "Startup Cost": 0,
+                                        "Total Cost": 1.12,
+                                        "Plan Rows": 10,
+                                        "Plan Width": 37,
+                                        "Filter": "is_active"
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "Node Type": "Hash",
+                                "Parent Relationship": "Inner",
+                                "Parallel Aware": false,
+                                "Async Capable": false,
+                                "Startup Cost": 130.2,
+                                "Total Cost": 130.2,
+                                "Plan Rows": 4320,
+                                "Plan Width": 48,
+                                "Plans": [
+                                  {
+                                    "Node Type": "Seq Scan",
+                                    "Parent Relationship": "Outer",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Relation Name": "audience_snapshots",
+                                    "Alias": "aud",
+                                    "Startup Cost": 0,
+                                    "Total Cost": 130.2,
+                                    "Plan Rows": 4320,
+                                    "Plan Width": 48
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "Node Type": "Aggregate",
+                            "Strategy": "Plain",
+                            "Partial Mode": "Simple",
+                            "Parent Relationship": "Inner",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Startup Cost": 150.95,
+                            "Total Cost": 150.96,
+                            "Plan Rows": 1,
+                            "Plan Width": 200,
+                            "Plans": [
+                              {
+                                "Node Type": "Sort",
+                                "Parent Relationship": "Outer",
+                                "Parallel Aware": false,
+                                "Async Capable": false,
+                                "Startup Cost": 150.9,
+                                "Total Cost": 150.91,
+                                "Plan Rows": 1,
+                                "Plan Width": 62,
+                                "Sort Key": [
+                                  "ci.id"
+                                ],
+                                "Plans": [
+                                  {
+                                    "Node Type": "Nested Loop",
+                                    "Parent Relationship": "Outer",
+                                    "Parallel Aware": false,
+                                    "Async Capable": false,
+                                    "Join Type": "Inner",
+                                    "Startup Cost": 4.24,
+                                    "Total Cost": 150.89,
+                                    "Plan Rows": 1,
+                                    "Plan Width": 62,
+                                    "Inner Unique": false,
+                                    "Plans": [
+                                      {
+                                        "Node Type": "Bitmap Heap Scan",
+                                        "Parent Relationship": "Outer",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Relation Name": "content_items",
+                                        "Alias": "ci",
+                                        "Startup Cost": 3.81,
+                                        "Total Cost": 149.34,
+                                        "Plan Rows": 1,
+                                        "Plan Width": 16,
+                                        "Recheck Cond": "(platform_account_id = pa.id)",
+                                        "Filter": "((published_at)::date = d.date)",
+                                        "Plans": [
+                                          {
+                                            "Node Type": "Bitmap Index Scan",
+                                            "Parent Relationship": "Outer",
+                                            "Parallel Aware": false,
+                                            "Async Capable": false,
+                                            "Index Name": "idx_content_items_platform_published",
+                                            "Startup Cost": 0,
+                                            "Total Cost": 3.81,
+                                            "Plan Rows": 178,
+                                            "Plan Width": 0,
+                                            "Index Cond": "(platform_account_id = pa.id)"
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "Node Type": "Limit",
+                                        "Parent Relationship": "Inner",
+                                        "Parallel Aware": false,
+                                        "Async Capable": false,
+                                        "Startup Cost": 0.42,
+                                        "Total Cost": 1.54,
+                                        "Plan Rows": 1,
+                                        "Plan Width": 54,
+                                        "Plans": [
+                                          {
+                                            "Node Type": "Index Scan",
+                                            "Parent Relationship": "Outer",
+                                            "Parallel Aware": false,
+                                            "Async Capable": false,
+                                            "Scan Direction": "Forward",
+                                            "Index Name": "idx_content_metrics_item_captured",
+                                            "Relation Name": "content_metrics",
+                                            "Alias": "cm",
+                                            "Startup Cost": 0.42,
+                                            "Total Cost": 713.36,
+                                            "Plan Rows": 642,
+                                            "Plan Width": 54,
+                                            "Index Cond": "(content_item_id = ci.id)"
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "Node Type": "Index Scan",
+                        "Parent Relationship": "Inner",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Scan Direction": "Forward",
+                        "Index Name": "idx_platform_daily_metrics_date",
+                        "Relation Name": "platform_daily_metrics",
+                        "Alias": "pdm",
+                        "Startup Cost": 0.28,
+                        "Total Cost": 0.6,
+                        "Plan Rows": 2,
+                        "Plan Width": 73,
+                        "Index Cond": "(date = d.date)"
+                      }
+                    ]
+                  },
+                  {
+                    "Node Type": "Aggregate",
+                    "Strategy": "Plain",
+                    "Partial Mode": "Simple",
+                    "Parent Relationship": "Inner",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Startup Cost": 289.02,
+                    "Total Cost": 289.03,
+                    "Plan Rows": 1,
+                    "Plan Width": 16,
+                    "Plans": [
+                      {
+                        "Node Type": "Bitmap Heap Scan",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Relation Name": "revenue_events",
+                        "Alias": "re",
+                        "Startup Cost": 13.26,
+                        "Total Cost": 289.01,
+                        "Plan Rows": 3,
+                        "Plan Width": 4,
+                        "Recheck Cond": "(platform_account_id = pa.id)",
+                        "Filter": "((occurred_at)::date = d.date)",
+                        "Plans": [
+                          {
+                            "Node Type": "Bitmap Index Scan",
+                            "Parent Relationship": "Outer",
+                            "Parallel Aware": false,
+                            "Async Capable": false,
+                            "Index Name": "idx_revenue_events_platform_account",
+                            "Startup Cost": 0,
+                            "Total Cost": 13.26,
+                            "Plan Rows": 557,
+                            "Plan Width": 0,
+                            "Index Cond": "(platform_account_id = pa.id)"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "api_totals": {
+      "start": "2026-09-09T19:20:00Z",
+      "end": "2026-09-10T19:20:00Z",
+      "status": 200,
+      "data": {
+        "result": [
+          {
+            "requests": 130154,
+            "rest_requests": 127873,
+            "sprint_reads": 92260
+          }
+        ]
+      }
+    },
+    "api_traffic": {
+      "start": "2026-09-09T19:20:00Z",
+      "end": "2026-09-10T19:20:00Z",
+      "status": 200,
+      "data": {
+        "result": [
+          {
+            "errors": 0,
+            "mean_origin_ms": 19.93,
+            "method": "GET",
+            "p95_origin_ms": 27.45,
+            "path": "/rest/v1/sprints",
+            "requests": 31120
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 23.68,
+            "method": "GET",
+            "p95_origin_ms": 35,
+            "path": "/rest/v1/personal_tasks",
+            "requests": 30628
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 25.5,
+            "method": "GET",
+            "p95_origin_ms": 34,
+            "path": "/rest/v1/sprint_goals",
+            "requests": 30512
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 87.24,
+            "method": "PATCH",
+            "p95_origin_ms": 289,
+            "path": "/rest/v1/profiles",
+            "requests": 5257
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 40.55,
+            "method": "GET",
+            "p95_origin_ms": 82,
+            "path": "/rest/v1/direct_messages",
+            "requests": 2952
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 53.57,
+            "method": "PATCH",
+            "p95_origin_ms": 117,
+            "path": "/rest/v1/drive_watches",
+            "requests": 2880
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 66.69,
+            "method": "GET",
+            "p95_origin_ms": 233.2,
+            "path": "/rest/v1/channel_messages",
+            "requests": 2687
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 60.27,
+            "method": "GET",
+            "p95_origin_ms": 182.5,
+            "path": "/rest/v1/profiles",
+            "requests": 1936
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 45.29,
+            "method": "GET",
+            "p95_origin_ms": 101,
+            "path": "/rest/v1/conversation_participants",
+            "requests": 1724
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 93.04,
+            "method": "POST",
+            "p95_origin_ms": 295,
+            "path": "/rest/v1/rpc/get_unread_dm_count",
+            "requests": 1486
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 75.09,
+            "method": "GET",
+            "p95_origin_ms": 181.25,
+            "path": "/rest/v1/progress_cards",
+            "requests": 1456
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 96.51,
+            "method": "POST",
+            "p95_origin_ms": 301.5,
+            "path": "/rest/v1/rpc/get_notification_summary",
+            "requests": 1451
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 98.97,
+            "method": "PATCH",
+            "p95_origin_ms": 253.7,
+            "path": "/rest/v1/mailer_campaigns",
+            "requests": 1442
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 95.55,
+            "method": "GET",
+            "p95_origin_ms": 235.15,
+            "path": "/rest/v1/drive_watches",
+            "requests": 1440
+          },
+          {
+            "errors": 24,
+            "mean_origin_ms": 24.44,
+            "method": "POST",
+            "p95_origin_ms": 41,
+            "path": "/rest/v1/content_items",
+            "requests": 920
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 60.15,
+            "method": "GET",
+            "p95_origin_ms": 168.4,
+            "path": "/rest/v1/projects",
+            "requests": 565
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 28.47,
+            "method": "POST",
+            "p95_origin_ms": 49,
+            "path": "/rest/v1/yt_video_dim_subscription_status",
+            "requests": 436
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 37.87,
+            "method": "GET",
+            "p95_origin_ms": 79.8,
+            "path": "/rest/v1/google_calendar_sync_state",
+            "requests": 432
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 57.77,
+            "method": "POST",
+            "p95_origin_ms": 85.35,
+            "path": "/rest/v1/google_calendar_sync_state",
+            "requests": 432
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 98.02,
+            "method": "GET",
+            "p95_origin_ms": 294,
+            "path": "/rest/v1/tasks",
+            "requests": 421
+          },
+          {
+            "errors": 11,
+            "mean_origin_ms": 122.15,
+            "method": "GET",
+            "p95_origin_ms": 449.4,
+            "path": "/rest/v1/google_calendar_connections",
+            "requests": 337
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 72.1,
+            "method": "POST",
+            "p95_origin_ms": 202.65,
+            "path": "/rest/v1/content_metrics",
+            "requests": 308
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 48.47,
+            "method": "GET",
+            "p95_origin_ms": 63.65,
+            "path": "/rest/v1/harbor_sessions",
+            "requests": 288
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 12.85,
+            "method": "OPTIONS",
+            "p95_origin_ms": 55,
+            "path": "/rest/v1/profiles",
+            "requests": 267
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 101.29,
+            "method": "POST",
+            "p95_origin_ms": 208,
+            "path": "/rest/v1/research_articles",
+            "requests": 256
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 119.29,
+            "method": "GET",
+            "p95_origin_ms": 316.9,
+            "path": "/rest/v1/ooo_requests",
+            "requests": 223
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 8.9,
+            "method": "OPTIONS",
+            "p95_origin_ms": 34.45,
+            "path": "/rest/v1/tasks",
+            "requests": 218
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 69.21,
+            "method": "PATCH",
+            "p95_origin_ms": 127.3,
+            "path": "/rest/v1/write_ideas",
+            "requests": 188
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 62.29,
+            "method": "POST",
+            "p95_origin_ms": 64,
+            "path": "/rest/v1/ingestion_logs",
+            "requests": 170
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 110.75,
+            "method": "GET",
+            "p95_origin_ms": 325.4,
+            "path": "/rest/v1/content_items",
+            "requests": 169
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 54.65,
+            "method": "GET",
+            "p95_origin_ms": 106.7,
+            "path": "/rest/v1/task_sign_offs",
+            "requests": 164
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 142.92,
+            "method": "GET",
+            "p95_origin_ms": 325,
+            "path": "/rest/v1/calendar_events",
+            "requests": 161
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 7.51,
+            "method": "OPTIONS",
+            "p95_origin_ms": 34.75,
+            "path": "/rest/v1/projects",
+            "requests": 154
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 7.89,
+            "method": "OPTIONS",
+            "p95_origin_ms": 7,
+            "path": "/rest/v1/direct_messages",
+            "requests": 154
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 68.05,
+            "method": "GET",
+            "p95_origin_ms": 131.4,
+            "path": "/rest/v1/google_calendar_mappings",
+            "requests": 144
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 4.42,
+            "method": "OPTIONS",
+            "p95_origin_ms": 2.2,
+            "path": "/rest/v1/conversation_participants",
+            "requests": 139
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 17.57,
+            "method": "OPTIONS",
+            "p95_origin_ms": 46.6,
+            "path": "/rest/v1/calendar_events",
+            "requests": 129
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 12.98,
+            "method": "OPTIONS",
+            "p95_origin_ms": 58,
+            "path": "/rest/v1/channel_messages",
+            "requests": 121
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 2.04,
+            "method": "OPTIONS",
+            "p95_origin_ms": 12.3,
+            "path": "/rest/v1/personal_tasks",
+            "requests": 120
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 13.62,
+            "method": "OPTIONS",
+            "p95_origin_ms": 57,
+            "path": "/rest/v1/rpc/get_unread_dm_count",
+            "requests": 117
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 33.71,
+            "method": "OPTIONS",
+            "p95_origin_ms": 67.7,
+            "path": "/rest/v1/rpc/get_notification_summary",
+            "requests": 114
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 134.22,
+            "method": "GET",
+            "p95_origin_ms": 327.5,
+            "path": "/rest/v1/announcement_reads",
+            "requests": 112
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 151.01,
+            "method": "GET",
+            "p95_origin_ms": 366.15,
+            "path": "/rest/v1/announcements",
+            "requests": 112
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 151.74,
+            "method": "GET",
+            "p95_origin_ms": 343.3,
+            "path": "/rest/v1/deliverable_stage_assignments",
+            "requests": 110
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 159.68,
+            "method": "GET",
+            "p95_origin_ms": 357.75,
+            "path": "/rest/v1/project_assignments",
+            "requests": 110
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 45.76,
+            "method": "GET",
+            "p95_origin_ms": 72.35,
+            "path": "/rest/v1/cockpit_projects",
+            "requests": 94
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 95.11,
+            "method": "GET",
+            "p95_origin_ms": 283.15,
+            "path": "/rest/v1/nav_config",
+            "requests": 92
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 12.84,
+            "method": "OPTIONS",
+            "p95_origin_ms": 32.8,
+            "path": "/rest/v1/sprints",
+            "requests": 89
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 23.51,
+            "method": "PATCH",
+            "p95_origin_ms": 43.4,
+            "path": "/rest/v1/personal_tasks",
+            "requests": 89
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 149.58,
+            "method": "POST",
+            "p95_origin_ms": 319.8,
+            "path": "/rest/v1/rpc/my_pay_period_hours",
+            "requests": 77
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 31.72,
+            "method": "GET",
+            "p95_origin_ms": 63.2,
+            "path": "/rest/v1/pipeline_goals",
+            "requests": 75
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 31.96,
+            "method": "GET",
+            "p95_origin_ms": 75.9,
+            "path": "/rest/v1/pipeline_settings",
+            "requests": 75
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 96.99,
+            "method": "GET",
+            "p95_origin_ms": 346.95,
+            "path": "/rest/v1/beat_sheets",
+            "requests": 70
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 78.39,
+            "method": "GET",
+            "p95_origin_ms": 241.55,
+            "path": "/rest/v1/conversations",
+            "requests": 70
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 84.33,
+            "method": "GET",
+            "p95_origin_ms": 221.2,
+            "path": "/rest/v1/sponsor_deliverables",
+            "requests": 69
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 142.86,
+            "method": "POST",
+            "p95_origin_ms": 345.3,
+            "path": "/rest/v1/rpc/get_unread_dm_by_sender",
+            "requests": 64
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 146.79,
+            "method": "GET",
+            "p95_origin_ms": 342.2,
+            "path": "/rest/v1/daily_checkins",
+            "requests": 63
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 43.9,
+            "method": "POST",
+            "p95_origin_ms": 60,
+            "path": "/rest/v1/platform_daily_metrics",
+            "requests": 62
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 140.17,
+            "method": "GET",
+            "p95_origin_ms": 305.25,
+            "path": "/rest/v1/user_task_options",
+            "requests": 60
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 112.32,
+            "method": "GET",
+            "p95_origin_ms": 408.55,
+            "path": "/rest/v1/audience_snapshots",
+            "requests": 60
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 59.67,
+            "method": "GET",
+            "p95_origin_ms": 147.45,
+            "path": "/rest/v1/dashboard_todos",
+            "requests": 60
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 118.2,
+            "method": "DELETE",
+            "p95_origin_ms": 329.85,
+            "path": "/rest/v1/dashboard_todos",
+            "requests": 60
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 114.68,
+            "method": "GET",
+            "p95_origin_ms": 319.05,
+            "path": "/rest/v1/sponsor_campaigns",
+            "requests": 60
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 122.58,
+            "method": "GET",
+            "p95_origin_ms": 300.45,
+            "path": "/rest/v1/personal_task_templates",
+            "requests": 60
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 11.71,
+            "method": "OPTIONS",
+            "p95_origin_ms": 32.75,
+            "path": "/rest/v1/write_ideas",
+            "requests": 58
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 74.81,
+            "method": "GET",
+            "p95_origin_ms": 149.2,
+            "path": "/rest/v1/notifications",
+            "requests": 57
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 92.69,
+            "method": "POST",
+            "p95_origin_ms": 197.2,
+            "path": "/rest/v1/analytics_youtube_daily",
+            "requests": 54
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 264.53,
+            "method": "GET",
+            "p95_origin_ms": 431.2,
+            "path": "/rest/v1/platform_accounts",
+            "requests": 53
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 220.88,
+            "method": "POST",
+            "p95_origin_ms": 1151.55,
+            "path": "/rest/v1/revenue_events",
+            "requests": 48
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 130.23,
+            "method": "GET",
+            "p95_origin_ms": 414.95,
+            "path": "/rest/v1/platform_daily_metrics",
+            "requests": 48
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 4.23,
+            "method": "OPTIONS",
+            "p95_origin_ms": 29.9,
+            "path": "/rest/v1/ooo_requests",
+            "requests": 47
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 82.48,
+            "method": "GET",
+            "p95_origin_ms": 249.25,
+            "path": "/rest/v1/write_ideas",
+            "requests": 46
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 52.57,
+            "method": "PATCH",
+            "p95_origin_ms": 100.9,
+            "path": "/rest/v1/conversation_participants",
+            "requests": 42
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 12.67,
+            "method": "OPTIONS",
+            "p95_origin_ms": 26.8,
+            "path": "/rest/v1/dashboard_todos",
+            "requests": 42
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 28.49,
+            "method": "PATCH",
+            "p95_origin_ms": 55.4,
+            "path": "/rest/v1/platform_accounts",
+            "requests": 39
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 22.08,
+            "method": "PATCH",
+            "p95_origin_ms": 37.5,
+            "path": "/rest/v1/ingestion_logs",
+            "requests": 38
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 6.03,
+            "method": "OPTIONS",
+            "p95_origin_ms": 18.8,
+            "path": "/rest/v1/beat_sheets",
+            "requests": 33
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 38.44,
+            "method": "PATCH",
+            "p95_origin_ms": 52.75,
+            "path": "/rest/v1/tasks",
+            "requests": 32
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 25.23,
+            "method": "GET",
+            "p95_origin_ms": 41.85,
+            "path": "/rest/v1/idea_tags",
+            "requests": 30
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 0.13,
+            "method": "OPTIONS",
+            "p95_origin_ms": 0,
+            "path": "/rest/v1/conversations",
+            "requests": 30
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 350.93,
+            "method": "GET",
+            "p95_origin_ms": 462.8,
+            "path": "/rest/v1/automations",
+            "requests": 29
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 0.52,
+            "method": "OPTIONS",
+            "p95_origin_ms": 4.2,
+            "path": "/rest/v1/nav_config",
+            "requests": 29
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 423.29,
+            "method": "GET",
+            "p95_origin_ms": 759.3,
+            "path": "/rest/v1/job_listings",
+            "requests": 28
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 28.33,
+            "method": "GET",
+            "p95_origin_ms": 63.7,
+            "path": "/rest/v1/idea_ratings",
+            "requests": 27
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 41.84,
+            "method": "POST",
+            "p95_origin_ms": 62.4,
+            "path": "/rest/v1/audience_snapshots",
+            "requests": 25
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 28.8,
+            "method": "PATCH",
+            "p95_origin_ms": 63.4,
+            "path": "/rest/v1/projects",
+            "requests": 25
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 39.28,
+            "method": "OPTIONS",
+            "p95_origin_ms": 102.8,
+            "path": "/rest/v1/announcements",
+            "requests": 25
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 34.6,
+            "method": "OPTIONS",
+            "p95_origin_ms": 37.2,
+            "path": "/rest/v1/announcement_reads",
+            "requests": 25
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 0,
+            "method": "OPTIONS",
+            "p95_origin_ms": 0,
+            "path": "/rest/v1/task_sign_offs",
+            "requests": 25
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 20.28,
+            "method": "OPTIONS",
+            "p95_origin_ms": 30.8,
+            "path": "/rest/v1/notifications",
+            "requests": 25
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 50.58,
+            "method": "OPTIONS",
+            "p95_origin_ms": 464.7,
+            "path": "/rest/v1/project_stage_assignments",
+            "requests": 24
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 32.67,
+            "method": "PATCH",
+            "p95_origin_ms": 58.55,
+            "path": "/rest/v1/google_calendar_connections",
+            "requests": 24
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 29.71,
+            "method": "OPTIONS",
+            "p95_origin_ms": 30.35,
+            "path": "/rest/v1/daily_checkins",
+            "requests": 24
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 12.65,
+            "method": "OPTIONS",
+            "p95_origin_ms": 36.2,
+            "path": "/rest/v1/project_assignments",
+            "requests": 23
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 15.78,
+            "method": "OPTIONS",
+            "p95_origin_ms": 32.4,
+            "path": "/rest/v1/deliverable_stage_assignments",
+            "requests": 23
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 14.52,
+            "method": "OPTIONS",
+            "p95_origin_ms": 24.5,
+            "path": "/rest/v1/rpc/my_pay_period_hours",
+            "requests": 23
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 17.48,
+            "method": "OPTIONS",
+            "p95_origin_ms": 39.4,
+            "path": "/rest/v1/rpc/get_unread_dm_by_sender",
+            "requests": 23
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 22.91,
+            "method": "OPTIONS",
+            "p95_origin_ms": 38.9,
+            "path": "/rest/v1/sponsor_campaigns",
+            "requests": 22
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 5.14,
+            "method": "OPTIONS",
+            "p95_origin_ms": 28.9,
+            "path": "/rest/v1/user_task_options",
+            "requests": 22
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 7.95,
+            "method": "OPTIONS",
+            "p95_origin_ms": 35,
+            "path": "/rest/v1/personal_task_templates",
+            "requests": 21
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 7.9,
+            "method": "OPTIONS",
+            "p95_origin_ms": 21,
+            "path": "/rest/v1/sponsor_deliverables",
+            "requests": 21
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 33.2,
+            "method": "PATCH",
+            "p95_origin_ms": 66.4,
+            "path": "/rest/v1/push_subscriptions",
+            "requests": 20
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 27.95,
+            "method": "GET",
+            "p95_origin_ms": 42.5,
+            "path": "/rest/v1/push_subscriptions",
+            "requests": 20
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 68.47,
+            "method": "GET",
+            "p95_origin_ms": 113.2,
+            "path": "/rest/v1/beat_sheet_research_docs",
+            "requests": 19
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 130.67,
+            "method": "DELETE",
+            "p95_origin_ms": 724.7,
+            "path": "/rest/v1/project_stage_assignments",
+            "requests": 18
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 28.31,
+            "method": "GET",
+            "p95_origin_ms": 48.5,
+            "path": "/rest/v1/project_stage_assignments",
+            "requests": 16
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 78.94,
+            "method": "POST",
+            "p95_origin_ms": 140.25,
+            "path": "/rest/v1/direct_messages",
+            "requests": 16
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 0.21,
+            "method": "OPTIONS",
+            "p95_origin_ms": 1.05,
+            "path": "/rest/v1/sprint_goals",
+            "requests": 14
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 433.54,
+            "method": "HEAD",
+            "p95_origin_ms": 607,
+            "path": "/rest/v1/content_items",
+            "requests": 13
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 1458.08,
+            "method": "GET",
+            "p95_origin_ms": 1705.6,
+            "path": "/rest/v1/content_metrics",
+            "requests": 13
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 486.85,
+            "method": "HEAD",
+            "p95_origin_ms": 1220.2,
+            "path": "/rest/v1/sponsors",
+            "requests": 13
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 31.5,
+            "method": "POST",
+            "p95_origin_ms": 53.55,
+            "path": "/rest/v1/yt_dim_os",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 153.17,
+            "method": "GET",
+            "p95_origin_ms": 534.7,
+            "path": "/rest/v1/sync_backfill_queue",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 31.42,
+            "method": "POST",
+            "p95_origin_ms": 52.4,
+            "path": "/rest/v1/yt_dim_traffic_source",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 29.17,
+            "method": "POST",
+            "p95_origin_ms": 41.4,
+            "path": "/rest/v1/yt_dim_gender",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 35.5,
+            "method": "POST",
+            "p95_origin_ms": 52.45,
+            "path": "/rest/v1/yt_dim_geography",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 31.08,
+            "method": "POST",
+            "p95_origin_ms": 66.7,
+            "path": "/rest/v1/yt_dim_device",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 25.92,
+            "method": "POST",
+            "p95_origin_ms": 36.15,
+            "path": "/rest/v1/yt_dim_subscription_status",
+            "requests": 12
+          },
+          {
+            "errors": 12,
+            "mean_origin_ms": 105.33,
+            "method": "POST",
+            "p95_origin_ms": 262,
+            "path": "/rest/v1/authenticated_rate_limits",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 32.17,
+            "method": "POST",
+            "p95_origin_ms": 52,
+            "path": "/rest/v1/yt_dim_age",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 27.33,
+            "method": "PATCH",
+            "p95_origin_ms": 47,
+            "path": "/rest/v1/audience_snapshots",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 118.17,
+            "method": "POST",
+            "p95_origin_ms": 286.4,
+            "path": "/rest/v1/yt_video_daily",
+            "requests": 12
+          },
+          {
+            "errors": 12,
+            "mean_origin_ms": 106.08,
+            "method": "HEAD",
+            "p95_origin_ms": 287.7,
+            "path": "/rest/v1/authenticated_rate_limits",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 36.33,
+            "method": "POST",
+            "p95_origin_ms": 60.95,
+            "path": "/rest/v1/yt_dim_search_terms",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 29.08,
+            "method": "POST",
+            "p95_origin_ms": 52.35,
+            "path": "/rest/v1/yt_dim_viewer_type",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 28.67,
+            "method": "POST",
+            "p95_origin_ms": 37.9,
+            "path": "/rest/v1/yt_dim_playback_location",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 2847.67,
+            "method": "POST",
+            "p95_origin_ms": 3184.15,
+            "path": "/rest/v1/rpc/refresh_daily_platform_rollups",
+            "requests": 12
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 30.45,
+            "method": "POST",
+            "p95_origin_ms": 44.5,
+            "path": "/rest/v1/yt_dim_sharing_service",
+            "requests": 11
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 674.45,
+            "method": "GET",
+            "p95_origin_ms": 3592,
+            "path": "/rest/v1/contractor_assignments",
+            "requests": 11
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 127.73,
+            "method": "GET",
+            "p95_origin_ms": 198,
+            "path": "/rest/v1/reviews",
+            "requests": 11
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 2.3,
+            "method": "OPTIONS",
+            "p95_origin_ms": 6,
+            "path": "/rest/v1/beat_sheet_research_docs",
+            "requests": 10
+          },
+          {
+            "errors": 2,
+            "mean_origin_ms": 68.5,
+            "method": "POST",
+            "p95_origin_ms": 205.7,
+            "path": "/rest/v1/project_stage_assignments",
+            "requests": 10
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 33.1,
+            "method": "POST",
+            "p95_origin_ms": 48,
+            "path": "/rest/v1/yt_dim_external",
+            "requests": 10
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 43,
+            "method": "POST",
+            "p95_origin_ms": 88.3,
+            "path": "/rest/v1/tasks",
+            "requests": 10
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 33.89,
+            "method": "POST",
+            "p95_origin_ms": 43.2,
+            "path": "/rest/v1/yt_dim_city",
+            "requests": 9
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 1.5,
+            "method": "OPTIONS",
+            "p95_origin_ms": 6.9,
+            "path": "/rest/v1/idea_ratings",
+            "requests": 8
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 1.38,
+            "method": "OPTIONS",
+            "p95_origin_ms": 7.15,
+            "path": "/rest/v1/contractor_assignments",
+            "requests": 8
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 64.62,
+            "method": "POST",
+            "p95_origin_ms": 189.05,
+            "path": "/rest/v1/task_events",
+            "requests": 8
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 45.62,
+            "method": "POST",
+            "p95_origin_ms": 69.25,
+            "path": "/rest/v1/notifications",
+            "requests": 8
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 25.5,
+            "method": "POST",
+            "p95_origin_ms": 39.35,
+            "path": "/rest/v1/personal_tasks",
+            "requests": 8
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 111.5,
+            "method": "PATCH",
+            "p95_origin_ms": 129.5,
+            "path": "/rest/v1/canvases",
+            "requests": 6
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 1.33,
+            "method": "OPTIONS",
+            "p95_origin_ms": 6,
+            "path": "/rest/v1/reviews",
+            "requests": 6
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 24.33,
+            "method": "PATCH",
+            "p95_origin_ms": 29.25,
+            "path": "/rest/v1/mailer_sends",
+            "requests": 6
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 96.67,
+            "method": "POST",
+            "p95_origin_ms": 168,
+            "path": "/rest/v1/calendar_events",
+            "requests": 6
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 28.67,
+            "method": "PATCH",
+            "p95_origin_ms": 43.5,
+            "path": "/rest/v1/sync_backfill_queue",
+            "requests": 6
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 59.33,
+            "method": "POST",
+            "p95_origin_ms": 147,
+            "path": "/rest/v1/write_ideas",
+            "requests": 6
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 1,
+            "method": "OPTIONS",
+            "p95_origin_ms": 4,
+            "path": "/rest/v1/idea_tags",
+            "requests": 5
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 94.2,
+            "method": "GET",
+            "p95_origin_ms": 104.6,
+            "path": "/rest/v1/review_replies",
+            "requests": 5
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 12.4,
+            "method": "OPTIONS",
+            "p95_origin_ms": 25,
+            "path": "/rest/v1/content_items",
+            "requests": 5
+          },
+          {
+            "errors": 0,
+            "mean_origin_ms": 25,
+            "method": "POST",
+            "p95_origin_ms": 35.6,
+            "path": "/rest/v1/idea_ratings",
+            "requests": 5
+          }
+        ]
+      }
+    },
+    "function_traffic": {
+      "start": "2026-09-09T19:20:00Z",
+      "end": "2026-09-10T19:20:00Z",
+      "status": 200,
+      "data": {
+        "result": [
+          {
+            "max_ms": 44691,
+            "mean_ms": 1280.19,
+            "method": "POST",
+            "p95_ms": 2039.2,
+            "path": "/functions/v1/drive-watch-poll",
+            "requests": 1439,
+            "status": "200"
+          },
+          {
+            "max_ms": 25320,
+            "mean_ms": 554.14,
+            "method": "POST",
+            "p95_ms": 1096.1,
+            "path": "/functions/v1/mailer-cron-tick",
+            "requests": 1439,
+            "status": "200"
+          },
+          {
+            "max_ms": 8836,
+            "mean_ms": 432.79,
+            "method": "POST",
+            "p95_ms": 632.7,
+            "path": "/functions/v1/assistant-messages",
+            "requests": 1242,
+            "status": "200"
+          },
+          {
+            "max_ms": 16290,
+            "mean_ms": 1134.04,
+            "method": "POST",
+            "p95_ms": 1798.3,
+            "path": "/functions/v1/sync-progress-cards",
+            "requests": 719,
+            "status": "200"
+          },
+          {
+            "max_ms": 14403,
+            "mean_ms": 2466.03,
+            "method": "POST",
+            "p95_ms": 3844.3,
+            "path": "/functions/v1/google-calendar-pull",
+            "requests": 143,
+            "status": "200"
+          },
+          {
+            "max_ms": 1037,
+            "mean_ms": 561.36,
+            "method": "POST",
+            "p95_ms": 694.4,
+            "path": "/functions/v1/google-calendar-fetch",
+            "requests": 42,
+            "status": "200"
+          },
+          {
+            "max_ms": 701,
+            "mean_ms": 132.1,
+            "method": "OPTIONS",
+            "p95_ms": 169,
+            "path": "/functions/v1/google-calendar-fetch",
+            "requests": 41,
+            "status": "200"
+          },
+          {
+            "max_ms": 564,
+            "mean_ms": 133.63,
+            "method": "OPTIONS",
+            "p95_ms": 173.6,
+            "path": "/functions/v1/google-drive-write",
+            "requests": 35,
+            "status": "200"
+          },
+          {
+            "max_ms": 1013,
+            "mean_ms": 549.87,
+            "method": "GET",
+            "p95_ms": 716.5,
+            "path": "/functions/v1/google-drive-write",
+            "requests": 31,
+            "status": "200"
+          },
+          {
+            "max_ms": 8208,
+            "mean_ms": 1669.62,
+            "method": "POST",
+            "p95_ms": 3608.55,
+            "path": "/functions/v1/run-automations",
+            "requests": 24,
+            "status": "200"
+          },
+          {
+            "max_ms": 314,
+            "mean_ms": 219.88,
+            "method": "POST",
+            "p95_ms": 285.6,
+            "path": "/functions/v1/assistant-messages",
+            "requests": 24,
+            "status": "401"
+          },
+          {
+            "max_ms": 862,
+            "mean_ms": 626.38,
+            "method": "POST",
+            "p95_ms": 861,
+            "path": "/functions/v1/send-push",
+            "requests": 21,
+            "status": "200"
+          },
+          {
+            "max_ms": 2877,
+            "mean_ms": 1053.15,
+            "method": "GET",
+            "p95_ms": 1327.55,
+            "path": "/functions/v1/metricool-stories",
+            "requests": 20,
+            "status": "200"
+          },
+          {
+            "max_ms": 148,
+            "mean_ms": 103.35,
+            "method": "OPTIONS",
+            "p95_ms": 140.4,
+            "path": "/functions/v1/metricool-stories",
+            "requests": 20,
+            "status": "200"
+          },
+          {
+            "max_ms": 1131,
+            "mean_ms": 589.5,
+            "method": "POST",
+            "p95_ms": 865.15,
+            "path": "/functions/v1/card-move",
+            "requests": 14,
+            "status": "200"
+          },
+          {
+            "max_ms": 5576,
+            "mean_ms": 2876.69,
+            "method": "GET",
+            "p95_ms": 3997.4,
+            "path": "/functions/v1/public-content",
+            "requests": 13,
+            "status": "200"
+          },
+          {
+            "max_ms": 3574,
+            "mean_ms": 918.23,
+            "method": "GET",
+            "p95_ms": 2027.2,
+            "path": "/functions/v1/public-reach",
+            "requests": 13,
+            "status": "200"
+          },
+          {
+            "max_ms": 7615,
+            "mean_ms": 2023.33,
+            "method": "GET",
+            "p95_ms": 4501.45,
+            "path": "/functions/v1/metricool-posts",
+            "requests": 12,
+            "status": "200"
+          },
+          {
+            "max_ms": 125,
+            "mean_ms": 98.91,
+            "method": "OPTIONS",
+            "p95_ms": 124,
+            "path": "/functions/v1/metricool-posts",
+            "requests": 11,
+            "status": "200"
+          },
+          {
+            "max_ms": 1485,
+            "mean_ms": 881,
+            "method": "POST",
+            "p95_ms": 1352.5,
+            "path": "/functions/v1/run-backfills",
+            "requests": 11,
+            "status": "200"
+          },
+          {
+            "max_ms": 465,
+            "mean_ms": 185.7,
+            "method": "OPTIONS",
+            "p95_ms": 463.2,
+            "path": "/functions/v1/card-move",
+            "requests": 10,
+            "status": "200"
+          },
+          {
+            "max_ms": 963,
+            "mean_ms": 591.71,
+            "method": "POST",
+            "p95_ms": 918,
+            "path": "/functions/v1/google-calendar-sync",
+            "requests": 7,
+            "status": "200"
+          },
+          {
+            "max_ms": 738,
+            "mean_ms": 391.86,
+            "method": "POST",
+            "p95_ms": 624.9,
+            "path": "/functions/v1/sprint-task-sync",
+            "requests": 7,
+            "status": "200"
+          },
+          {
+            "max_ms": 188,
+            "mean_ms": 113.67,
+            "method": "OPTIONS",
+            "p95_ms": 169.75,
+            "path": "/functions/v1/google-calendar-sync",
+            "requests": 6,
+            "status": "200"
+          },
+          {
+            "max_ms": 492,
+            "mean_ms": 167.17,
+            "method": "OPTIONS",
+            "p95_ms": 404.5,
+            "path": "/functions/v1/sprint-task-sync",
+            "requests": 6,
+            "status": "200"
+          },
+          {
+            "max_ms": 968,
+            "mean_ms": 808.4,
+            "method": "GET",
+            "p95_ms": 934.6,
+            "path": "/functions/v1/google-drive-write",
+            "requests": 5,
+            "status": "403"
+          },
+          {
+            "max_ms": 46739,
+            "mean_ms": 41168,
+            "method": "POST",
+            "p95_ms": 46026.8,
+            "path": "/functions/v1/sync-youtube",
+            "requests": 5,
+            "status": "200"
+          },
+          {
+            "max_ms": 2237,
+            "mean_ms": 1430,
+            "method": "POST",
+            "p95_ms": 2147.45,
+            "path": "/functions/v1/workflow-complete-task",
+            "requests": 4,
+            "status": "200"
+          },
+          {
+            "max_ms": 570,
+            "mean_ms": 502.25,
+            "method": "GET",
+            "p95_ms": 565.8,
+            "path": "/functions/v1/public-jobs",
+            "requests": 4,
+            "status": "200"
+          },
+          {
+            "max_ms": 561,
+            "mean_ms": 250.25,
+            "method": "OPTIONS",
+            "p95_ms": 503.7,
+            "path": "/functions/v1/workflow-complete-task",
+            "requests": 4,
+            "status": "200"
+          },
+          {
+            "max_ms": 783,
+            "mean_ms": 581.5,
+            "method": "POST",
+            "p95_ms": 762.85,
+            "path": "/functions/v1/workflow-update-task",
+            "requests": 2,
+            "status": "200"
+          },
+          {
+            "max_ms": 835,
+            "mean_ms": 640.5,
+            "method": "POST",
+            "p95_ms": 815.55,
+            "path": "/functions/v1/assign-task",
+            "requests": 2,
+            "status": "200"
+          },
+          {
+            "max_ms": 6991,
+            "mean_ms": 6621.5,
+            "method": "POST",
+            "p95_ms": 6954.05,
+            "path": "/functions/v1/sync-metricool",
+            "requests": 2,
+            "status": "200"
+          },
+          {
+            "max_ms": 579,
+            "mean_ms": 390.5,
+            "method": "OPTIONS",
+            "p95_ms": 560.15,
+            "path": "/functions/v1/workflow-update-task",
+            "requests": 2,
+            "status": "200"
+          },
+          {
+            "max_ms": 515,
+            "mean_ms": 359.5,
+            "method": "OPTIONS",
+            "p95_ms": 499.45,
+            "path": "/functions/v1/assign-task",
+            "requests": 2,
+            "status": "200"
+          },
+          {
+            "max_ms": 385,
+            "mean_ms": 352,
+            "method": "GET",
+            "p95_ms": 381.7,
+            "path": "/functions/v1/mailer-track-open",
+            "requests": 2,
+            "status": "200"
+          },
+          {
+            "max_ms": 3408,
+            "mean_ms": 3408,
+            "method": "POST",
+            "p95_ms": 3408,
+            "path": "/functions/v1/fetch-daily-graphics",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 3250,
+            "mean_ms": 3250,
+            "method": "POST",
+            "p95_ms": 3250,
+            "path": "/functions/v1/jobs-retention",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 3786,
+            "mean_ms": 3786,
+            "method": "POST",
+            "p95_ms": 3786,
+            "path": "/functions/v1/sync-fourthwall",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 2422,
+            "mean_ms": 2422,
+            "method": "POST",
+            "p95_ms": 2422,
+            "path": "/functions/v1/sync-social-posts",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 639,
+            "mean_ms": 639,
+            "method": "POST",
+            "p95_ms": 639,
+            "path": "/functions/v1/post-daily-graphics",
+            "requests": 1,
+            "status": "500"
+          },
+          {
+            "max_ms": 1042,
+            "mean_ms": 1042,
+            "method": "POST",
+            "p95_ms": 1042,
+            "path": "/functions/v1/run-report",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 30379,
+            "mean_ms": 30379,
+            "method": "POST",
+            "p95_ms": 30379,
+            "path": "/functions/v1/fetch-rss",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 138,
+            "mean_ms": 138,
+            "method": "OPTIONS",
+            "p95_ms": 138,
+            "path": "/functions/v1/fetch-rss",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 133,
+            "mean_ms": 133,
+            "method": "OPTIONS",
+            "p95_ms": 133,
+            "path": "/functions/v1/google-drive-research",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 240,
+            "mean_ms": 240,
+            "method": "POST",
+            "p95_ms": 240,
+            "path": "/functions/v1/sync-stripe",
+            "requests": 1,
+            "status": "500"
+          },
+          {
+            "max_ms": 987,
+            "mean_ms": 987,
+            "method": "POST",
+            "p95_ms": 987,
+            "path": "/functions/v1/mailer-arm-daily",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 10380,
+            "mean_ms": 10380,
+            "method": "POST",
+            "p95_ms": 10380,
+            "path": "/functions/v1/sync-tiller",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 7214,
+            "mean_ms": 7214,
+            "method": "POST",
+            "p95_ms": 7214,
+            "path": "/functions/v1/mailer-send-now",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 6117,
+            "mean_ms": 6117,
+            "method": "POST",
+            "p95_ms": 6117,
+            "path": "/functions/v1/sync-substack",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 7854,
+            "mean_ms": 7854,
+            "method": "POST",
+            "p95_ms": 7854,
+            "path": "/functions/v1/send-notification-email",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 4201,
+            "mean_ms": 4201,
+            "method": "POST",
+            "p95_ms": 4201,
+            "path": "/functions/v1/sync-twitch",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 509,
+            "mean_ms": 509,
+            "method": "POST",
+            "p95_ms": 509,
+            "path": "/functions/v1/youtube-scheduled",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 151,
+            "mean_ms": 151,
+            "method": "OPTIONS",
+            "p95_ms": 151,
+            "path": "/functions/v1/youtube-scheduled",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 1294,
+            "mean_ms": 1294,
+            "method": "POST",
+            "p95_ms": 1294,
+            "path": "/functions/v1/snapshot-daily-work",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 857,
+            "mean_ms": 857,
+            "method": "GET",
+            "p95_ms": 857,
+            "path": "/functions/v1/imagine-history",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 795,
+            "mean_ms": 795,
+            "method": "GET",
+            "p95_ms": 795,
+            "path": "/functions/v1/google-drive-research",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 1087,
+            "mean_ms": 1087,
+            "method": "GET",
+            "p95_ms": 1087,
+            "path": "/functions/v1/google-drive-resources",
+            "requests": 1,
+            "status": "403"
+          },
+          {
+            "max_ms": 139,
+            "mean_ms": 139,
+            "method": "OPTIONS",
+            "p95_ms": 139,
+            "path": "/functions/v1/google-drive-resources",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 2565,
+            "mean_ms": 2565,
+            "method": "POST",
+            "p95_ms": 2565,
+            "path": "/functions/v1/plaid-sync",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 4256,
+            "mean_ms": 4256,
+            "method": "POST",
+            "p95_ms": 4256,
+            "path": "/functions/v1/check-data-integrity",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 117,
+            "mean_ms": 117,
+            "method": "OPTIONS",
+            "p95_ms": 117,
+            "path": "/functions/v1/imagine-history",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 1846,
+            "mean_ms": 1846,
+            "method": "POST",
+            "p95_ms": 1846,
+            "path": "/functions/v1/archive-published-cards",
+            "requests": 1,
+            "status": "200"
+          },
+          {
+            "max_ms": 16106,
+            "mean_ms": 16106,
+            "method": "POST",
+            "p95_ms": 16106,
+            "path": "/functions/v1/sync-simplecast",
+            "requests": 1,
+            "status": "200"
+          }
+        ]
+      }
+    },
+    "api_errors": {
+      "start": "2026-09-09T19:20:00Z",
+      "end": "2026-09-10T19:20:00Z",
+      "status": 200,
+      "data": {
+        "result": [
+          {
+            "method": "POST",
+            "path": "/rest/v1/content_items",
+            "requests": 24,
+            "status": "400"
+          },
+          {
+            "method": "GET",
+            "path": "/auth/v1/user",
+            "requests": 24,
+            "status": "403"
+          },
+          {
+            "method": "POST",
+            "path": "/rest/v1/authenticated_rate_limits",
+            "requests": 12,
+            "status": "404"
+          },
+          {
+            "method": "HEAD",
+            "path": "/rest/v1/authenticated_rate_limits",
+            "requests": 12,
+            "status": "404"
+          },
+          {
+            "method": "GET",
+            "path": "/rest/v1/google_calendar_connections",
+            "requests": 11,
+            "status": "406"
+          },
+          {
+            "method": "POST",
+            "path": "/rest/v1/rpc/get_sync_health",
+            "requests": 2,
+            "status": "400"
+          },
+          {
+            "method": "POST",
+            "path": "/rest/v1/project_stage_assignments",
+            "requests": 2,
+            "status": "409"
+          },
+          {
+            "method": "POST",
+            "path": "/auth/v1/token",
+            "requests": 1,
+            "status": "400"
+          },
+          {
+            "method": "GET",
+            "path": "/rest/v1/research_feeds",
+            "requests": 1,
+            "status": "401"
+          }
+        ]
+      }
+    },
+    "browser_origin_traffic": {
+      "start": "2026-09-09T19:20:00Z",
+      "end": "2026-09-10T19:20:00Z",
+      "status": 200,
+      "data": {
+        "result": [
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/sprints",
+            "requests": 24769
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/personal_tasks",
+            "requests": 24534
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/sprint_goals",
+            "requests": 24270
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/sprints",
+            "requests": 6376
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/personal_tasks",
+            "requests": 6261
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/sprint_goals",
+            "requests": 6243
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/drive_watches",
+            "requests": 4320
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/profiles",
+            "requests": 3650
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/profiles",
+            "requests": 2835
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/direct_messages",
+            "requests": 2553
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/channel_messages",
+            "requests": 1546
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/mailer_campaigns",
+            "requests": 1445
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/progress_cards",
+            "requests": 1440
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/conversation_participants",
+            "requests": 1308
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/content_items",
+            "requests": 1097
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/profiles",
+            "requests": 969
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/rpc/get_unread_dm_count",
+            "requests": 960
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/channel_messages",
+            "requests": 940
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/rpc/get_notification_summary",
+            "requests": 940
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/google_calendar_sync_state",
+            "requests": 864
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/projects",
+            "requests": 509
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/yt_video_dim_subscription_status",
+            "requests": 436
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/tasks",
+            "requests": 420
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/conversation_participants",
+            "requests": 361
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/google_calendar_connections",
+            "requests": 361
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/direct_messages",
+            "requests": 354
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/rpc/get_unread_dm_count",
+            "requests": 333
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/content_metrics",
+            "requests": 321
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/channel_messages",
+            "requests": 319
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/rpc/get_notification_summary",
+            "requests": 318
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/rpc/get_unread_dm_count",
+            "requests": 307
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/rpc/get_notification_summary",
+            "requests": 304
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/harbor_sessions",
+            "requests": 288
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/write_ideas",
+            "requests": 266
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/research_articles",
+            "requests": 258
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/conversation_participants",
+            "requests": 236
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/direct_messages",
+            "requests": 215
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/ingestion_logs",
+            "requests": 208
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/calendar_events",
+            "requests": 199
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/ooo_requests",
+            "requests": 197
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/tasks",
+            "requests": 192
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/projects",
+            "requests": 160
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/google_calendar_mappings",
+            "requests": 144
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/task_sign_offs",
+            "requests": 135
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/platform_daily_metrics",
+            "requests": 112
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/dashboard_todos",
+            "requests": 108
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/announcement_reads",
+            "requests": 100
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/announcements",
+            "requests": 100
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/project_assignments",
+            "requests": 99
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/deliverable_stage_assignments",
+            "requests": 98
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/audience_snapshots",
+            "requests": 98
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/cockpit_projects",
+            "requests": 94
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/platform_accounts",
+            "requests": 89
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/projects",
+            "requests": 80
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/calendar_events",
+            "requests": 71
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/rpc/my_pay_period_hours",
+            "requests": 70
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/tasks",
+            "requests": 69
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/pipeline_goals",
+            "requests": 68
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/pipeline_settings",
+            "requests": 68
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/nav_config",
+            "requests": 65
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/sprints",
+            "requests": 64
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/conversations",
+            "requests": 62
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/project_stage_assignments",
+            "requests": 62
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/analytics_youtube_daily",
+            "requests": 58
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/rpc/get_unread_dm_by_sender",
+            "requests": 57
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/daily_checkins",
+            "requests": 56
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/sponsor_campaigns",
+            "requests": 55
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/user_task_options",
+            "requests": 55
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/personal_task_templates",
+            "requests": 54
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/personal_tasks",
+            "requests": 52
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/sponsor_deliverables",
+            "requests": 48
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/revenue_events",
+            "requests": 48
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/beat_sheets",
+            "requests": 47
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/notifications",
+            "requests": 41
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/ooo_requests",
+            "requests": 40
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/push_subscriptions",
+            "requests": 40
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/beat_sheets",
+            "requests": 37
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/nav_config",
+            "requests": 34
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/ooo_requests",
+            "requests": 33
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/write_ideas",
+            "requests": 33
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/dashboard_todos",
+            "requests": 32
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/idea_ratings",
+            "requests": 31
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/task_sign_offs",
+            "requests": 31
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/conversations",
+            "requests": 31
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/idea_tags",
+            "requests": 30
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/job_listings",
+            "requests": 28
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/calendar_events",
+            "requests": 28
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/notifications",
+            "requests": 28
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/beat_sheet_research_docs",
+            "requests": 26
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/authenticated_rate_limits",
+            "requests": 24
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/automations",
+            "requests": 24
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/notifications",
+            "requests": 24
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/task_sign_offs",
+            "requests": 23
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/nav_config",
+            "requests": 22
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/dashboard_todos",
+            "requests": 22
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/sync_backfill_queue",
+            "requests": 21
+          },
+          {
+            "origin": "www.maydaystudio.app",
+            "path": "/rest/v1/sponsor_deliverables",
+            "requests": 21
+          },
+          {
+            "origin": "",
+            "path": "/rest/v1/sponsor_deliverables",
+            "requests": 21
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/announcements",
+            "requests": 20
+          },
+          {
+            "origin": "studio-hub-fawn.vercel.app",
+            "path": "/rest/v1/announcement_reads",
+            "requests": 20
+          }
+        ]
+      }
+    },
+    "sprint_hourly": {
+      "start": "2026-09-09T19:20:00Z",
+      "end": "2026-09-10T19:20:00Z",
+      "status": 200,
+      "data": {
+        "result": [
+          {
+            "hour": "2026-09-09T19:00:00",
+            "requests": 36
+          },
+          {
+            "hour": "2026-09-09T20:00:00",
+            "requests": 60512
+          },
+          {
+            "hour": "2026-09-09T21:00:00",
+            "requests": 864
+          },
+          {
+            "hour": "2026-09-09T22:00:00",
+            "requests": 1407
+          },
+          {
+            "hour": "2026-09-09T23:00:00",
+            "requests": 13
+          },
+          {
+            "hour": "2026-09-10T00:00:00",
+            "requests": 9
+          },
+          {
+            "hour": "2026-09-10T01:00:00",
+            "requests": 6
+          },
+          {
+            "hour": "2026-09-10T02:00:00",
+            "requests": 43
+          },
+          {
+            "hour": "2026-09-10T07:00:00",
+            "requests": 2
+          },
+          {
+            "hour": "2026-09-10T13:00:00",
+            "requests": 15
+          },
+          {
+            "hour": "2026-09-10T14:00:00",
+            "requests": 20
+          },
+          {
+            "hour": "2026-09-10T15:00:00",
+            "requests": 21
+          },
+          {
+            "hour": "2026-09-10T16:00:00",
+            "requests": 19979
+          },
+          {
+            "hour": "2026-09-10T17:00:00",
+            "requests": 15
+          },
+          {
+            "hour": "2026-09-10T18:00:00",
+            "requests": 4609
+          },
+          {
+            "hour": "2026-09-10T19:00:00",
+            "requests": 4709
+          }
+        ]
+      }
+    },
+    "postgres_errors": {
+      "start": "2026-09-09T19:20:00Z",
+      "end": "2026-09-10T19:20:00Z",
+      "status": 200,
+      "data": {
+        "result": [
+          {
+            "events": 12,
+            "missing_rate_limit_mentions": 0,
+            "return_shape_errors": 0,
+            "severity": "ERROR",
+            "sqlstate": "22P02",
+            "sync_health_mentions": 0
+          },
+          {
+            "events": 7,
+            "missing_rate_limit_mentions": 0,
+            "return_shape_errors": 0,
+            "severity": "ERROR",
+            "sqlstate": "42703",
+            "sync_health_mentions": 0
+          },
+          {
+            "events": 2,
+            "missing_rate_limit_mentions": 0,
+            "return_shape_errors": 0,
+            "severity": "ERROR",
+            "sqlstate": "42702",
+            "sync_health_mentions": 0
+          },
+          {
+            "events": 2,
+            "missing_rate_limit_mentions": 0,
+            "return_shape_errors": 0,
+            "severity": "ERROR",
+            "sqlstate": "23505",
+            "sync_health_mentions": 0
+          },
+          {
+            "events": 1,
+            "missing_rate_limit_mentions": 0,
+            "return_shape_errors": 0,
+            "severity": "ERROR",
+            "sqlstate": "42883",
+            "sync_health_mentions": 0
+          }
+        ]
+      }
+    },
+    "sync_error_shape": {
+      "start": "2026-09-09T19:20:00Z",
+      "end": "2026-09-10T19:20:00Z",
+      "status": 200,
+      "data": {
+        "result": [
+          {
+            "error_shape": "column reference \"platform_account_id\" is ambiguous",
+            "events": 2
+          }
+        ]
+      }
+    },
+    "ambiguous_context": {
+      "start": "2026-09-09T19:20:00Z",
+      "end": "2026-09-10T19:20:00Z",
+      "status": 200,
+      "data": {
+        "result": [
+          {
+            "context": "PL/pgSQL function get_sync_health() line 6 at RETURN QUERY",
+            "events": 2
+          }
+        ]
+      }
+    },
+    "browser": {
+      "at": "2026-09-10T19:19:26.887Z",
+      "method": "3 fresh browser contexts, desktop, unthrottled, GET/HEAD/OPTIONS only",
+      "runs": [
+        {
+          "url": "https://maydaystudio.app/",
+          "title": "Mayday Studio",
+          "navigation": [
+            {
+              "ttfb": 1500.7000000476837,
+              "domContentLoaded": 2177.5999999046326,
+              "load": 2178.0999999046326,
+              "transferSize": 1275
+            }
+          ],
+          "resources": [
+            {
+              "path": "/static/js/main.cbd0cd54.js",
+              "type": "script",
+              "duration": 432.7999999523163,
+              "transferSize": 112058,
+              "encodedBodySize": 111758,
+              "decodedBodySize": 383363
+            },
+            {
+              "path": "/static/js/146.9fb42c20.chunk.js",
+              "type": "script",
+              "duration": 135.5,
+              "transferSize": 3827,
+              "encodedBodySize": 3527,
+              "decodedBodySize": 11161
+            },
+            {
+              "path": "/logo.png",
+              "type": "img",
+              "duration": 342,
+              "transferSize": 69613,
+              "encodedBodySize": 69313,
+              "decodedBodySize": 69313
+            }
+          ],
+          "paint": [
+            {
+              "name": "first-paint",
+              "start": 2180
+            },
+            {
+              "name": "first-contentful-paint",
+              "start": 2348
+            }
+          ],
+          "longTasks": [],
+          "lcp": [
+            {
+              "start": 2348,
+              "size": 6256
+            }
+          ],
+          "responses": [
+            {
+              "path": "/",
+              "status": 200
+            },
+            {
+              "path": "/static/js/main.cbd0cd54.js",
+              "status": 200
+            },
+            {
+              "path": "/static/js/146.9fb42c20.chunk.js",
+              "status": 200
+            },
+            {
+              "path": "/logo.png",
+              "status": 200
+            }
+          ],
+          "errors": []
+        },
+        {
+          "url": "https://maydaystudio.app/",
+          "title": "Mayday Studio",
+          "navigation": [
+            {
+              "ttfb": 134.5,
+              "domContentLoaded": 413.5,
+              "load": 413.90000009536743,
+              "transferSize": 1275
+            }
+          ],
+          "resources": [
+            {
+              "path": "/static/js/main.cbd0cd54.js",
+              "type": "script",
+              "duration": 156.89999985694885,
+              "transferSize": 112058,
+              "encodedBodySize": 111758,
+              "decodedBodySize": 383363
+            },
+            {
+              "path": "/static/js/146.9fb42c20.chunk.js",
+              "type": "script",
+              "duration": 32.10000014305115,
+              "transferSize": 3827,
+              "encodedBodySize": 3527,
+              "decodedBodySize": 11161
+            },
+            {
+              "path": "/logo.png",
+              "type": "img",
+              "duration": 32.60000014305115,
+              "transferSize": 69613,
+              "encodedBodySize": 69313,
+              "decodedBodySize": 69313
+            }
+          ],
+          "paint": [
+            {
+              "name": "first-paint",
+              "start": 416
+            },
+            {
+              "name": "first-contentful-paint",
+              "start": 476
+            }
+          ],
+          "longTasks": [],
+          "lcp": [
+            {
+              "start": 476,
+              "size": 6256
+            }
+          ],
+          "responses": [
+            {
+              "path": "/",
+              "status": 200
+            },
+            {
+              "path": "/static/js/main.cbd0cd54.js",
+              "status": 200
+            },
+            {
+              "path": "/static/js/146.9fb42c20.chunk.js",
+              "status": 200
+            },
+            {
+              "path": "/logo.png",
+              "status": 200
+            }
+          ],
+          "errors": []
+        },
+        {
+          "url": "https://maydaystudio.app/",
+          "title": "Mayday Studio",
+          "navigation": [
+            {
+              "ttfb": 134.39999985694885,
+              "domContentLoaded": 193,
+              "load": 193.19999980926514,
+              "transferSize": 1275
+            }
+          ],
+          "resources": [
+            {
+              "path": "/static/js/main.cbd0cd54.js",
+              "type": "script",
+              "duration": 42.09999990463257,
+              "transferSize": 112058,
+              "encodedBodySize": 111758,
+              "decodedBodySize": 383363
+            },
+            {
+              "path": "/static/js/146.9fb42c20.chunk.js",
+              "type": "script",
+              "duration": 40.69999980926514,
+              "transferSize": 3827,
+              "encodedBodySize": 3527,
+              "decodedBodySize": 11161
+            },
+            {
+              "path": "/logo.png",
+              "type": "img",
+              "duration": 36,
+              "transferSize": 69613,
+              "encodedBodySize": 69313,
+              "decodedBodySize": 69313
+            }
+          ],
+          "paint": [
+            {
+              "name": "first-paint",
+              "start": 204
+            },
+            {
+              "name": "first-contentful-paint",
+              "start": 204
+            }
+          ],
+          "longTasks": [],
+          "lcp": [
+            {
+              "start": 272,
+              "size": 6256
+            }
+          ],
+          "responses": [
+            {
+              "path": "/",
+              "status": 200
+            },
+            {
+              "path": "/static/js/main.cbd0cd54.js",
+              "status": 200
+            },
+            {
+              "path": "/static/js/146.9fb42c20.chunk.js",
+              "status": 200
+            },
+            {
+              "path": "/logo.png",
+              "status": 200
+            }
+          ],
+          "errors": []
+        }
+      ]
+    },
+    "sprint-repro": [
+      {
+        "boardVersion": 0,
+        "counts": {
+          "sprints": 2,
+          "personal_tasks": 1,
+          "sprint_goals": 1
+        },
+        "cappedAt50Requests": false
+      },
+      {
+        "boardVersion": 1,
+        "counts": {
+          "sprints": 22,
+          "personal_tasks": 18,
+          "sprint_goals": 18
+        },
+        "cappedAt50Requests": true
+      }
+    ],
+    "edge-functions": [
+      {
+        "slug": "metricool-posts",
+        "status": "ACTIVE",
+        "version": 80,
+        "verify_jwt": false,
+        "updated_at": 1788532300495
+      },
+      {
+        "slug": "invite-user",
+        "status": "ACTIVE",
+        "version": 82,
+        "verify_jwt": false,
+        "updated_at": 1786555949011
+      },
+      {
+        "slug": "fetch-rss",
+        "status": "ACTIVE",
+        "version": 73,
+        "verify_jwt": false,
+        "updated_at": 1788039564479
+      },
+      {
+        "slug": "remove-user",
+        "status": "ACTIVE",
+        "version": 70,
+        "verify_jwt": false,
+        "updated_at": 1786478600169
+      },
+      {
+        "slug": "google-auth-url",
+        "status": "ACTIVE",
+        "version": 74,
+        "verify_jwt": false,
+        "updated_at": 1788453114801
+      },
+      {
+        "slug": "google-auth-callback",
+        "status": "ACTIVE",
+        "version": 74,
+        "verify_jwt": false,
+        "updated_at": 1788453110686
+      },
+      {
+        "slug": "google-calendars-list",
+        "status": "ACTIVE",
+        "version": 71,
+        "verify_jwt": false,
+        "updated_at": 1788453131145
+      },
+      {
+        "slug": "google-calendar-sync",
+        "status": "ACTIVE",
+        "version": 74,
+        "verify_jwt": false,
+        "updated_at": 1788453127365
+      },
+      {
+        "slug": "google-disconnect",
+        "status": "ACTIVE",
+        "version": 73,
+        "verify_jwt": false,
+        "updated_at": 1788453134294
+      },
+      {
+        "slug": "sync-youtube",
+        "status": "ACTIVE",
+        "version": 97,
+        "verify_jwt": false,
+        "updated_at": 1788453249805
+      },
+      {
+        "slug": "sync-substack",
+        "status": "ACTIVE",
+        "version": 74,
+        "verify_jwt": false,
+        "updated_at": 1788453237850
+      },
+      {
+        "slug": "sync-stripe",
+        "status": "ACTIVE",
+        "version": 72,
+        "verify_jwt": false,
+        "updated_at": 1788453233995
+      },
+      {
+        "slug": "sync-metricool",
+        "status": "ACTIVE",
+        "version": 91,
+        "verify_jwt": false,
+        "updated_at": 1788453224688
+      },
+      {
+        "slug": "twitch-auth-callback",
+        "status": "ACTIVE",
+        "version": 65,
+        "verify_jwt": false,
+        "updated_at": 1788453261218
+      },
+      {
+        "slug": "sync-twitch",
+        "status": "ACTIVE",
+        "version": 64,
+        "verify_jwt": false,
+        "updated_at": 1788453245111
+      },
+      {
+        "slug": "sync-fourthwall",
+        "status": "ACTIVE",
+        "version": 60,
+        "verify_jwt": false,
+        "updated_at": 1788453220784
+      },
+      {
+        "slug": "triton-link",
+        "status": "ACTIVE",
+        "version": 52,
+        "verify_jwt": false,
+        "updated_at": 1788453257468
+      },
+      {
+        "slug": "google-calendar-fetch",
+        "status": "ACTIVE",
+        "version": 53,
+        "verify_jwt": false,
+        "updated_at": 1788453117999
+      },
+      {
+        "slug": "generate-trends",
+        "status": "ACTIVE",
+        "version": 54,
+        "verify_jwt": false,
+        "updated_at": 1788453102547
+      },
+      {
+        "slug": "metricool-stories",
+        "status": "ACTIVE",
+        "version": 59,
+        "verify_jwt": false,
+        "updated_at": 1788453168349
+      },
+      {
+        "slug": "run-report",
+        "status": "ACTIVE",
+        "version": 60,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "preview-report",
+        "status": "ACTIVE",
+        "version": 52,
+        "verify_jwt": false,
+        "updated_at": 1788453189829
+      },
+      {
+        "slug": "fetch-daily-graphics",
+        "status": "ACTIVE",
+        "version": 49,
+        "verify_jwt": false,
+        "updated_at": 1788453091951
+      },
+      {
+        "slug": "post-daily-graphics",
+        "status": "ACTIVE",
+        "version": 52,
+        "verify_jwt": false,
+        "updated_at": 1788453186043
+      },
+      {
+        "slug": "snapshot-daily-work",
+        "status": "ACTIVE",
+        "version": 48,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "google-drive-folders",
+        "status": "ACTIVE",
+        "version": 53,
+        "verify_jwt": false,
+        "updated_at": 1788453141278
+      },
+      {
+        "slug": "google-drive-create-sheet",
+        "status": "ACTIVE",
+        "version": 51,
+        "verify_jwt": false,
+        "updated_at": 1788453137917
+      },
+      {
+        "slug": "sync-tiller",
+        "status": "ACTIVE",
+        "version": 64,
+        "verify_jwt": false,
+        "updated_at": 1788453242100
+      },
+      {
+        "slug": "google-drive-resources",
+        "status": "ACTIVE",
+        "version": 50,
+        "verify_jwt": false,
+        "updated_at": 1788453145116
+      },
+      {
+        "slug": "google-drive-write",
+        "status": "ACTIVE",
+        "version": 48,
+        "verify_jwt": false,
+        "updated_at": 1788453150302
+      },
+      {
+        "slug": "drive-upload-init",
+        "status": "ACTIVE",
+        "version": 57,
+        "verify_jwt": false,
+        "updated_at": 1785351796606
+      },
+      {
+        "slug": "drive-list-clips",
+        "status": "ACTIVE",
+        "version": 44,
+        "verify_jwt": false,
+        "updated_at": 1788453080681
+      },
+      {
+        "slug": "drive-list-contractor-folders",
+        "status": "ACTIVE",
+        "version": 43,
+        "verify_jwt": false,
+        "updated_at": 1786478605192
+      },
+      {
+        "slug": "sync-youtube-dimensions",
+        "status": "ACTIVE",
+        "version": 54,
+        "verify_jwt": false,
+        "updated_at": 1788453253743
+      },
+      {
+        "slug": "backfill-youtube-dimensions",
+        "status": "ACTIVE",
+        "version": 47,
+        "verify_jwt": false,
+        "updated_at": 1788453059640
+      },
+      {
+        "slug": "notify-fl-assignment",
+        "status": "ACTIVE",
+        "version": 43,
+        "verify_jwt": false,
+        "updated_at": 1786047169351
+      },
+      {
+        "slug": "workflow-start",
+        "status": "ACTIVE",
+        "version": 52,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "workflow-update-task",
+        "status": "ACTIVE",
+        "version": 50,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "workflow-complete-task",
+        "status": "ACTIVE",
+        "version": 60,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "workflow-internal",
+        "status": "ACTIVE",
+        "version": 45,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "assign-task",
+        "status": "ACTIVE",
+        "version": 48,
+        "verify_jwt": false,
+        "updated_at": 1789067362894
+      },
+      {
+        "slug": "jobs-apply",
+        "status": "ACTIVE",
+        "version": 49,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "jobs-review",
+        "status": "ACTIVE",
+        "version": 46,
+        "verify_jwt": false,
+        "updated_at": 1788453162067
+      },
+      {
+        "slug": "drive-watch-register",
+        "status": "ACTIVE",
+        "version": 42,
+        "verify_jwt": false,
+        "updated_at": 1788453084600
+      },
+      {
+        "slug": "drive-watch-stop",
+        "status": "ACTIVE",
+        "version": 41,
+        "verify_jwt": false,
+        "updated_at": 1788453087803
+      },
+      {
+        "slug": "drive-watch-poll",
+        "status": "ACTIVE",
+        "version": 42,
+        "verify_jwt": false,
+        "updated_at": 1783049926282
+      },
+      {
+        "slug": "run-automations",
+        "status": "ACTIVE",
+        "version": 48,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "cloud-folders",
+        "status": "ACTIVE",
+        "version": 41,
+        "verify_jwt": false,
+        "updated_at": 1786478602760
+      },
+      {
+        "slug": "imagine-history",
+        "status": "ACTIVE",
+        "version": 35,
+        "verify_jwt": false,
+        "updated_at": 1783283767612
+      },
+      {
+        "slug": "workflow-move-card",
+        "status": "ACTIVE",
+        "version": 38,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "sync-progress-cards",
+        "status": "ACTIVE",
+        "version": 55,
+        "verify_jwt": false,
+        "updated_at": 1788453227311
+      },
+      {
+        "slug": "youtube-scheduled",
+        "status": "ACTIVE",
+        "version": 35,
+        "verify_jwt": false,
+        "updated_at": 1788453264025
+      },
+      {
+        "slug": "workflow-trigger-event",
+        "status": "ACTIVE",
+        "version": 43,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "card-move",
+        "status": "ACTIVE",
+        "version": 54,
+        "verify_jwt": false,
+        "updated_at": 1789054236469
+      },
+      {
+        "slug": "card-hold",
+        "status": "ACTIVE",
+        "version": 33,
+        "verify_jwt": false,
+        "updated_at": 1788453064762
+      },
+      {
+        "slug": "archive-published-cards",
+        "status": "ACTIVE",
+        "version": 33,
+        "verify_jwt": false,
+        "updated_at": 1783283746118
+      },
+      {
+        "slug": "approve-automation",
+        "status": "ACTIVE",
+        "version": 36,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "mailer-send-now",
+        "status": "ACTIVE",
+        "version": 45,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "mailer-webhook",
+        "status": "ACTIVE",
+        "version": 35,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "mailer-track-open",
+        "status": "ACTIVE",
+        "version": 34,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "mailer-track-click",
+        "status": "ACTIVE",
+        "version": 34,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "mailer-unsubscribe",
+        "status": "ACTIVE",
+        "version": 34,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "mailer-cron-tick",
+        "status": "ACTIVE",
+        "version": 35,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "mailer-domain",
+        "status": "ACTIVE",
+        "version": 36,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "google-drive-research",
+        "status": "ACTIVE",
+        "version": 33,
+        "verify_jwt": false,
+        "updated_at": 1781981135556
+      },
+      {
+        "slug": "stats-query",
+        "status": "ACTIVE",
+        "version": 51,
+        "verify_jwt": false,
+        "updated_at": 1788453217299
+      },
+      {
+        "slug": "generate-brief-onepager",
+        "status": "ACTIVE",
+        "version": 33,
+        "verify_jwt": false,
+        "updated_at": 1785351798948
+      },
+      {
+        "slug": "jobs-retention",
+        "status": "ACTIVE",
+        "version": 31,
+        "verify_jwt": false,
+        "updated_at": 1783283770930
+      },
+      {
+        "slug": "jobs-status",
+        "status": "ACTIVE",
+        "version": 32,
+        "verify_jwt": false,
+        "updated_at": 1786047161126
+      },
+      {
+        "slug": "jobs-view",
+        "status": "ACTIVE",
+        "version": 32,
+        "verify_jwt": false,
+        "updated_at": 1786047163967
+      },
+      {
+        "slug": "reassign-task",
+        "status": "ACTIVE",
+        "version": 32,
+        "verify_jwt": false,
+        "updated_at": 1788453200912
+      },
+      {
+        "slug": "organize-autotag",
+        "status": "ACTIVE",
+        "version": 31,
+        "verify_jwt": false,
+        "updated_at": 1784165307310
+      },
+      {
+        "slug": "sprint-task-sync",
+        "status": "ACTIVE",
+        "version": 33,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "progress-reorder",
+        "status": "ACTIVE",
+        "version": 34,
+        "verify_jwt": false,
+        "updated_at": 1788453197151
+      },
+      {
+        "slug": "progress-rename",
+        "status": "ACTIVE",
+        "version": 33,
+        "verify_jwt": false,
+        "updated_at": 1788453193589
+      },
+      {
+        "slug": "generate-weekly-report",
+        "status": "ACTIVE",
+        "version": 37,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "sync-simplecast",
+        "status": "ACTIVE",
+        "version": 33,
+        "verify_jwt": false,
+        "updated_at": 1788453230217
+      },
+      {
+        "slug": "send-notification-email",
+        "status": "ACTIVE",
+        "version": 34,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "check-data-integrity",
+        "status": "ACTIVE",
+        "version": 33,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "run-backfills",
+        "status": "ACTIVE",
+        "version": 31,
+        "verify_jwt": false,
+        "updated_at": 1788453208184
+      },
+      {
+        "slug": "mailer-arm-daily",
+        "status": "ACTIVE",
+        "version": 33,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "plaid-link-token",
+        "status": "ACTIVE",
+        "version": 30,
+        "verify_jwt": false,
+        "updated_at": 1788453176257
+      },
+      {
+        "slug": "plaid-exchange-token",
+        "status": "ACTIVE",
+        "version": 30,
+        "verify_jwt": false,
+        "updated_at": 1788453172744
+      },
+      {
+        "slug": "plaid-sync",
+        "status": "ACTIVE",
+        "version": 32,
+        "verify_jwt": false,
+        "updated_at": 1788453181446
+      },
+      {
+        "slug": "import-transactions",
+        "status": "ACTIVE",
+        "version": 30,
+        "verify_jwt": false,
+        "updated_at": 1788453158897
+      },
+      {
+        "slug": "categorize-backlog",
+        "status": "ACTIVE",
+        "version": 30,
+        "verify_jwt": false,
+        "updated_at": 1788453072299
+      },
+      {
+        "slug": "import-tiller-v1",
+        "status": "ACTIVE",
+        "version": 29,
+        "verify_jwt": false,
+        "updated_at": 1788453154590
+      },
+      {
+        "slug": "pitch-video-drive",
+        "status": "ACTIVE",
+        "version": 29,
+        "verify_jwt": false,
+        "updated_at": 1784051416698
+      },
+      {
+        "slug": "send-push",
+        "status": "ACTIVE",
+        "version": 28,
+        "verify_jwt": false,
+        "updated_at": 1785428054360
+      },
+      {
+        "slug": "generate-monthly-report",
+        "status": "ACTIVE",
+        "version": 29,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "shade-search",
+        "status": "ACTIVE",
+        "version": 34,
+        "verify_jwt": false,
+        "updated_at": 1783975705128
+      },
+      {
+        "slug": "generate-ashley-read",
+        "status": "ACTIVE",
+        "version": 21,
+        "verify_jwt": false,
+        "updated_at": 1788453096473
+      },
+      {
+        "slug": "assistant-summary",
+        "status": "ACTIVE",
+        "version": 22,
+        "verify_jwt": false,
+        "updated_at": 1784602267752
+      },
+      {
+        "slug": "find-assets-enrich",
+        "status": "ACTIVE",
+        "version": 20,
+        "verify_jwt": false,
+        "updated_at": 1784165260061
+      },
+      {
+        "slug": "assistant-messages",
+        "status": "ACTIVE",
+        "version": 22,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "assistant-send-dm",
+        "status": "ACTIVE",
+        "version": 21,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "assistant-complete",
+        "status": "ACTIVE",
+        "version": 21,
+        "verify_jwt": false,
+        "updated_at": 1788911442764
+      },
+      {
+        "slug": "assistant-create-card",
+        "status": "ACTIVE",
+        "version": 19,
+        "verify_jwt": false,
+        "updated_at": 1784136230104
+      },
+      {
+        "slug": "assistant-workflow-status",
+        "status": "ACTIVE",
+        "version": 19,
+        "verify_jwt": false,
+        "updated_at": 1784136606084
+      },
+      {
+        "slug": "assistant-tracking",
+        "status": "ACTIVE",
+        "version": 19,
+        "verify_jwt": false,
+        "updated_at": 1784242138777
+      },
+      {
+        "slug": "project-drive-folders",
+        "status": "ACTIVE",
+        "version": 20,
+        "verify_jwt": false,
+        "updated_at": 1785351794104
+      },
+      {
+        "slug": "public-deliverables",
+        "status": "ACTIVE",
+        "version": 19,
+        "verify_jwt": false,
+        "updated_at": 1784591660670
+      },
+      {
+        "slug": "assistant-project-detail",
+        "status": "ACTIVE",
+        "version": 19,
+        "verify_jwt": false,
+        "updated_at": 1784602304571
+      },
+      {
+        "slug": "assistant-roadmap",
+        "status": "ACTIVE",
+        "version": 19,
+        "verify_jwt": false,
+        "updated_at": 1784602326138
+      },
+      {
+        "slug": "assistant-daily-brief",
+        "status": "ACTIVE",
+        "version": 19,
+        "verify_jwt": false,
+        "updated_at": 1784602353977
+      },
+      {
+        "slug": "assistant-add-idea",
+        "status": "ACTIVE",
+        "version": 19,
+        "verify_jwt": false,
+        "updated_at": 1784602373550
+      },
+      {
+        "slug": "assistant-inbox",
+        "status": "ACTIVE",
+        "version": 19,
+        "verify_jwt": false,
+        "updated_at": 1784761600388
+      },
+      {
+        "slug": "cleanup-message-attachments",
+        "status": "ACTIVE",
+        "version": 19,
+        "verify_jwt": false,
+        "updated_at": 1784819439451
+      },
+      {
+        "slug": "harbor-join",
+        "status": "ACTIVE",
+        "version": 23,
+        "verify_jwt": false,
+        "updated_at": 1785538889837
+      },
+      {
+        "slug": "harbor-track",
+        "status": "ACTIVE",
+        "version": 23,
+        "verify_jwt": false,
+        "updated_at": 1784937543805
+      },
+      {
+        "slug": "morty-assistant",
+        "status": "ACTIVE",
+        "version": 21,
+        "verify_jwt": false,
+        "updated_at": 1785351788602
+      },
+      {
+        "slug": "impersonate-contractor",
+        "status": "ACTIVE",
+        "version": 21,
+        "verify_jwt": false,
+        "updated_at": 1787853236701
+      },
+      {
+        "slug": "google-calendar-pull",
+        "status": "ACTIVE",
+        "version": 11,
+        "verify_jwt": false,
+        "updated_at": 1788453121817
+      },
+      {
+        "slug": "admin-update-user",
+        "status": "ACTIVE",
+        "version": 7,
+        "verify_jwt": false,
+        "updated_at": 1786560372577
+      },
+      {
+        "slug": "simplefin-claim",
+        "status": "ACTIVE",
+        "version": 8,
+        "verify_jwt": false,
+        "updated_at": 1787784678272
+      },
+      {
+        "slug": "simplefin-sync",
+        "status": "ACTIVE",
+        "version": 7,
+        "verify_jwt": false,
+        "updated_at": 1787784666825
+      },
+      {
+        "slug": "sync-social-posts",
+        "status": "ACTIVE",
+        "version": 2,
+        "verify_jwt": false,
+        "updated_at": 1788532344563
+      },
+      {
+        "slug": "public-reach",
+        "status": "ACTIVE",
+        "version": 1,
+        "verify_jwt": false,
+        "updated_at": 1788538491356
+      },
+      {
+        "slug": "public-content",
+        "status": "ACTIVE",
+        "version": 1,
+        "verify_jwt": false,
+        "updated_at": 1788549516108
+      },
+      {
+        "slug": "public-jobs",
+        "status": "ACTIVE",
+        "version": 1,
+        "verify_jwt": false,
+        "updated_at": 1788549518493
+      },
+      {
+        "slug": "public-contact",
+        "status": "ACTIVE",
+        "version": 1,
+        "verify_jwt": false,
+        "updated_at": 1788551489168
+      },
+      {
+        "slug": "deactivate-user",
+        "status": "ACTIVE",
+        "version": 1,
+        "verify_jwt": false,
+        "updated_at": 1788911137907
+      }
+    ]
+  },
+  "deployment_at_end": {
+    "id": "dpl_Gh8zkUUdA2BeCFrv7HfBeWRMNLMW",
+    "url": "studio-1iwgr2bbi-trevor-mays-projects.vercel.app",
+    "readyState": "READY",
+    "createdAt": 1789067568351
+  },
+  "deployed_lambdas": [
+    {
+      "path": "api/broadcast/assets",
+      "reported_size_bytes": 164647
+    },
+    {
+      "path": "api/broadcast/chat-messages",
+      "reported_size_bytes": 164157
+    },
+    {
+      "path": "api/broadcast/clip-markers",
+      "reported_size_bytes": 164064
+    },
+    {
+      "path": "api/broadcast/project-members",
+      "reported_size_bytes": 164044
+    },
+    {
+      "path": "api/broadcast/projects",
+      "reported_size_bytes": 164457
+    },
+    {
+      "path": "api/broadcast/scene-assets",
+      "reported_size_bytes": 164240
+    },
+    {
+      "path": "api/broadcast/scenes",
+      "reported_size_bytes": 163967
+    },
+    {
+      "path": "api/broadcast/sessions",
+      "reported_size_bytes": 164684
+    },
+    {
+      "path": "api/broadcast/trigger",
+      "reported_size_bytes": 165086
+    },
+    {
+      "path": "api/broadcast/upload",
+      "reported_size_bytes": 164282
+    },
+    {
+      "path": "api/broadcast/widget-state",
+      "reported_size_bytes": 163840
+    },
+    {
+      "path": "api/careers",
+      "reported_size_bytes": 5602
+    },
+    {
+      "path": "api/get-google-token",
+      "reported_size_bytes": 1927905
+    },
+    {
+      "path": "api/harbor/archiver",
+      "reported_size_bytes": 67901158
+    },
+    {
+      "path": "api/harbor/naming",
+      "reported_size_bytes": 67901158
+    },
+    {
+      "path": "api/harbor/renditions",
+      "reported_size_bytes": 67901158
+    },
+    {
+      "path": "api/harbor/rescue",
+      "reported_size_bytes": 67901158
+    },
+    {
+      "path": "api/harbor/trackPipeline",
+      "reported_size_bytes": 67901158
+    },
+    {
+      "path": "api/headshot",
+      "reported_size_bytes": 4063
+    },
+    {
+      "path": "api/imagine/heatmap-data",
+      "reported_size_bytes": 163491
+    },
+    {
+      "path": "api/league-baseline",
+      "reported_size_bytes": 163440
+    },
+    {
+      "path": "api/middleware/requireCloudKey",
+      "reported_size_bytes": 3506
+    },
+    {
+      "path": "api/pitch-video",
+      "reported_size_bytes": 163975
+    },
+    {
+      "path": "api/routes/discord",
+      "reported_size_bytes": 535597
+    },
+    {
+      "path": "api/routes/drive",
+      "reported_size_bytes": 2301439
+    },
+    {
+      "path": "api/routes/harbor",
+      "reported_size_bytes": 67901158
+    },
+    {
+      "path": "api/routes/kanban",
+      "reported_size_bytes": 599824
+    },
+    {
+      "path": "api/routes/nas",
+      "reported_size_bytes": 675627
+    },
+    {
+      "path": "api/routes/videos",
+      "reported_size_bytes": 486799
+    },
+    {
+      "path": "api/scene-stats",
+      "reported_size_bytes": 163480
+    },
+    {
+      "path": "api/server",
+      "reported_size_bytes": 67901158
+    },
+    {
+      "path": "api/sitemap",
+      "reported_size_bytes": 3858
+    },
+    {
+      "path": "api/triton-cron",
+      "reported_size_bytes": 162853
+    },
+    {
+      "path": "api/triton-mcp",
+      "reported_size_bytes": 162861
+    },
+    {
+      "path": "api/triton-scores",
+      "reported_size_bytes": 163641
+    },
+    {
+      "path": "api/triton-search",
+      "reported_size_bytes": 162836
+    },
+    {
+      "path": "api/triton-sso",
+      "reported_size_bytes": 162697
+    }
+  ],
+  "catalog_summary": {
+    "public_information_schema_relations": 279,
+    "public_indexes": 655,
+    "nonunique_zero_scan_indexes": 160,
+    "nonunique_zero_scan_index_bytes": 10715136,
+    "foreign_keys": 372,
+    "foreign_keys_without_unconditional_valid_prefix": 206,
+    "public_rls_policies": 635,
+    "public_tables_with_policies": 269,
+    "direct_auth_uid_qual_heuristic": 219,
+    "remote_only_edge_functions": [
+      "assistant-inbox",
+      "simplefin-claim",
+      "simplefin-sync"
+    ]
+  }
+}

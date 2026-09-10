@@ -1,0 +1,55 @@
+{
+  "commit": "ac3fe8b1",
+  "date": "2026-09-10",
+  "counting": "Physical lines including whitespace/comments; owned .js/.jsx/.ts/.tsx/.py/.css/.sql files, excluding vendored dependencies and migration/database-test archive. Estimates are not measured deletions.",
+  "owned_source_files": 665,
+  "owned_source_lines": 218322,
+  "parsed_js_ts_files": 648,
+  "parse_errors": [],
+  "desktop_mobile_pairs": 23,
+  "desktop_mobile_pair_lines": 59647,
+  "frontend_style_touched_lines": 41538,
+  "frontend_files_over_1000_lines": 44,
+  "lines_in_frontend_files_over_1000": 80025,
+  "identical_function_body_groups": 73,
+  "edge_entrypoints": 119,
+  "shared_handler_entrypoint_users": 2,
+  "edge_entrypoints_declaring_cors_headers": 72,
+  "edge_entrypoints_with_google_oauth_token_url": 24,
+  "editor_matching_file_pairs": 24,
+  "editor_matching_trimmed_lines": 3245,
+  "tracked_node_modules_files": 38656,
+  "tracked_node_modules_blob_bytes": 179903625,
+  "vendored_code_lines_at_tracked_paths": 2977968,
+  "estimated_net_owned_lines_removed": {
+    "low": 18000,
+    "planning_target": 24000,
+    "high": 30000
+  },
+  "areas": {
+    "src/": {
+      "files": 404,
+      "lines": 166136
+    },
+    "supabase/functions/": {
+      "files": 144,
+      "lines": 32551
+    },
+    "api/": {
+      "files": 40,
+      "lines": 5624
+    },
+    "mobile/": {
+      "files": 25,
+      "lines": 6359
+    },
+    "MaydayDocs/": {
+      "files": 31,
+      "lines": 4852
+    },
+    "services/": {
+      "files": 9,
+      "lines": 957
+    }
+  }
+}
