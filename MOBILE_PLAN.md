@@ -61,7 +61,7 @@ Living plan for the responsive-mobile pass on Mayday Studio. Owner: Trevor.
    - `BottomSheet`
    - `FullScreenSheet`
    - `DesktopOnlyScreen`
-5. `useReadOnlyOnMobile()` helper (returns boolean for hiding action controls)
+5. Historical plan: `useReadOnlyOnMobile()` helper for hiding action controls. It had no callers and was removed 2026-09-10; current mobile pages implement their own controls.
 6. `AppLayoutMobile` shell — top bar + drawer + page routing, falls back to desktop page components for now
 7. Lazy-load wiring in `App.js` — pick AppLayout vs AppLayoutMobile at boot
 

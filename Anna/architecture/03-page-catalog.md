@@ -48,7 +48,7 @@ real on-disk bytes as of 2026-07-15** (from `ls -la src/pages`), rounded to KB.
 | `payroll` | `Payroll.js` | Payroll | 39KB | Semi-monthly pay-period (1–14 / 15–end) + contractor payroll. PT-date-aware (`ptDateToUtcISO`). Keeps raw `full_name` (legal context). |
 | `business_dev` | `BusinessDev.js` | **Roadmap** (`/roadmap`) | 153KB | Business Dev multi-phase program tracker (`bd_*` tables). Phases/Timeline/Calendar/My Stuff tabs. `useMemo`-heavy (10). Also visible to `partner`. |
 | `freelancers` | `Freelancers.js` | **Contractors** | 96KB | Contractor management, invites (`invite-user`), assignments. `initialAssignmentId`. |
-| `workflows` | `Workflows.js` | Workflows | 69KB | Workflows \| Automations tab switcher (`automations` table + `run-automations`). Subtree `workflows/` (`KanbanPanel.js`, `ShortcutsCanvas.js`, `modals/`). |
+| `workflows` | `Workflows.js` | Workflows | 69KB | Board/automation grid with Kanban drill-ins (`automations` table + `run-automations`). Subtree `workflows/` (`KanbanPanel.js`, `modals/`); retired visual builder removed 2026-09-10. |
 | `jobs` | `Jobs.js` | Jobs | 64KB | Job postings + applicant review; reuses `public/PublicCareers` structured-description components. Public `/careers` board feeds it. `initialApplicationId`. |
 | `ops` | `Ops.js` | Ops | 16KB | Sync-health dashboard (`platform_accounts` status derived from `consecutive_failures`/`last_success_at`; relative+absolute time cells). |
 | `admin` | `AdminPanel.js` | Admin Settings | 37KB | Nav config, integrations (Google), user/role admin, freelancer-title + event-type config. `usePersistedTab`. `initialTab`. |
@@ -79,7 +79,8 @@ Rich creative surfaces, generally desktop-only (excluded on mobile).
 ## Tools (`src/pages/tools/`)
 
 Focused single-purpose utilities, opened as full-screen pages with an
-`onBack` prop. `_ToolScaffold.js` is the shared shell.
+`onBack` prop. AppLayout routes directly to each tool; the unused Toolbox wrapper
+and Phase 1 scaffold were removed 2026-09-10.
 
 - `Teleprompter.js` — teleprompter.
 - `PostShow.js` — **Clipping Tool** (clip published videos).

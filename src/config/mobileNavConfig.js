@@ -1,7 +1,7 @@
 // Per-tab mobile support level. Drives:
 // - Sidebar drawer filtering (excluded tabs hidden on mobile)
 // - DesktopOnlyScreen routing (excluded tabs that get visited via direct URL)
-// - useReadOnlyOnMobile hook (pages hide add/edit/delete controls)
+// Mobile pages implement their own editing controls; this registry filters navigation.
 //
 // Levels:
 //   'full'      - full mobile redesign planned (Phase 2/3)
