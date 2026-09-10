@@ -122,6 +122,33 @@ export const colors = {
     fg:     '#ec4899',
     fgSoft: '#f9a8d4',
   },
+
+  // ── Pipeline node states ──────────────────────────────────────
+  //
+  // The Pipeline view spends its colour budget entirely on state, so these
+  // two fill the gaps the semantic tones above don't cover.
+  //
+  // `locked` is intentionally NOT a hue. A locked node means "upstream isn't
+  // done yet", which is an absence of state rather than a condition — so it
+  // reads as a recessed surface with dim ink, and recedes behind every
+  // coloured node next to it. Contrast is deliberately below body-text
+  // minimums: locked nodes carry no information you need to read, and their
+  // stage name repeats on the nodes above.
+  locked: {
+    bg:     'rgba(255,255,255,0.035)',
+    border: 'rgba(255,255,255,0.08)',
+    fg:     'rgba(255,255,255,0.3)',
+    fgSoft: 'rgba(255,255,255,0.22)',
+  },
+  // `blocked` is danger's hue, named separately so pipeline code says what it
+  // means. Keep the values in sync with `danger` — if the danger tone moves,
+  // this moves with it.
+  blocked: {
+    bg:     'rgba(239,68,68,0.15)',
+    border: 'rgba(239,68,68,0.35)',
+    fg:     '#ef4444',
+    fgSoft: '#fca5a5',
+  },
 };
 
 // ─── Spacing scale ─────────────────────────────────────────────

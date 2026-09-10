@@ -7,12 +7,14 @@ import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import UnifiedBoard from './projects/UnifiedBoard';
 import Ideas from './Ideas';
+import Pipeline from './projects/Pipeline';
 import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
 import { callEdgeFn } from '../lib/edgeFn';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
+import { POST_TYPE_OPTIONS } from '../lib/postTypes';
 
 
 const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
@@ -20,8 +22,16 @@ const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'revie
 // Top-level views. Ideas was previously a third icon on the layout toggle.
 const VIEWS = [
   { key: 'projects', label: 'Projects' },
+  // Admin-tier only. Not a policy choice — a consequence of the data: `tasks`
+  // RLS is `is_admin() OR assignee_id = auth.uid()`, and the Pipeline's nodes
+  // read assignee / due date / done-state from tasks. A member would see every
+  // node they aren't personally assigned to as unassigned and never-blocked,
+  // which reads as authoritative and is wrong. Widening tasks RLS to all staff
+  // would be the alternative; that is a security call, not a rendering one.
+  { key: 'pipeline', label: 'Pipeline', adminOnly: true },
   { key: 'ideas',    label: 'Ideas' },
 ];
+const VIEW_KEYS = VIEWS.map(v => v.key);
 const STATUS_LABELS = {
   queue: 'Queue', research: 'Research', write: 'Write', pre_production: 'Pre-Production', film: 'Film',
   review: 'Review', edit: 'Edit', post_production: 'Post-Production', publish: 'Published',
@@ -61,7 +71,7 @@ export default function Projects({ onNavigate }) {
   const [view, setView] = useState(() => {
     const stored = localStorage.getItem('projects_view');
     if (stored === 'ideas') return 'ideas';
-    return ['projects', 'ideas'].includes(stored) ? stored : 'projects';
+    return VIEW_KEYS.includes(stored) ? stored : 'projects';
   });
   const [layout, setLayout] = useState(() => {
     const stored = localStorage.getItem('projects_layout')
@@ -82,6 +92,13 @@ export default function Projects({ onNavigate }) {
   useEffect(() => {
     localStorage.setItem('projects_view', view);
   }, [view]);
+  // A stored view can outlive the permission that allowed it — a demoted
+  // account, or a shared machine. Fall back rather than rendering a view whose
+  // data the current user can't actually read.
+  useEffect(() => {
+    const def = VIEWS.find(v => v.key === view);
+    if (def?.adminOnly && !isAdmin) setView('projects');
+  }, [view, isAdmin]);
   useEffect(() => {
     localStorage.setItem('projects_layout', layout);
   }, [layout]);
@@ -406,15 +423,21 @@ export default function Projects({ onNavigate }) {
   const archivedCount = archivedProjects.length;
 
 
+  const isPipeline = view === 'pipeline' && isAdmin;
+
   return (
-    <div style={styles.page}>
+    <div style={isPipeline ? { ...styles.page, ...styles.pageFullHeight } : styles.page}>
       <div style={styles.topBar}>
         <div>
-          <h1 style={styles.pageTitle}>{view === 'ideas' ? 'Ideas' : 'Projects'}</h1>
+          <h1 style={styles.pageTitle}>
+            {view === 'ideas' ? 'Ideas' : isPipeline ? 'Pipeline' : 'Projects'}
+          </h1>
           <p style={styles.pageSubtitle}>
             {view === 'ideas'
               ? "One shared list. Tag ideas, and drag the next ones up into Up Next."
-              : `${currentProjects.length + comingUpProjects.length} active${completedProjects.length > 0 ? ` · ${completedProjects.length} completed` : ''}${archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
+              : isPipeline
+                ? 'Work flows top to bottom, one chain per project. Read-only — the board stays the source of truth.'
+                : `${currentProjects.length + comingUpProjects.length} active${completedProjects.length > 0 ? ` · ${completedProjects.length} completed` : ''}${archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
           </p>
         </div>
       </div>
@@ -453,7 +476,7 @@ export default function Projects({ onNavigate }) {
 
         {/* View: what you're looking at — centered between the side controls */}
         <div style={styles.viewToggle}>
-          {VIEWS.map(v => (
+          {VIEWS.filter(v => !v.adminOnly || isAdmin).map(v => (
             <button
               key={v.key}
               onClick={() => setView(v.key)}
@@ -515,7 +538,11 @@ export default function Projects({ onNavigate }) {
 
       {/* ─── Sectioned Project Layout ─── */}
       {/* Ideas loads its own data, so it isn't gated on the projects fetch. */}
-      {view === 'ideas' ? (
+      {isPipeline ? (
+        <div style={styles.pipelineShell}>
+          <Pipeline onOpenProject={(p) => setSelectedProject(p)} />
+        </div>
+      ) : view === 'ideas' ? (
         <Ideas embedded />
       ) : loading ? (
         <p style={styles.emptyText}>Loading projects...</p>
@@ -1156,6 +1183,30 @@ function ProjectRow({
             </div>
           </div>
 
+          {/* Pipeline routing — which output this project produces.
+              Deliberately not inferred from project type: a short-form project
+              can end up a YT Short, a TikTok, an IG Reel or an FB Reel, and
+              only a person knows which. Today it groups the Pipeline view into
+              lanes; it's also the field goal hoppers will read when those land,
+              so routing set now carries over. Unrouted projects still render,
+              in their own lane. */}
+          <div style={styles.detailSection}>
+            <h4 style={styles.detailLabel}>Pipeline Destination</h4>
+            <select
+              value={project.target_post_type || ''}
+              onChange={(e) => onUpdateProject(project.id, { target_post_type: e.target.value || null })}
+              style={{ padding: '5px 8px', background: colors.whiteA05, border: `1px solid ${colors.border}`, borderRadius: '6px', color: colors.white, fontSize: '12px', fontFamily: 'inherit', outline: 'none', minWidth: '200px' }}
+            >
+              <option value="">Unrouted</option>
+              {POST_TYPE_OPTIONS.map(o => (
+                <option key={o.key} value={o.key}>{o.label}</option>
+              ))}
+            </select>
+            <p style={{ fontSize: '11px', color: colors.textPlaceholder, margin: '6px 0 0 0' }}>
+              Groups this project into a lane on the Pipeline view.
+            </p>
+          </div>
+
           {/* Assignments */}
           <div style={styles.detailSection}>
             <h4 style={styles.detailLabel}>Assignments</h4>
@@ -1402,6 +1453,17 @@ function KanbanCard({ project }) {
 
 const styles = {
   page: { padding: '32px 40px' },
+  // The pipeline canvas is pinned to the viewport: it pans and zooms inside its
+  // own bounds rather than scrolling away with the page.
+  pageFullHeight: {
+    height: '100%',
+    minHeight: 0,
+    padding: '20px 24px 0',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  pipelineShell: { position: 'relative', flex: 1, minHeight: 0 },
   sectionHeading: {
     fontSize: '14px',
     fontWeight: 600,
