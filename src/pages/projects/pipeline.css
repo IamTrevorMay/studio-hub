@@ -1,0 +1,69 @@
+/* Pipeline view motion.
+ *
+ * Keyframes live here rather than in inline styles because inline styles
+ * can't express @keyframes or prefers-reduced-motion. Everything else on
+ * this page follows the project's inline-style convention.
+ *
+ * The whole file is gated at the bottom: a viewer with reduced motion set
+ * gets a completely static board. Nothing here is load-bearing — every
+ * animation is decoration over state that is already legible from colour
+ * and text. */
+
+/* Connector flow — dashes crawling downstream along an active chain.
+   Drawn as a second path on top of the base connector so the base line
+   stays solid and full-contrast underneath. */
+@keyframes pipe-flow {
+  to { stroke-dashoffset: -24; }
+}
+
+.pipe-flow {
+  stroke-dasharray: 5 19;
+  animation: pipe-flow 1.1s linear infinite;
+}
+
+/* Work tokens riding the connectors. Opacity ramps at both ends so a token
+   fades in leaving a node and fades out arriving, instead of popping. */
+@keyframes pipe-token {
+  0%   { opacity: 0; }
+  18%  { opacity: 1; }
+  82%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.pipe-token {
+  animation: pipe-token 2.6s ease-in-out infinite;
+}
+
+/* Active node breathing. Uses box-shadow rather than transform so it never
+   shifts layout or blurs text on a scaled canvas. */
+@keyframes pipe-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(234,179,8,0.28); }
+  50%      { box-shadow: 0 0 0 7px rgba(234,179,8,0); }
+}
+
+.pipe-active {
+  animation: pipe-pulse 2.2s ease-out infinite;
+}
+
+/* Blocked node. Faster and red — it should read as more urgent than active
+   at a glance, from across a room. */
+@keyframes pipe-alarm {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+  50%      { box-shadow: 0 0 0 7px rgba(239,68,68,0); }
+}
+
+.pipe-blocked {
+  animation: pipe-alarm 1.5s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pipe-flow,
+  .pipe-token,
+  .pipe-active,
+  .pipe-blocked {
+    animation: none !important;
+  }
+  /* Keep the flow dashes visible as a static pattern — they still mark
+     which chains are live. */
+  .pipe-flow { stroke-dasharray: 5 19; }
+}
