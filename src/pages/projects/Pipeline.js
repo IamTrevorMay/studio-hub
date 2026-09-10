@@ -129,6 +129,7 @@ export default function Pipeline({ onOpenProject }) {
   const [loading, setLoading] = useState(true);
   const [bucketMenu, setBucketMenu] = useState(null); // { bucket, x, y }
   const [detail, setDetail] = useState(null);         // a placedCards entry
+  const [typeFilter, setTypeFilter] = useState('all'); // all | long | short
 
   // Camera: translate + scale, like the Whiteboard.
   const [view, setView] = useState({ x: 0, y: 0, k: 0.9 });
@@ -222,12 +223,20 @@ export default function Pipeline({ onOpenProject }) {
     return { p, owner, extras, nextStage, target, size: cardSize(p) };
   }), [projects, deskable, rosterById]);
 
+  // Long / Short / All filter. Filtered-out cards stay mounted at their last
+  // known position and shrink away (`pipe-gone`), so flipping the toggle back
+  // glides them home with the same magnetic transition as any data move.
+  const visibleCards = useMemo(() => placedCards.filter((c) => {
+    if (typeFilter === 'all') return true;
+    return LONG_FORM_TYPES.includes(c.p.type) === (typeFilter === 'long');
+  }), [placedCards, typeFilter]);
+
   // ── Layout ──────────────────────────────────────────────────
 
   const layout = useMemo(() => {
-    const cloudCards = placedCards.filter((c) => !c.owner);
+    const cloudCards = visibleCards.filter((c) => !c.owner);
     const byDesk = {};
-    for (const c of placedCards) {
+    for (const c of visibleCards) {
       if (c.owner) (byDesk[c.owner] = byDesk[c.owner] || []).push(c);
     }
 
@@ -369,14 +378,18 @@ export default function Pipeline({ onOpenProject }) {
       buckets,
       cloud: { cx: W / 2, bottom: cloudBottom },
     };
-  }, [placedCards, staff, contractors]);
+  }, [visibleCards, staff, contractors]);
+
+  // Filtered-out cards hold their last laid-out spot while hidden.
+  const lastPosRef = useRef({});
+  useEffect(() => { Object.assign(lastPosRef.current, layout.positions); }, [layout]);
 
   // Arrow endpoints once positions are known.
   const arrows = useMemo(() => {
     const deskById = Object.fromEntries(layout.desks.map((d) => [d.member.id, d]));
     const bucketByKey = Object.fromEntries(layout.buckets.map((b) => [b.key, b]));
     const out = [];
-    for (const c of placedCards) {
+    for (const c of visibleCards) {
       const pos = layout.positions[c.p.id];
       if (!pos || !c.target) continue;
       const from = { x: pos.x + pos.w / 2, y: pos.y + pos.h };
@@ -395,7 +408,7 @@ export default function Pipeline({ onOpenProject }) {
       out.push({ id: c.p.id, from, to, color: typeColors(c.p.type).fg });
     }
     return out;
-  }, [placedCards, layout]);
+  }, [visibleCards, layout]);
 
   // Published counts inside the current window.
   const counts = useMemo(() => {
@@ -495,10 +508,10 @@ export default function Pipeline({ onOpenProject }) {
   // ── Render ──────────────────────────────────────────────────
 
   if (loading) {
-    return <div style={{ color: colors.textDim, padding: spacing.xl, textAlign: 'center' }}>Loading pipeline…</div>;
+    return <div style={{ color: colors.textDim, padding: spacing.xl, textAlign: 'center' }}>Loading funnel…</div>;
   }
 
-  const cloudCount = placedCards.filter((c) => !c.owner).length;
+  const cloudCount = visibleCards.filter((c) => !c.owner).length;
 
   return (
     <div
@@ -512,6 +525,28 @@ export default function Pipeline({ onOpenProject }) {
         userSelect: 'none',
       }}
     >
+      {/* Long / Short / All content-type filter — sits just left of the zoom
+          controls and borrows their button chrome. */}
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{ position: 'absolute', top: 12, right: 120, zIndex: 10, display: 'flex', gap: 6 }}
+      >
+        {[['all', 'All'], ['long', 'Long'], ['short', 'Short']].map(([key, label]) => (
+          <button
+            key={key} type="button" onClick={() => setTypeFilter(key)}
+            style={{
+              height: 30, padding: '0 12px', borderRadius: radii.sm,
+              border: `1px solid ${typeFilter === key ? colors.accentBorder : colors.border}`,
+              background: typeFilter === key ? colors.accentSoft : colors.bgRaised,
+              color: typeFilter === key ? colors.accentFg : colors.textSubtle,
+              fontSize: fontSizes.sm, cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Zoom controls */}
       <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 10, display: 'flex', gap: 6 }}>
         {[
@@ -609,8 +644,9 @@ export default function Pipeline({ onOpenProject }) {
 
         {/* Cards */}
         {placedCards.map((c) => {
-          const pos = layout.positions[c.p.id];
+          const pos = layout.positions[c.p.id] || lastPosRef.current[c.p.id];
           if (!pos) return null;
+          const hidden = !layout.positions[c.p.id];
           const stageColor = STAGE_COLORS[c.p.status] || colors.textSubtle;
           const tc = typeColors(c.p.type);
           const isClip = !!c.p.parent_project_id;
@@ -623,7 +659,7 @@ export default function Pipeline({ onOpenProject }) {
           return (
             <div
               key={c.p.id}
-              className="pipe-card"
+              className={hidden ? 'pipe-card pipe-gone' : 'pipe-card'}
               style={{ left: pos.x, top: pos.y, width: pos.w, height: pos.h, zIndex: 2 }}
             >
               <div
@@ -722,8 +758,16 @@ export default function Pipeline({ onOpenProject }) {
       {detail && (
         <CardDetails
           card={detail}
+          roster={roster}
           rosterById={rosterById}
           parentName={nameById[detail.p.parent_project_id]}
+          onAssignmentsChange={(projectId, rows) => {
+            // Mirror the DB write into local state so the floor (owners,
+            // arrows, desk stacks) re-derives without waiting for a poll.
+            setProjects((prev) => prev.map((pr) => (pr.id === projectId
+              ? { ...pr, project_stage_assignments: rows.map((r) => ({ stage: r.stage, user_id: r.user_id })) }
+              : pr)));
+          }}
           onClose={() => setDetail(null)}
         />
       )}
@@ -742,13 +786,50 @@ export default function Pipeline({ onOpenProject }) {
   );
 }
 
-// Read-only details popup for a clicked card.
-function CardDetails({ card, rosterById, parentName, onClose }) {
-  const { p, owner, extras, nextStage, target } = card;
+// Details popup for a clicked card. Read-only except the remaining-stage
+// assignee editor, which writes straight to project_stage_assignments — the
+// same rows the Projects board reads, so edits show up there too.
+function CardDetails({ card, roster, rosterById, parentName, onAssignmentsChange, onClose }) {
+  const { p, nextStage, target } = card;
   const stageColor = STAGE_COLORS[p.status] || colors.textSubtle;
   const tc = typeColors(p.type);
   const isClip = !!p.parent_project_id;
-  const ownerName = owner ? (rosterById[owner]?.nickname || rosterById[owner]?.full_name) : null;
+
+  // Local mirror of the project's stage assignments, edited optimistically.
+  const [assigns, setAssigns] = useState(
+    (p.project_stage_assignments || []).map((a) => ({ stage: a.stage, user_id: a.user_id })),
+  );
+
+  // Current stage onward, minus skipped stages and Published.
+  const skipCfg = p.stage_config || {};
+  const startIdx = Math.max(CANONICAL_STAGES.indexOf(p.status), 0);
+  const editableStages = CANONICAL_STAGES
+    .slice(startIdx)
+    .filter((st) => st !== 'publish' && !skipCfg[st]?.skip);
+
+  const rosterSorted = [...roster]
+    .sort((a, b) => (a.nickname || a.full_name || '').localeCompare(b.nickname || b.full_name || ''));
+
+  function pushChange(next) {
+    setAssigns(next);
+    onAssignmentsChange(p.id, next);
+  }
+
+  async function addAssignee(stage, userId) {
+    if (!userId || assigns.some((a) => a.stage === stage && a.user_id === userId)) return;
+    pushChange([...assigns, { stage, user_id: userId }]);
+    const { error } = await supabase.from('project_stage_assignments')
+      .insert({ project_id: p.id, stage, user_id: userId });
+    if (error && error.code !== '23505') console.error('Assignee add failed:', error);
+  }
+
+  async function removeAssignee(stage, userId) {
+    pushChange(assigns.filter((a) => !(a.stage === stage && a.user_id === userId)));
+    const { error } = await supabase.from('project_stage_assignments')
+      .delete()
+      .match({ project_id: p.id, stage, user_id: userId });
+    if (error) console.error('Assignee remove failed:', error);
+  }
 
   let nextText;
   if (target?.kind === 'bucket') {
@@ -771,7 +852,12 @@ function CardDetails({ card, rosterById, parentName, onClose }) {
     p.deadline && ['Post Date', fmtShort(p.deadline)],
     p.film_date && ['Film Date', fmtShort(p.film_date)],
     p.edit_deadline && ['Edit Deadline', fmtShort(p.edit_deadline)],
-    ['Current owner', ownerName ? ownerName + (extras.length ? ` (+ ${extras.map((m) => m.nickname || m.full_name).join(', ')})` : '') : 'Unassigned'],
+    ['Current owner', (() => {
+      const names = assigns.filter((a) => a.stage === p.status)
+        .map((a) => rosterById[a.user_id]).filter(Boolean)
+        .map((m) => m.nickname || m.full_name);
+      return names.length ? names.join(', ') : 'Unassigned';
+    })()],
     ['Next stop', nextText],
   ].filter(Boolean);
 
@@ -788,7 +874,7 @@ function CardDetails({ card, rosterById, parentName, onClose }) {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: 340, maxWidth: '90vw', background: colors.bgRaised,
+          width: 420, maxWidth: '90vw', maxHeight: '84vh', overflowY: 'auto', background: colors.bgRaised,
           border: `1px solid ${colors.border}`, borderRadius: radii.md,
           padding: spacing.lg, boxShadow: '0 14px 40px rgba(0,0,0,0.55)',
         }}
@@ -823,6 +909,73 @@ function CardDetails({ card, rosterById, parentName, onClose }) {
               <span style={{ color: colors.text }}>{value}</span>
             </div>
           ))}
+        </div>
+
+        {/* Remaining stages + editable assignees */}
+        <div style={{ marginTop: spacing.md, borderTop: `1px solid ${colors.border}`, paddingTop: spacing.sm }}>
+          <div style={{ color: colors.textDim, fontSize: fontSizes.xs, textTransform: 'uppercase', letterSpacing: 1, marginBottom: spacing.sm }}>
+            Remaining stages
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
+            {editableStages.map((st) => {
+              const stColor = STAGE_COLORS[st] || colors.textSubtle;
+              const stageAssigns = assigns.filter((a) => a.stage === st);
+              const available = rosterSorted.filter((m) => !stageAssigns.some((a) => a.user_id === m.id));
+              return (
+                <div key={st} style={{ display: 'flex', gap: spacing.sm, alignItems: 'flex-start' }}>
+                  <span style={{
+                    color: stColor, width: 100, flexShrink: 0, fontSize: fontSizes.xs,
+                    fontWeight: fontWeights.semibold, letterSpacing: 0.5, textTransform: 'uppercase',
+                    marginTop: 3, opacity: st === p.status ? 1 : 0.75,
+                  }}>
+                    {labelFor(p.type, st)}
+                  </span>
+                  <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                    {stageAssigns.map((a) => {
+                      const m = rosterById[a.user_id];
+                      return (
+                        <span key={a.user_id} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          border: `1px solid ${colors.border}`, borderRadius: radii.pill,
+                          background: colors.bgInput, color: colors.text,
+                          fontSize: fontSizes.xs, padding: `2px 4px 2px ${spacing.sm}px`,
+                        }}>
+                          {m ? (m.nickname || m.full_name) : 'Unknown'}
+                          <button
+                            type="button"
+                            title="Remove"
+                            onClick={() => removeAssignee(st, a.user_id)}
+                            style={{
+                              background: 'transparent', border: 'none', color: colors.textDim,
+                              cursor: 'pointer', fontSize: fontSizes.xs, padding: '0 3px', fontFamily: 'inherit',
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      );
+                    })}
+                    <select
+                      value=""
+                      onChange={(e) => addAssignee(st, e.target.value)}
+                      title="Add assignee"
+                      style={{
+                        background: 'transparent', border: `1px dashed ${colors.border}`,
+                        borderRadius: radii.pill, color: colors.textDim,
+                        fontSize: fontSizes.xs, padding: '2px 4px', fontFamily: 'inherit', cursor: 'pointer',
+                        maxWidth: 90,
+                      }}
+                    >
+                      <option value="">+ Add</option>
+                      {available.map((m) => (
+                        <option key={m.id} value={m.id}>{m.nickname || m.full_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>

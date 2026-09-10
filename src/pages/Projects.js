@@ -28,7 +28,7 @@ const VIEWS = [
   // node they aren't personally assigned to as unassigned and never-blocked,
   // which reads as authoritative and is wrong. Widening tasks RLS to all staff
   // would be the alternative; that is a security call, not a rendering one.
-  { key: 'pipeline', label: 'Pipeline', adminOnly: true },
+  { key: 'pipeline', label: 'Funnel', adminOnly: true },
   { key: 'ideas',    label: 'Ideas' },
 ];
 const VIEW_KEYS = VIEWS.map(v => v.key);
@@ -421,28 +421,12 @@ export default function Projects({ onNavigate }) {
     return publishedDate < sevenDaysAgo;
   }).filter(searchFilter);
 
-  const archivedCount = archivedProjects.length;
 
 
   const isPipeline = view === 'pipeline' && isAdmin;
 
   return (
     <div style={isPipeline ? { ...styles.page, ...styles.pageFullHeight } : styles.page}>
-      <div style={styles.topBar}>
-        <div>
-          <h1 style={styles.pageTitle}>
-            {view === 'ideas' ? 'Ideas' : isPipeline ? 'Pipeline' : 'Projects'}
-          </h1>
-          <p style={styles.pageSubtitle}>
-            {view === 'ideas'
-              ? "One shared list. Tag ideas, and drag the next ones up into Up Next."
-              : isPipeline
-                ? 'Work flows top to bottom, one chain per project. Read-only — the board stays the source of truth.'
-                : `${currentProjects.length + comingUpProjects.length} active${completedProjects.length > 0 ? ` · ${completedProjects.length} completed` : ''}${archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
-          </p>
-        </div>
-      </div>
-
       {/* Filters (list view only — kanban columns are self-filtering) */}
       <div style={styles.filterRow}>
         <div style={styles.filterRowSide}>
@@ -1222,7 +1206,7 @@ function ProjectRow({
           {/* Pipeline routing — which output this project produces.
               Deliberately not inferred from project type: a short-form project
               can end up a YT Short, a TikTok, an IG Reel or an FB Reel, and
-              only a person knows which. Today it groups the Pipeline view into
+              only a person knows which. Today it groups the Funnel view into
               lanes; it's also the field goal hoppers will read when those land,
               so routing set now carries over. Unrouted projects still render,
               in their own lane. */}
@@ -1239,7 +1223,7 @@ function ProjectRow({
               ))}
             </select>
             <p style={{ fontSize: '11px', color: colors.textPlaceholder, margin: '6px 0 0 0' }}>
-              Groups this project into a lane on the Pipeline view.
+              Groups this project into a lane on the Funnel view.
             </p>
           </div>
 
@@ -1507,19 +1491,6 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
     margin: '0 0 12px',
-  },
-  topBar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: '24px',
-  },
-  pageTitle: {
-    fontSize: '28px', fontWeight: 700, color: '#ffffff',
-    margin: '0 0 4px 0', letterSpacing: '-0.5px',
-  },
-  pageSubtitle: {
-    fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0,
   },
   addBtn: {
     padding: '10px 20px',

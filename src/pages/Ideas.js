@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { colors } from '../lib/styleTokens';
 import { callEdgeFn } from '../lib/edgeFn';
-import { SHORT_FORM_PLATFORMS, defaultStageConfigForType, fetchDefaultAssigneeRows } from '../lib/kanbanStages';
+import { SHORT_FORM_PLATFORMS, CANONICAL_STAGES, labelFor, defaultStageConfigForType, fetchDefaultAssigneeRows } from '../lib/kanbanStages';
 
 // One shared list + a shared "Up Next" bucket above it. The old category
 // sections live on as multi-select tags (idea_tags table, custom tags allowed).
@@ -513,23 +513,23 @@ export default function Ideas({ embedded = false }) {
     exitSelectMode();
   }
 
-  // Ideas → Up Next → "Add Project": creates a real project card that starts
-  // in Research (created in Queue, then advanced through card-move so the
-  // research assignees get their tasks). The idea stays on the board, linked
-  // via project_id, and its button flips to "In Production".
-  async function createProjectFromIdea(idea, { name, type, platforms, deadline }) {
+  // Ideas → Up Next → "Add Project": creates a real project card in the
+  // operator-chosen start stage (created in Queue, then advanced through
+  // card-move so that stage's assignees get their tasks). The idea stays on
+  // the board, linked via project_id, and its button flips to "In Production".
+  async function createProjectFromIdea(idea, { name, type, platforms, deadline, stage, assigneeId }) {
     const titles = (Array.isArray(idea.potential_titles) ? idea.potential_titles : []).filter(Boolean);
     const titleNote = titles.length ? `Potential titles:\n- ${titles.join('\n- ')}` : null;
-    // This flow always starts in Research, so drop any default research skip
-    // (podcast / short_form skip it by default).
+    // The chosen start stage must not be skipped by the type's default stage
+    // config (podcast / short_form skip research by default).
     const cfg = defaultStageConfigForType(type);
-    delete cfg.research;
+    delete cfg[stage];
     const { data: created, error } = await supabase.from('projects').insert({
       name,
       type,
       short_form_platforms: type === 'short_form' ? platforms : [],
       status: 'queue',
-      start_column: 'research',
+      start_column: stage,
       deadline: deadline || null,
       notes: [titleNote, idea.context].filter(Boolean).join('\n\n') || null,
       stage_config: cfg,
@@ -537,14 +537,21 @@ export default function Ideas({ embedded = false }) {
     }).select('id').single();
     if (error) throw new Error(error.message);
     // Seed default assignees + a queue-stage row for the creator so a
-    // non-admin's card-move passes its current-stage-assignee check.
-    const seedRows = await fetchDefaultAssigneeRows(supabase, type, created.id);
+    // non-admin's card-move passes its current-stage-assignee check. A chosen
+    // assignee replaces the type defaults for the start stage only.
+    let seedRows = await fetchDefaultAssigneeRows(supabase, type, created.id);
+    if (assigneeId) {
+      seedRows = seedRows.filter((r) => r.stage !== stage);
+      seedRows.push({ project_id: created.id, stage, user_id: assigneeId });
+    }
     if (profile?.id && !seedRows.some((r) => r.stage === 'queue' && r.user_id === profile.id)) {
       seedRows.push({ project_id: created.id, stage: 'queue', user_id: profile.id });
     }
     const { error: aErr } = await supabase.from('project_stage_assignments').insert(seedRows);
     if (aErr) console.error('Assignee seed failed:', aErr);
-    await callEdgeFn('card-move', { project_id: created.id, target_stage: 'research' });
+    if (stage !== 'queue') {
+      await callEdgeFn('card-move', { project_id: created.id, target_stage: stage });
+    }
     const { error: linkErr } = await supabase.from('write_ideas')
       .update({ project_id: created.id })
       .eq('id', idea.id);
@@ -871,13 +878,25 @@ function IdeaProjectModal({ idea, defaultType, onCreate, onClose }) {
   const [type, setType] = useState(defaultType);
   const [platforms, setPlatforms] = useState([]);
   const [deadline, setDeadline] = useState('');
+  const [stage, setStage] = useState('research');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [staffList, setStaffList] = useState([]);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    supabase.from('profiles')
+      .select('id, full_name, nickname')
+      .is('deactivated_at', null)
+      .in('role', ['admin', 'director', 'member', 'contractor'])
+      .order('full_name')
+      .then(({ data, error }) => { if (!error) setStaffList(data || []); });
+  }, []);
 
   async function commit() {
     if (!name.trim() || saving) return;
     setSaving(true);
     try {
-      await onCreate(idea, { name: name.trim(), type, platforms, deadline });
+      await onCreate(idea, { name: name.trim(), type, platforms, deadline, stage, assigneeId: assigneeId || null });
       onClose();
     } catch (err) {
       alert(`Could not create project: ${err.message}`);
@@ -891,7 +910,8 @@ function IdeaProjectModal({ idea, defaultType, onCreate, onClose }) {
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <h3 style={styles.modalTitle}>Add Project</h3>
         <p style={styles.modalHint}>
-          Creates a project card from this idea, starting in the Research stage.
+          Creates a project card from this idea in the stage you pick, assigned
+          to the person you pick (or the type's default assignees).
         </p>
         <div style={styles.modalSectionLabel}>Name</div>
         <input
@@ -933,6 +953,19 @@ function IdeaProjectModal({ idea, defaultType, onCreate, onClose }) {
             </div>
           </>
         )}
+        <div style={styles.modalSectionLabel}>Start Stage</div>
+        <select value={stage} onChange={(e) => setStage(e.target.value)} style={{ ...styles.typeSelect, width: '100%' }}>
+          {CANONICAL_STAGES.filter((st) => st !== 'publish').map((st) => (
+            <option key={st} value={st}>{labelFor(type, st)}</option>
+          ))}
+        </select>
+        <div style={styles.modalSectionLabel}>Assignee</div>
+        <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} style={{ ...styles.typeSelect, width: '100%' }}>
+          <option value="">Type default assignees</option>
+          {staffList.map((m) => (
+            <option key={m.id} value={m.id}>{m.nickname || m.full_name}</option>
+          ))}
+        </select>
         <div style={styles.modalSectionLabel}>Post Date (optional)</div>
         <input
           type="date"
