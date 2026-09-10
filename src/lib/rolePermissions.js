@@ -1,7 +1,7 @@
 // Role hierarchy (restructured 2026-07-29; client added 2026-07-30).
 //
 // Top-level roles:  admin · director · member · contractor · client
-//   - Director sub-roles:   communications | creative   (profiles.sub_role)
+//   - Director sub-roles:   communications | production | content_strategy
 //   - Contractor sub-roles: the former "titles"         (profiles.sub_role)
 //   - admin / member / client have no sub-role.
 //   - client is an external customer with a locked portal (like contractor) —
@@ -33,7 +33,10 @@ export function isDirectorRole(role) {
 }
 
 // Director sub-roles (profiles.sub_role when role === 'director').
-export const DIRECTOR_SUB_ROLES = ['communications', 'creative'];
+// 'creative' was renamed to 'production' on 2026-09-10 (data migration
+// 20260910120000); the legacy value stays in accept-lists below until the
+// rename is confirmed everywhere, then safe to prune.
+export const DIRECTOR_SUB_ROLES = ['communications', 'production', 'content_strategy'];
 
 // Contractor sub-roles (the former "titles"). Display/organizational for now;
 // used by the AdminPanel picker and the admin "View as…" portal preview.
@@ -49,8 +52,10 @@ export const MEMBER_SUB_ROLES = [
 ];
 
 export const DIRECTOR_SUB_ROLE_LABELS = {
-  communications: 'Director of Communications',
-  creative: 'Director of Creative',
+  communications: 'Director of Communication',
+  production: 'Director of Production',
+  content_strategy: 'Director of Content & Strategy',
+  creative: 'Director of Production', // legacy value during rename window
 };
 
 // ── Client role (external customers, locked portal) ──
@@ -70,10 +75,11 @@ export function isEditorSubRole(subRole) {
 }
 
 // Who can manage clients (invite, assign editors, issue documents): admins and
-// the Creative Director. UI-only gate — the DB layer passes is_admin() for all
-// directors, like the other ROLE_RESTRICTED_NAV_KEYS boundaries.
+// the Director of Production (formerly the Creative Director). UI-only gate —
+// the DB layer passes is_admin() for all directors, like the other
+// ROLE_RESTRICTED_NAV_KEYS boundaries.
 export function canManageClients(role, subRole) {
-  return role === 'admin' || (isDirectorRole(role) && subRole === 'creative');
+  return role === 'admin' || (isDirectorRole(role) && ['production', 'creative'].includes(subRole));
 }
 
 // Internal, non-contractor staff roles (for team pickers / staff queries).

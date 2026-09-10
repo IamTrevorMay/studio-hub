@@ -62,7 +62,7 @@ function applyFormatMarker(textareaRef, text, marker, setter) {
 // show WHO a client may message: admins + Creative Director + assigned editors.
 const DEMO_CLIENT_RECIPIENTS = [
   { id: 'demo-admin', full_name: 'Studio Admin', nickname: 'Studio Admin', title: 'Admin', role: 'admin', avatar_url: null },
-  { id: 'demo-cd', full_name: 'Casey Morgan', nickname: 'Casey', title: 'Director of Creative', role: 'director', sub_role: 'creative', avatar_url: null },
+  { id: 'demo-cd', full_name: 'Casey Morgan', nickname: 'Casey', title: 'Director of Production', role: 'director', sub_role: 'production', avatar_url: null },
   { id: 'demo-e1', full_name: 'Jordan Lee', nickname: 'Jordan', title: 'Long Form Editor', role: 'contractor', sub_role: 'Long Form Editor', avatar_url: null },
   { id: 'demo-e2', full_name: 'Sam Rivera', nickname: 'Sam', title: 'Short Form Editor', role: 'contractor', sub_role: 'Short Form Editor', avatar_url: null },
 ];
