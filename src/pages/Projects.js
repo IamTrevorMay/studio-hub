@@ -24,7 +24,7 @@ const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'revie
 const VIEWS = [
   { key: 'ideas',    label: 'Ideas' },
   { key: 'projects', label: 'Projects' },
-  { key: 'film_queue', label: 'Upcoming Slate' },
+  { key: 'film_queue', label: 'Slate' },
   // Admin-tier only. Not a policy choice — a consequence of the data: `tasks`
   // RLS is `is_admin() OR assignee_id = auth.uid()`, and the Pipeline's nodes
   // read assignee / due date / done-state from tasks. A member would see every
