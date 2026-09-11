@@ -22,16 +22,16 @@ const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'revie
 
 // Top-level views. Ideas was previously a third icon on the layout toggle.
 const VIEWS = [
+  { key: 'ideas',    label: 'Ideas' },
   { key: 'projects', label: 'Projects' },
+  { key: 'film_queue', label: 'Film Queue' },
   // Admin-tier only. Not a policy choice — a consequence of the data: `tasks`
   // RLS is `is_admin() OR assignee_id = auth.uid()`, and the Pipeline's nodes
   // read assignee / due date / done-state from tasks. A member would see every
   // node they aren't personally assigned to as unassigned and never-blocked,
   // which reads as authoritative and is wrong. Widening tasks RLS to all staff
   // would be the alternative; that is a security call, not a rendering one.
-  { key: 'pipeline', label: 'Funnel', adminOnly: true },
-  { key: 'ideas',    label: 'Ideas' },
-  { key: 'film_queue', label: 'Film Queue' },
+  { key: 'pipeline', label: 'Progress', adminOnly: true },
 ];
 const VIEW_KEYS = VIEWS.map(v => v.key);
 const STATUS_LABELS = {

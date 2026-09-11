@@ -203,7 +203,7 @@ function sumMetricsByPeriod({ rows, metrics, accountIds, keyFn }) {
 
 // ─── Section ──────────────────────────────────────────────────
 
-export default function GoalsSection() {
+export default function GoalsSection({ period = null, bare = false }) {
   const { profile, isAdmin } = useAuth();
   const confirm = useConfirm();
 
@@ -572,6 +572,71 @@ export default function GoalsSection() {
   if (loading) return <div style={styles.loading}>Loading goals…</div>;
 
   const orderedSections = [...sections].sort((a, b) => (a.position || 0) - (b.position || 0));
+
+  // ── Bare mode ───────────────────────────────────────────────
+  // A flat, standalone grid of one period's goal cards — no "Goals" header,
+  // no section containers. Used by Projects › Progress, which mounts one
+  // instance per zone (yearly / monthly / weekly). Card edit / delete /
+  // weekly logging all work as normal; + Goal files the new goal under the
+  // first section (creating "General" if none exists yet).
+  if (bare) {
+    const bareGoals = goals.filter(g => !period || g.category === period);
+    const startBareGoal = async () => {
+      let sectionId = orderedSections[0]?.id;
+      if (!sectionId) {
+        const { data, error } = await supabase.from('goal_sections')
+          .insert({ name: 'General', position: 0, scope: 'content', created_by: profile.id })
+          .select('id').single();
+        if (error) { alert('Error: ' + error.message); return; }
+        sectionId = data.id;
+        fetchAll();
+      }
+      openCreateGoal(sectionId, period || 'weekly');
+    };
+    return (
+      <div>
+        {goalForm && (
+          <GoalForm
+            form={goalForm}
+            accounts={accounts}
+            onPatch={patchForm}
+            onToggleMetric={toggleMetric}
+            onTogglePostType={togglePostType}
+            onToggleAccount={toggleAccount}
+            onSubmit={submitGoal}
+            onCancel={() => setGoalForm(null)}
+          />
+        )}
+        {/* auto-fit (not auto-fill): cards stretch to fill the zone's full
+            width instead of leaving phantom empty tracks. */}
+        <div style={{ ...styles.goalGrid, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+          {bareGoals.map(g => (
+            <GoalCard
+              key={g.id}
+              goal={g}
+              progress={progress[g.id]}
+              velocity={velocity[g.id]}
+              accounts={accounts}
+              isAdmin={isAdmin}
+              onEdit={openEditGoal}
+              onDelete={deleteGoal}
+              onLogWeek={setWeekValue}
+            />
+          ))}
+        </div>
+        {bareGoals.length === 0 && !goalForm && (
+          <p style={{ ...styles.empty, textAlign: 'center' }}>
+            {loading ? 'Loading…' : 'No goals yet.'}
+          </p>
+        )}
+        {isAdmin && !goalForm && (
+          <div style={{ textAlign: 'center', marginTop: 8 }}>
+            <button onClick={startBareGoal} style={styles.addBtn}>+ Goal</button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={styles.section}>

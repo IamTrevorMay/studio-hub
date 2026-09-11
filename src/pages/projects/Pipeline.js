@@ -1,121 +1,101 @@
-// Pipeline — a read-only "studio floor" mirror of the Kanban's own data.
+// Progress (formerly Funnel) — a read-only mirror of the two production
+// systems, side by side on a pannable/zoomable canvas (scroll to zoom toward
+// the cursor, drag anywhere to pan):
 //
-// This view creates and mutates nothing about project state; the board stays
-// the system of record. Three zones, top to bottom, on a pannable/zoomable
-// canvas (scroll to zoom toward the cursor, drag anywhere to pan):
+//   Projects     every in-flight project card (same floor set as the Kanban:
+//                non-archived, unpublished), large cards colored by stage,
+//                ordered by stage then deadline. Click opens the detail
+//                popover with the remaining-stage assignee editor.
+//   Film Queue   EVERYTHING sent to the queue, in four sub-sections:
+//                In Review (drafting + ready for review), Up Next (approved,
+//                unpacked, in line order), Filming (the next session's pack —
+//                stamped rows when locked, derived pack otherwise), and
+//                Editing (filmed, cut not delivered). Cards show the sheet
+//                title, status, current task owner, and queue type.
+//   Goals        the Tracking page's goals, relocated here (they left
+//                Tracking entirely) as standalone cards in three zones:
+//                Yearly across the top, Monthly under Projects, Weekly under
+//                Film Queue (GoalsSection's bare mode, one mount per zone).
+//                Wheel/drag are fenced inside the zones so forms stay usable.
+//                No section containers anywhere — free-floating cards under
+//                plain headings.
 //
-//   cloud    in-flight projects whose CURRENT stage has no assignee float
-//            in a loose cluster at the top
-//   desks    one shaded container per active member, arranged as a loose
-//            "magnetic cloud" ellipse around a center (Obsidian-graph style)
-//            rather than a grid. Contractors mix in with everyone else and
-//            carry a small "C" badge under their desk
-//   buckets  five output goals (YT Long, YT Short, Instagram, TikTok,
-//            Facebook). A published project's card leaves the floor and
-//            lights an indicator in each bucket it feeds, counted inside a
-//            global weekly/monthly PT window
-//
-// Cards move only because the underlying data moved (card-move via the board,
-// clip creation, assignment edits) — the page polls and the CSS transition
-// makes the card glide to its new home. Long-form cards render larger than
-// short-form ones. Each card shows a faint pulsing arrow, colored by project
-// type, toward where it goes next: the next stage's assignee desk, the cloud
-// if that stage is unowned, or its bucket when the next stop is Published.
-//
-// Goals: right-click a bucket to set its goal count and the global window
-// (weekly/monthly — shared by all buckets). Stored in pipeline_goals /
-// pipeline_settings (admin-only RLS; this whole view is admin-only).
+// The old studio floor (desk ellipse, unassigned cloud, routing arrows) and
+// the publish buckets + pipeline_goals feature are gone. Cards keep the same
+// color conventions and glide/blink animations (pipeline.css).
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import useVisibilityRefresh from '../../hooks/useVisibilityRefresh';
 import { CANONICAL_STAGES, STAGE_COLORS, SHORT_FORM_PLATFORMS, labelFor, typeLabel, typeColors } from '../../lib/kanbanStages';
-import { ptDayKey, ptWeekStartKey } from '../../lib/ptDate';
+import {
+  STATUS_BY_VALUE, queueTypeLabel, queueTypeColor,
+  defaultMinutesFor, orderTheLine, packSession,
+} from '../../lib/filmQueue';
 import { colors, spacing, radii, fontSizes, fontWeights } from '../../lib/styleTokens';
 import backdropDismiss from '../../lib/backdropDismiss';
+import GoalsSection from '../../components/GoalsSection';
 import './pipeline.css';
 
 // ── Constants ─────────────────────────────────────────────────
 
-// Emily Jude — excluded from the desk band by request (2026-09-10).
-const EXCLUDED_DESK_IDS = new Set(['712f6910-7262-4551-8cb4-9dc609ef91fb']);
-
-// Statuses that put a card on the floor. Backlog is parked and publish lives
-// in the buckets; Queue rides along — its cards are (almost always) unowned,
-// so they float in the cloud.
 const FLOOR_STAGES = new Set(CANONICAL_STAGES.filter((s) => s !== 'publish'));
-
 const LONG_FORM_TYPES = ['mayday_video', 'tm_baseball_video', 'podcast'];
 
-const BUCKETS = [
-  { key: 'yt_long',   label: 'YouTube Long',  color: '#f87171' },
-  { key: 'yt_short',  label: 'YouTube Short', color: '#fb923c' },
-  { key: 'instagram', label: 'Instagram',     color: '#E4405F' },
-  { key: 'tiktok',    label: 'TikTok',        color: '#00F2EA' },
-  { key: 'facebook',  label: 'Facebook',      color: '#1877F2' },
-];
-const BUCKET_INDEX = Object.fromEntries(BUCKETS.map((b, i) => [b.key, i]));
-
-// Which bucket(s) a project feeds when it publishes. Long-form types are one
-// YouTube long-form video; short_form routes by its platform list. Twitter
-// stays pickable on shorts but has no bucket, so it simply lights nothing.
-const PLATFORM_BUCKET = { youtube: 'yt_short', instagram: 'instagram', tiktok: 'tiktok', facebook: 'facebook' };
-function bucketsForProject(p) {
-  if (LONG_FORM_TYPES.includes(p.type)) return ['yt_long'];
-  if (p.type === 'short_form') {
-    return (p.short_form_platforms || []).map((pl) => PLATFORM_BUCKET[pl]).filter(Boolean);
-  }
-  return [];
-}
-
 // ── Geometry ──────────────────────────────────────────────────
-const CANVAS_W   = 1480;
 const PAD        = 32;
-const CARD_GAP   = 16;
-const DESK_W     = 240;
-const DESK_HEAD  = 46;   // room under the avatar pin before cards start
-const DESK_MIN_H = 164;
-const BUCKET_H   = 158;
+const CARD_W     = 300;
+const CARD_H     = 116;
+const CARD_GAP   = 18;
+const SEC_PAD    = 18;
+const SEC_HEAD   = 34;   // sub-section label row inside a dashed box
+const COL_GAP    = 64;   // gap between the two system columns
 const ZONE_GAP   = 90;
 const ZOOM_MIN   = 0.3;
 const ZOOM_MAX   = 2.5;
 
-// Long-form cards are deliberately bigger than short-form ones.
-function cardSize(p) {
-  return LONG_FORM_TYPES.includes(p.type)
-    ? { w: 196, h: 96 }
-    : { w: 150, h: 74 };
-}
+const COL_W = 2 * CARD_W + CARD_GAP + 2 * SEC_PAD;
+const CANVAS_W = 2 * COL_W + COL_GAP + 2 * PAD;
 
-// ── PT window helpers ─────────────────────────────────────────
-
-// Midnight PT for a YYYY-MM-DD key, DST-proof: try both offsets and keep the
-// one where the instant is the first millisecond of that PT day.
-function ptMidnight(dayKey) {
-  for (const off of ['-07:00', '-08:00']) {
-    const d = new Date(`${dayKey}T00:00:00${off}`);
-    if (ptDayKey(d) === dayKey && ptDayKey(new Date(d.getTime() - 1)) !== dayKey) return d;
-  }
-  return new Date(`${dayKey}T00:00:00-08:00`);
-}
-
-function windowStart(period) {
-  const now = new Date();
-  if (period === 'monthly') return ptMidnight(`${ptDayKey(now).slice(0, 8)}01`);
-  // Monday-start PT week — same boundary as sprints.
-  return ptMidnight(ptWeekStartKey(now));
-}
+// Film Queue sub-sections, top to bottom. Filming/Editing borrow the Kanban
+// stage hues so the color language matches the Projects column.
+const FQ_SECTIONS = [
+  { key: 'review',  label: 'In Review' },
+  { key: 'up_next', label: 'Up Next' },
+  { key: 'filming', label: 'Filming' },
+  { key: 'editing', label: 'Editing' },
+];
 
 function fmtShort(d) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-// Stable 0..1 hash — float phases, desk jitter.
+function todayIso() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+// Stable 0..1 hash — blink phases.
 function hash01(id, salt = '') {
-  const s = id + salt;
+  const s = String(id) + salt;
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 9973;
   return h / 9973;
+}
+
+// Lay a list of cards into a 2-wide grid inside a section box.
+// Returns { positions: [{x,y}], height } relative to the box's content top.
+function gridLayout(count) {
+  const positions = [];
+  for (let i = 0; i < count; i++) {
+    positions.push({
+      x: SEC_PAD + (i % 2) * (CARD_W + CARD_GAP),
+      y: Math.floor(i / 2) * (CARD_H + CARD_GAP),
+    });
+  }
+  const rows = Math.ceil(count / 2);
+  const height = rows > 0 ? rows * (CARD_H + CARD_GAP) - CARD_GAP : 0;
+  return { positions, height };
 }
 
 // ── Component ─────────────────────────────────────────────────
@@ -123,24 +103,33 @@ function hash01(id, salt = '') {
 export default function Pipeline({ onOpenProject }) {
   const [roster, setRoster] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [published, setPublished] = useState([]);
-  const [goals, setGoals] = useState({});
-  const [period, setPeriod] = useState('weekly');
+  const [fqItems, setFqItems] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [fqTasks, setFqTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [bucketMenu, setBucketMenu] = useState(null); // { bucket, x, y }
-  const [detail, setDetail] = useState(null);         // a placedCards entry
-  const [typeFilter, setTypeFilter] = useState('all'); // all | long | short
+  const [detail, setDetail] = useState(null);
 
-  // Camera: translate + scale, like the Whiteboard.
+  // Camera: translate + scale.
   const [view, setView] = useState({ x: 0, y: 0, k: 0.9 });
   const viewportRef = useRef(null);
-  const dragRef = useRef(null);       // { sx, sy, ox, oy }
-  const movedRef = useRef(false);     // suppress card click after a pan
+  const dragRef = useRef(null);
+  const movedRef = useRef(false);
   const fittedRef = useRef(false);
 
+  // The Yearly Goals band's height is DOM-flow (goal cards wrap), so it's
+  // measured and fed into the layout, pushing the two systems down.
+  const [yearlyH, setYearlyH] = useState(170);
+  const yearlyRef = useRef(null);
+  useEffect(() => {
+    const el = yearlyRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(() => setYearlyH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [loading]);
+
   const fetchAll = useCallback(async () => {
-    const monthAgo = new Date(Date.now() - 32 * 86400000).toISOString();
-    const [rosterQ, floorQ, pubQ, goalsQ, settingsQ] = await Promise.all([
+    const [rosterQ, floorQ, fqQ, sessQ, taskQ] = await Promise.all([
       supabase.from('profiles')
         .select('id, full_name, nickname, avatar_url, role')
         .is('deactivated_at', null)
@@ -149,19 +138,25 @@ export default function Pipeline({ onOpenProject }) {
         .select('id, name, type, status, deadline, film_date, edit_deadline, on_hold, stage_config, short_form_platforms, parent_project_id, project_stage_assignments(stage, user_id)')
         .is('archived_at', null)
         .in('status', [...FLOOR_STAGES]),
-      // Window filtering happens client-side so flipping weekly/monthly
-      // recounts instantly; 32 days covers the longest monthly window.
-      supabase.from('projects')
-        .select('id, type, short_form_platforms, published_at')
-        .gte('published_at', monthAgo),
-      supabase.from('pipeline_goals').select('bucket, goal'),
-      supabase.from('pipeline_settings').select('period').eq('id', 1).maybeSingle(),
+      supabase.from('film_queue_items')
+        .select('*, sheet:beat_sheets(id, title, status, estimated_minutes, approved_at, film_date)')
+        .in('state', ['queued', 'filmed'])
+        .order('created_at', { ascending: true }),
+      supabase.from('film_sessions')
+        .select('*')
+        .or(`locked_at.is.null,session_date.gte.${todayIso()}`)
+        .order('session_date', { ascending: true }),
+      // Open fq_* tasks — the card's "assignee" is whoever holds the open task.
+      supabase.from('tasks')
+        .select('related_entity_id, assignee_id, step_key, created_at')
+        .eq('related_entity_type', 'film_queue_item')
+        .in('status', ['pending', 'active', 'on_hold']),
     ]);
     if (!rosterQ.error) setRoster(rosterQ.data || []);
     if (!floorQ.error) setProjects(floorQ.data || []);
-    if (!pubQ.error) setPublished(pubQ.data || []);
-    if (!goalsQ.error) setGoals(Object.fromEntries((goalsQ.data || []).map((g) => [g.bucket, g.goal])));
-    if (!settingsQ.error && settingsQ.data) setPeriod(settingsQ.data.period);
+    if (!fqQ.error) setFqItems(fqQ.data || []);
+    if (!sessQ.error) setSessions(sessQ.data || []);
+    if (!taskQ.error) setFqTasks(taskQ.data || []);
     setLoading(false);
   }, []);
 
@@ -175,251 +170,145 @@ export default function Pipeline({ onOpenProject }) {
   // ── Derivations ─────────────────────────────────────────────
 
   const rosterById = useMemo(() => Object.fromEntries(roster.map((m) => [m.id, m])), [roster]);
-  const staff = useMemo(
-    () => roster
-      .filter((m) => m.role !== 'contractor' && !EXCLUDED_DESK_IDS.has(m.id))
-      .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')),
-    [roster],
-  );
-  const contractors = useMemo(
-    () => roster
-      .filter((m) => m.role === 'contractor' && !EXCLUDED_DESK_IDS.has(m.id))
-      .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')),
-    [roster],
-  );
-  const nameById = useMemo(() => {
+  const nameOf = useCallback((id) => {
+    const m = rosterById[id];
+    return m ? (m.nickname || m.full_name) : null;
+  }, [rosterById]);
+  const parentNameById = useMemo(() => {
     const map = {};
     for (const p of projects) map[p.id] = p.name;
     return map;
   }, [projects]);
 
-  const deskable = useMemo(
-    () => new Set([...staff, ...contractors].map((m) => m.id)),
-    [staff, contractors],
-  );
+  // Projects — soonest due first (post date, else edit deadline, else film
+  // date); undated cards sink to the bottom.
+  const projectCards = useMemo(() => {
+    const dueOf = (p) => p.deadline || p.edit_deadline || p.film_date || '9999-12-31';
+    return [...projects].sort((a, b) => {
+      const da = dueOf(a), db = dueOf(b);
+      if (da !== db) return da < db ? -1 : 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }, [projects]);
 
-  const placedCards = useMemo(() => projects.map((p) => {
-    const current = (p.project_stage_assignments || []).filter((a) => a.stage === p.status);
-    const owner = current.find((a) => deskable.has(a.user_id))?.user_id || null;
-    const extras = current.filter((a) => a.user_id !== owner).map((a) => rosterById[a.user_id]).filter(Boolean);
+  // Film Queue — current open task owner per item (newest open task wins).
+  const fqOwnerByItem = useMemo(() => {
+    const map = {};
+    const sorted = [...fqTasks].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    for (const t of sorted) if (t.related_entity_id) map[t.related_entity_id] = t.assignee_id;
+    return map;
+  }, [fqTasks]);
 
-    // Next stop: next non-skipped stage → its first desk-able assignee, the
-    // cloud if unowned, or a bucket when the next stop is Published.
-    const skip = p.stage_config || {};
-    const order = CANONICAL_STAGES;
-    let idx = order.indexOf(p.status) + 1;
-    while (idx < order.length && skip[order[idx]]?.skip) idx += 1;
-    const nextStage = idx < order.length ? order[idx] : 'publish';
-    let target;
-    if (nextStage === 'publish') {
-      const b = bucketsForProject(p)[0];
-      target = b ? { kind: 'bucket', bucket: b } : null;
+  const fqBySection = useMemo(() => {
+    const queueItems = fqItems
+      .filter((i) => i.state === 'queued' && i.sheet)
+      .map((i) => ({
+        ...i,
+        estimated_minutes: i.sheet.estimated_minutes ?? defaultMinutesFor(i.queue_type),
+        approved_at: i.sheet.approved_at,
+      }));
+    const review = queueItems.filter((i) => i.sheet.status !== 'approved');
+    const approvedUnpacked = queueItems.filter((i) => i.sheet.status === 'approved' && !i.session_id);
+
+    // Same next-session resolution as the Film Queue tab: today's locked
+    // session wins, else the next unlocked one; derived pack pre-lock.
+    const lockedToday = sessions.find((s) => s.locked_at && s.session_date === todayIso());
+    const upcomingUnlocked = sessions.find((s) => !s.locked_at);
+    const displaySession = lockedToday || upcomingUnlocked || null;
+    let filming = [];
+    let upNext = [];
+    if (displaySession?.locked_at) {
+      filming = queueItems
+        .filter((i) => i.session_id === displaySession.id)
+        .sort((a, b) => (a.slate_order || 0) - (b.slate_order || 0));
+      upNext = orderTheLine(approvedUnpacked);
+    } else if (displaySession) {
+      const { packed, remaining } = packSession(approvedUnpacked);
+      filming = packed;
+      upNext = remaining;
     } else {
-      const nextOwner = (p.project_stage_assignments || [])
-        .filter((a) => a.stage === nextStage)
-        .find((a) => deskable.has(a.user_id))?.user_id || null;
-      target = nextOwner ? { kind: 'desk', member: nextOwner } : { kind: 'cloud' };
+      upNext = orderTheLine(approvedUnpacked);
     }
-    return { p, owner, extras, nextStage, target, size: cardSize(p) };
-  }), [projects, deskable, rosterById]);
+    const editing = fqItems.filter((i) => i.state === 'filmed');
+    return { review, up_next: upNext, filming, editing, session: displaySession };
+  }, [fqItems, sessions]);
 
-  // Long / Short / All filter. Filtered-out cards stay mounted at their last
-  // known position and shrink away (`pipe-gone`), so flipping the toggle back
-  // glides them home with the same magnetic transition as any data move.
-  const visibleCards = useMemo(() => placedCards.filter((c) => {
-    if (typeFilter === 'all') return true;
-    return LONG_FORM_TYPES.includes(c.p.type) === (typeFilter === 'long');
-  }), [placedCards, typeFilter]);
+  // Per-section status meta for FQ cards.
+  const fqStatusFor = useCallback((sectionKey, item) => {
+    if (sectionKey === 'review') {
+      const st = STATUS_BY_VALUE[item.sheet?.status] || STATUS_BY_VALUE.drafting;
+      return { label: st.label, color: st.color };
+    }
+    if (sectionKey === 'up_next') return { label: 'Up Next', color: '#22c55e' };
+    if (sectionKey === 'filming') {
+      return { label: 'Filming', color: STAGE_COLORS.film || '#fb923c' };
+    }
+    return { label: 'Editing', color: STAGE_COLORS.edit || '#a78bfa' };
+  }, []);
 
   // ── Layout ──────────────────────────────────────────────────
 
   const layout = useMemo(() => {
-    const cloudCards = visibleCards.filter((c) => !c.owner);
-    const byDesk = {};
-    for (const c of visibleCards) {
-      if (c.owner) (byDesk[c.owner] = byDesk[c.owner] || []).push(c);
-    }
+    const W = CANVAS_W;
+    const leftX = PAD;
+    const rightX = PAD + COL_W + COL_GAP;
+    const positions = {}; // card key → { x, y }
 
-    // Ring size first — the canvas must be wide enough to hold the desk
-    // ellipse, so W derives from the roster, not the other way around.
-    // Contractors mix in alphabetically with everyone else; their desks are
-    // marked with a small "C" badge instead of a grouped zone.
-    const members = [...staff, ...contractors]
-      .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
-    // Requested seating tweak (2026-09-10): Trevor and Ethan Jones trade ring
-    // slots.
-    const SWAP = ['c3290048-436b-46c6-b3f0-fdf7923d0c3b', '219a0098-6530-49a2-98d0-edb59b8ed39a'];
-    const si = members.findIndex((m) => m.id === SWAP[0]);
-    const sj = members.findIndex((m) => m.id === SWAP[1]);
-    if (si >= 0 && sj >= 0) [members[si], members[sj]] = [members[sj], members[si]];
-    const n = Math.max(members.length, 1);
-    const rx = Math.max(500, (n * (DESK_W + 44)) / (2 * Math.PI) * 1.8);
-    const ry = 230;
-    const W = Math.max(CANVAS_W, Math.ceil(2 * rx + DESK_W + 2 * PAD + 200));
+    // Yearly Goals band spans the full width at the top; its height is
+    // measured from the DOM (goal cards flow) and fed back in via yearlyH.
+    const yearlyTop = 24;
+    const colTitleY = yearlyTop + yearlyH + 40;
+    const topY = colTitleY + 52;
 
-    const positions = {};   // project id → { x, y, w, h, zone }
-    const desks = [];       // { member, x, y, w, h, contractor }
-
-    // Cloud — centered rows of mixed-size cards, slight jitter for an
-    // organic drift rather than a grid.
-    const cloudTop = 48;
-    const maxRowW = W - 2 * PAD - 120;
-    let rows = [[]];
-    let rowW = 0;
-    for (const c of cloudCards) {
-      if (rowW + c.size.w + CARD_GAP > maxRowW && rows[rows.length - 1].length > 0) {
-        rows.push([]);
-        rowW = 0;
-      }
-      rows[rows.length - 1].push(c);
-      rowW += c.size.w + CARD_GAP;
-    }
-    let cloudY = cloudTop;
-    for (const row of rows) {
-      if (row.length === 0) continue;
-      const total = row.reduce((sum, c) => sum + c.size.w, 0) + (row.length - 1) * CARD_GAP;
-      let x = (W - total) / 2;
-      const rowH = Math.max(...row.map((c) => c.size.h));
-      for (const c of row) {
-        const jy = (hash01(c.p.id, 'cy') - 0.5) * 18;
-        positions[c.p.id] = { x, y: cloudY + (rowH - c.size.h) / 2 + jy, w: c.size.w, h: c.size.h, zone: 'cloud' };
-        x += c.size.w + CARD_GAP;
-      }
-      cloudY += rowH + CARD_GAP + 6;
-    }
-    const cloudBottom = Math.max(cloudY, cloudTop + 90);
-
-    // Desk band — everyone (staff + contractors) on ONE ellipse around a
-    // center, magnetic-cloud style. Contractors take consecutive arc slots so
-    // they cluster together on the band's right side.
-    const deskHeight = (memberId) => {
-      const cards = byDesk[memberId] || [];
-      const stack = cards.reduce((sum, c) => sum + c.size.h + 10, 0);
-      return Math.max(DESK_MIN_H, DESK_HEAD + Math.max(stack, 84) + 16);
-    };
-    const maxDeskH = Math.max(...members.map((m) => deskHeight(m.id)), DESK_MIN_H);
-    const cx = W / 2;
-    const cy = cloudBottom + ZONE_GAP + ry + maxDeskH / 2;
-
-    members.forEach((m, i) => {
-      // Start at the top of the ellipse and walk clockwise. Neighbors near
-      // the top/bottom arcs compress horizontally, so alternate desks step
-      // in/out radially; the relaxation pass below settles any remaining
-      // contact.
-      const t = -Math.PI / 2 + ((i + 0.5) / n) * 2 * Math.PI;
-      const stagger = 1 + (i % 2 === 0 ? 0.12 : -0.12);
-      const jx = (hash01(m.id, 'dx') - 0.5) * 20;
-      const jy = (hash01(m.id, 'dy') - 0.5) * 28;
-      const h = deskHeight(m.id);
-      desks.push({
-        member: m,
-        x: cx + rx * stagger * Math.cos(t) - DESK_W / 2 + jx,
-        y: cy + ry * stagger * Math.sin(t) - h / 2 + jy,
-        w: DESK_W, h,
-        contractor: m.role === 'contractor',
-      });
+    // Projects — one dashed container, 2-wide grid.
+    const pGrid = gridLayout(projectCards.length);
+    projectCards.forEach((p, i) => {
+      positions[`p:${p.id}`] = {
+        x: leftX + pGrid.positions[i].x,
+        y: topY + SEC_PAD + pGrid.positions[i].y,
+      };
     });
+    const projectsBox = {
+      x: leftX, y: topY, w: COL_W,
+      h: Math.max(2 * SEC_PAD + pGrid.height, 120),
+    };
 
-    // Overlap relaxation — push any colliding desk pair apart along the line
-    // between their centers until every pair clears a margin. Deterministic
-    // (fixed iteration order, no randomness), so positions stay stable.
-    const MARGIN = 30;
-    for (let pass = 0; pass < 40; pass++) {
-      let moved = false;
-      for (let a = 0; a < desks.length; a++) {
-        for (let b = a + 1; b < desks.length; b++) {
-          const A = desks[a], B = desks[b];
-          const overlapX = Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x) + MARGIN;
-          const overlapY = Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y) + MARGIN;
-          if (overlapX <= 0 || overlapY <= 0) continue;
-          moved = true;
-          const dx = (A.x + A.w / 2) - (B.x + B.w / 2);
-          const dy = (A.y + A.h / 2) - (B.y + B.h / 2);
-          // Separate along the axis needing the least travel.
-          if (overlapX < overlapY) {
-            const push = (overlapX / 2 + 1) * (dx >= 0 ? 1 : -1);
-            A.x += push; B.x -= push;
-          } else {
-            const push = (overlapY / 2 + 1) * (dy >= 0 ? 1 : -1);
-            A.y += push; B.y -= push;
-          }
-        }
-      }
-      if (!moved) break;
-    }
-
-    // Cards stack inside their desk only after positions have settled.
-    for (const d of desks) {
-      (byDesk[d.member.id] || []).reduce((stackY, c) => {
-        positions[c.p.id] = {
-          x: d.x + (d.w - c.size.w) / 2,
-          y: stackY,
-          w: c.size.w, h: c.size.h, zone: 'desk',
+    // Film Queue — four stacked dashed containers.
+    const fqBoxes = [];
+    let fy = topY;
+    for (const sec of FQ_SECTIONS) {
+      const items = fqBySection[sec.key] || [];
+      const grid = gridLayout(items.length);
+      items.forEach((it, i) => {
+        positions[`f:${it.id}`] = {
+          x: rightX + grid.positions[i].x,
+          y: fy + SEC_HEAD + grid.positions[i].y,
         };
-        return stackY + c.size.h + 10;
-      }, d.y + DESK_HEAD);
+      });
+      const h = Math.max(SEC_HEAD + grid.height + SEC_PAD, 96);
+      fqBoxes.push({ ...sec, x: rightX, y: fy, w: COL_W, h, count: items.length });
+      fy += h + 22;
     }
+    const fqBottom = fy - 22;
 
-    const bandBottom = Math.max(...desks.map((d) => d.y + d.h), cloudBottom + 200);
-
-    // Buckets — one centered row of five.
-    const bucketsTop = bandBottom + ZONE_GAP;
-    const bw = Math.min(220, (W - 2 * PAD - (BUCKETS.length - 1) * 22) / BUCKETS.length);
-    const bRowW = BUCKETS.length * bw + (BUCKETS.length - 1) * 22;
-    const buckets = BUCKETS.map((b, i) => ({
-      ...b, x: (W - bRowW) / 2 + i * (bw + 22), y: bucketsTop, w: bw, h: BUCKET_H,
-    }));
+    // Monthly (under Projects) and Weekly (under Film Queue) goal zones
+    // share one row below whichever column runs longer.
+    const goalsRowTop = Math.max(projectsBox.y + projectsBox.h, fqBottom) + ZONE_GAP;
 
     return {
       W,
-      H: bucketsTop + BUCKET_H + PAD,
+      // Bottom goal zones flow to dynamic heights; generous estimate for fit.
+      H: goalsRowTop + 950,
       positions,
-      desks,
-      buckets,
-      cloud: { cx: W / 2, bottom: cloudBottom },
+      yearlyTop,
+      colTitleY,
+      projectsBox,
+      fqBoxes,
+      goalsRowTop,
+      leftX,
+      rightX,
     };
-  }, [visibleCards, staff, contractors]);
-
-  // Filtered-out cards hold their last laid-out spot while hidden.
-  const lastPosRef = useRef({});
-  useEffect(() => { Object.assign(lastPosRef.current, layout.positions); }, [layout]);
-
-  // Arrow endpoints once positions are known.
-  const arrows = useMemo(() => {
-    const deskById = Object.fromEntries(layout.desks.map((d) => [d.member.id, d]));
-    const bucketByKey = Object.fromEntries(layout.buckets.map((b) => [b.key, b]));
-    const out = [];
-    for (const c of visibleCards) {
-      const pos = layout.positions[c.p.id];
-      if (!pos || !c.target) continue;
-      const from = { x: pos.x + pos.w / 2, y: pos.y + pos.h };
-      let to = null;
-      if (c.target.kind === 'desk') {
-        const d = deskById[c.target.member];
-        if (d) to = { x: d.x + d.w / 2, y: d.y - 6 };
-      } else if (c.target.kind === 'bucket') {
-        const b = bucketByKey[c.target.bucket];
-        if (b) to = { x: b.x + b.w / 2, y: b.y - 6 };
-      } else {
-        to = { x: layout.cloud.cx, y: layout.cloud.bottom };
-        if (pos.zone === 'cloud') to = null; // already home
-      }
-      if (!to) continue;
-      out.push({ id: c.p.id, from, to, color: typeColors(c.p.type).fg });
-    }
-    return out;
-  }, [visibleCards, layout]);
-
-  // Published counts inside the current window.
-  const counts = useMemo(() => {
-    const start = windowStart(period).getTime();
-    const tally = Object.fromEntries(BUCKETS.map((b) => [b.key, 0]));
-    for (const p of published) {
-      if (!p.published_at || new Date(p.published_at).getTime() < start) continue;
-      for (const b of bucketsForProject(p)) tally[b] += 1;
-    }
-    return tally;
-  }, [published, period]);
+  }, [projectCards, fqBySection, yearlyH]);
 
   // ── Camera ──────────────────────────────────────────────────
 
@@ -436,16 +325,18 @@ export default function Pipeline({ onOpenProject }) {
     });
   }, [layout.W, layout.H]);
 
-  // Fit once, when the first real layout is ready — never on polls, so the
-  // camera stays where the user put it.
+  // Fit once, when the first real layout is ready — never on polls. The full
+  // fit is very zoomed-out because of the Goals block, so the initial camera
+  // fits the two systems' width instead.
   useEffect(() => {
     if (loading || fittedRef.current) return;
     fittedRef.current = true;
-    fitView();
-  }, [loading, fitView]);
+    const el = viewportRef.current;
+    if (!el) return;
+    const k = Math.min((el.clientWidth - 32) / layout.W, 1);
+    setView({ k, x: (el.clientWidth - layout.W * k) / 2, y: 16 });
+  }, [loading, layout.W]);
 
-  // Scroll = zoom toward the cursor. Manual listener because it must be
-  // non-passive to preventDefault the page scroll.
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -488,30 +379,23 @@ export default function Pipeline({ onOpenProject }) {
     };
   }, []);
 
-  // ── Goal editing ────────────────────────────────────────────
-
-  async function saveBucketMenu(goal, newPeriod) {
-    const bucket = bucketMenu.bucket;
-    setBucketMenu(null);
-    setGoals((g) => ({ ...g, [bucket]: goal }));
-    const { error } = await supabase.from('pipeline_goals').upsert({ bucket, goal, updated_at: new Date().toISOString() });
-    if (error) console.error('Goal save failed:', error);
-    if (newPeriod !== period) {
-      setPeriod(newPeriod);
-      const { error: pErr } = await supabase.from('pipeline_settings')
-        .update({ period: newPeriod, updated_at: new Date().toISOString() })
-        .eq('id', 1);
-      if (pErr) console.error('Period save failed:', pErr);
-    }
-  }
-
   // ── Render ──────────────────────────────────────────────────
 
   if (loading) {
-    return <div style={{ color: colors.textDim, padding: spacing.xl, textAlign: 'center' }}>Loading funnel…</div>;
+    return <div style={{ color: colors.textDim, padding: spacing.xl, textAlign: 'center' }}>Loading progress…</div>;
   }
 
-  const cloudCount = visibleCards.filter((c) => !c.owner).length;
+  // Goal zones fence the canvas's pan (mousedown) and zoom (wheel) so their
+  // forms and buttons stay usable.
+  const goalZoneFence = {
+    onMouseDown: (e) => e.stopPropagation(),
+    onWheel: (e) => e.stopPropagation(),
+  };
+  const sectionBoxStyle = (box) => ({
+    position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h,
+    border: `1.5px dashed ${colors.border}`, borderRadius: radii.md,
+    background: 'rgba(255,255,255,0.02)', boxSizing: 'border-box',
+  });
 
   return (
     <div
@@ -525,28 +409,6 @@ export default function Pipeline({ onOpenProject }) {
         userSelect: 'none',
       }}
     >
-      {/* Long / Short / All content-type filter — sits just left of the zoom
-          controls and borrows their button chrome. */}
-      <div
-        onMouseDown={(e) => e.stopPropagation()}
-        style={{ position: 'absolute', top: 12, right: 120, zIndex: 10, display: 'flex', gap: 6 }}
-      >
-        {[['all', 'All'], ['long', 'Long'], ['short', 'Short']].map(([key, label]) => (
-          <button
-            key={key} type="button" onClick={() => setTypeFilter(key)}
-            style={{
-              height: 30, padding: '0 12px', borderRadius: radii.sm,
-              border: `1px solid ${typeFilter === key ? colors.accentBorder : colors.border}`,
-              background: typeFilter === key ? colors.accentSoft : colors.bgRaised,
-              color: typeFilter === key ? colors.accentFg : colors.textSubtle,
-              fontSize: fontSizes.sm, cursor: 'pointer', fontFamily: 'inherit',
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
       {/* Zoom controls */}
       <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 10, display: 'flex', gap: 6 }}>
         {[
@@ -575,184 +437,159 @@ export default function Pipeline({ onOpenProject }) {
         transformOrigin: '0 0',
       }}>
 
-        {/* Routing arrows */}
-        <svg width={layout.W} height={layout.H} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-          {arrows.map((a) => {
-            const midY = (a.from.y + a.to.y) / 2;
-            const path = `M ${a.from.x} ${a.from.y} C ${a.from.x} ${midY}, ${a.to.x} ${midY}, ${a.to.x} ${a.to.y}`;
-            // The curve always arrives vertically (both control points sit at
-            // midY over to.x), so the head just flips with approach direction.
-            const dir = a.to.y >= a.from.y ? 1 : -1;
-            return (
-              <g key={a.id}>
-                <path d={path} fill="none" stroke={a.color} strokeWidth="1.6" className="pipe-arrow" />
-                <polygon
-                  points={`${a.to.x},${a.to.y} ${a.to.x - 4.5},${a.to.y - dir * 8} ${a.to.x + 4.5},${a.to.y - dir * 8}`}
-                  fill={a.color}
-                  opacity="0.7"
-                />
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Cloud label */}
-        <div style={{ position: 'absolute', top: 10, left: 0, right: 0, textAlign: 'center', color: colors.textDim, fontSize: fontSizes.xs, letterSpacing: 2, textTransform: 'uppercase' }}>
-          ☁ Unassigned{cloudCount ? ` · ${cloudCount}` : ''}
+        {/* Yearly Goals band — spans both columns, no heading */}
+        <div
+          {...goalZoneFence}
+          ref={yearlyRef}
+          style={{
+            position: 'absolute', left: layout.leftX, top: layout.yearlyTop,
+            width: 2 * COL_W + COL_GAP,
+            cursor: 'default', userSelect: 'text',
+          }}
+        >
+          <GoalsSection bare period="yearly" />
         </div>
-        {cloudCount === 0 && (
-          <div style={{ position: 'absolute', top: 64, left: 0, right: 0, textAlign: 'center', color: colors.textDim, fontSize: fontSizes.sm, opacity: 0.6 }}>
-            Every in-flight stage has an owner.
-          </div>
-        )}
 
-        {/* Desks */}
-        {layout.desks.map((d) => (
-          <div key={d.member.id} style={{
-            position: 'absolute', left: d.x, top: d.y, width: d.w, height: d.h,
-            border: `1.5px dashed ${colors.border}`, borderRadius: radii.md,
-            background: 'rgba(255,255,255,0.03)',
-          }}>
+        {/* Column titles */}
+        <div style={{ position: 'absolute', top: layout.colTitleY, left: layout.leftX, width: COL_W, textAlign: 'center', color: colors.text, fontSize: 26, fontWeight: fontWeights.bold, letterSpacing: 0.5 }}>
+          Projects
+        </div>
+        <div style={{ position: 'absolute', top: layout.colTitleY, left: layout.rightX, width: COL_W, textAlign: 'center', color: colors.text, fontSize: 26, fontWeight: fontWeights.bold, letterSpacing: 0.5 }}>
+          Film Queue
+        </div>
+        {/* Projects container */}
+        <div style={sectionBoxStyle(layout.projectsBox)}>
+          {projectCards.length === 0 && (
+            <div style={{ textAlign: 'center', marginTop: 44, color: colors.textDim, fontSize: fontSizes.sm, opacity: 0.6 }}>
+              No projects in flight.
+            </div>
+          )}
+        </div>
+
+        {/* Film Queue sub-section containers */}
+        {layout.fqBoxes.map((box) => (
+          <div key={box.key} style={sectionBoxStyle(box)}>
             <div style={{
-              position: 'absolute', top: -16, left: '50%', transform: 'translateX(-50%)',
-              width: 32, height: 32, borderRadius: '50%', overflow: 'hidden',
-              border: `2px solid ${colors.border}`, background: colors.bgInput,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: colors.textSubtle, fontSize: fontSizes.sm, fontWeight: fontWeights.semibold,
+              textAlign: 'center', marginTop: 9,
+              color: colors.textDim, fontSize: fontSizes.xs,
+              letterSpacing: 2, textTransform: 'uppercase',
             }}>
-              {d.member.avatar_url
-                ? <img src={d.member.avatar_url} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : (d.member.full_name || '?').charAt(0)}
+              {box.label}
+              {box.key === 'filming' && fqBySection.session ? ` · ${fmtShort(fqBySection.session.session_date + 'T00:00:00')}${fqBySection.session.locked_at ? ' · locked' : ''}` : ''}
+              {box.count ? ` · ${box.count}` : ''}
             </div>
-            <div style={{ textAlign: 'center', marginTop: 20, color: colors.textSubtle, fontSize: fontSizes.xs, fontWeight: fontWeights.medium }}>
-              {d.member.nickname || d.member.full_name}
-            </div>
-            {d.contractor && (
-              <div title="Contractor" style={{
-                position: 'absolute', bottom: -11, left: '50%', transform: 'translateX(-50%)',
-                width: 22, height: 22, borderRadius: '50%',
-                border: `1.5px solid ${colors.border}`, background: colors.bgRaised,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: colors.textDim, fontSize: 10, fontWeight: fontWeights.semibold,
-                opacity: 0.8,
-              }}>
-                C
+            {box.count === 0 && (
+              <div style={{ textAlign: 'center', marginTop: 14, color: colors.textDim, fontSize: fontSizes.xs, opacity: 0.55 }}>
+                Nothing here.
               </div>
             )}
           </div>
         ))}
 
-        {/* Cards */}
-        {placedCards.map((c) => {
-          const pos = layout.positions[c.p.id] || lastPosRef.current[c.p.id];
+        {/* Project cards */}
+        {projectCards.map((p) => {
+          const pos = layout.positions[`p:${p.id}`];
           if (!pos) return null;
-          const hidden = !layout.positions[c.p.id];
-          const stageColor = STAGE_COLORS[c.p.status] || colors.textSubtle;
-          const tc = typeColors(c.p.type);
-          const isClip = !!c.p.parent_project_id;
-          const isLong = LONG_FORM_TYPES.includes(c.p.type);
-          const dateVal = isLong ? (c.p.edit_deadline || c.p.deadline) : (c.p.deadline || c.p.edit_deadline);
+          const stageColor = STAGE_COLORS[p.status] || colors.textSubtle;
+          const tc = typeColors(p.type);
+          const isClip = !!p.parent_project_id;
+          const isLong = LONG_FORM_TYPES.includes(p.type);
+          const dateVal = isLong ? (p.edit_deadline || p.deadline) : (p.deadline || p.edit_deadline);
           const dateName = isLong
-            ? (c.p.edit_deadline ? 'Edit' : 'Post')
-            : (c.p.deadline ? 'Post' : 'Edit');
-          const phase = hash01(c.p.id);
+            ? (p.edit_deadline ? 'Edit' : 'Post')
+            : (p.deadline ? 'Post' : 'Edit');
+          const assignees = (p.project_stage_assignments || [])
+            .filter((a) => a.stage === p.status)
+            .map((a) => nameOf(a.user_id))
+            .filter(Boolean);
+          const phase = hash01(p.id);
           return (
-            <div
-              key={c.p.id}
-              className={hidden ? 'pipe-card pipe-gone' : 'pipe-card'}
-              style={{ left: pos.x, top: pos.y, width: pos.w, height: pos.h, zIndex: 2 }}
-            >
+            <div key={p.id} className="pipe-card" style={{ left: pos.x, top: pos.y, width: CARD_W, height: CARD_H, zIndex: 2 }}>
               <div
-                className={pos.zone === 'cloud' ? 'pipe-float' : undefined}
-                onClick={() => { if (!movedRef.current) setDetail(c); }}
+                onClick={() => { if (!movedRef.current) setDetail(p); }}
                 style={{
-                  position: 'relative',
                   width: '100%', height: '100%', boxSizing: 'border-box',
-                  padding: `${spacing.xs}px ${spacing.sm}px`,
+                  padding: `${spacing.sm}px ${spacing.md}px`,
                   borderRadius: radii.md, cursor: 'pointer',
                   border: `1px solid ${stageColor}55`,
                   background: `linear-gradient(${stageColor}1f, ${stageColor}10), ${colors.bgInput}`,
                   boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
-                  textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
-                  animationDelay: `${-phase * 5.2}s`, animationDuration: `${4.6 + phase * 1.6}s`,
+                  textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3,
+                  animationDelay: `${-phase * 5.2}s`,
                 }}
               >
-                <div style={{ color: colors.text, fontSize: isLong ? fontSizes.md : fontSizes.sm, fontWeight: fontWeights.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {c.p.name}
+                <div style={{ color: colors.text, fontSize: fontSizes.md, fontWeight: fontWeights.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.name}
                 </div>
-                <div style={{ color: tc.fg, fontSize: fontSizes.xs, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {isClip ? `Clip${nameById[c.p.parent_project_id] ? ` · ${nameById[c.p.parent_project_id]}` : ''}` : typeLabel(c.p.type)}
-                </div>
-                {dateVal && (
-                  <div style={{ color: colors.textSubtle, fontSize: fontSizes.xs }}>
-                    {dateName} {fmtShort(dateVal)}
-                  </div>
-                )}
                 <div className="pipe-blink" style={{ color: stageColor, fontSize: fontSizes.xs, fontWeight: fontWeights.semibold, letterSpacing: 1, textTransform: 'uppercase' }}>
-                  {labelFor(c.p.type, c.p.status)}
+                  {labelFor(p.type, p.status)}{p.on_hold ? ' · ⏸' : ''}
                 </div>
-                {c.extras.length > 0 && (
-                  <div style={{ position: 'absolute', bottom: -8, right: 6, display: 'flex', gap: 2 }}>
-                    {c.extras.slice(0, 3).map((m) => (
-                      <span key={m.id} title={m.full_name} style={{
-                        width: 16, height: 16, borderRadius: '50%', background: colors.bgHover,
-                        border: `1px solid ${colors.border}`, color: colors.textSubtle,
-                        fontSize: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        {(m.full_name || '?').charAt(0)}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                <div style={{ color: colors.textSubtle, fontSize: fontSizes.xs, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {assignees.length ? assignees.join(', ') : 'Unassigned'}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 10, fontSize: fontSizes.xs }}>
+                  <span style={{ color: tc.fg }}>
+                    {isClip ? `Clip${parentNameById[p.parent_project_id] ? ` · ${parentNameById[p.parent_project_id]}` : ''}` : typeLabel(p.type)}
+                  </span>
+                  {dateVal && <span style={{ color: colors.textSubtle }}>{dateName} {fmtShort(dateVal)}</span>}
+                </div>
               </div>
             </div>
           );
         })}
 
-        {/* Buckets */}
-        {layout.buckets.map((b) => {
-          const goal = goals[b.key] || 0;
-          const lit = counts[b.key] || 0;
-          const dots = Math.max(goal, lit);
+        {/* Film Queue cards */}
+        {FQ_SECTIONS.map((sec) => (fqBySection[sec.key] || []).map((it) => {
+          const pos = layout.positions[`f:${it.id}`];
+          if (!pos) return null;
+          const st = fqStatusFor(sec.key, it);
+          const qColor = queueTypeColor(it.queue_type);
+          const owner = nameOf(fqOwnerByItem[it.id]);
           return (
-            <div
-              key={b.key}
-              onContextMenu={(e) => { e.preventDefault(); setBucketMenu({ bucket: b.key, x: e.clientX, y: e.clientY }); }}
-              style={{
-                position: 'absolute', left: b.x, top: b.y, width: b.w, height: b.h,
-                border: `1.5px solid ${b.color}44`, borderRadius: radii.md,
-                background: `linear-gradient(${b.color}12, transparent), rgba(255,255,255,0.02)`,
-                display: 'flex', flexDirection: 'column', alignItems: 'center',
-                padding: spacing.sm, boxSizing: 'border-box',
-              }}
-            >
-              <div style={{ color: b.color, fontSize: fontSizes.sm, fontWeight: fontWeights.semibold, marginTop: 2 }}>
-                {b.label}
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', justifyContent: 'center', alignContent: 'center', maxWidth: '100%' }}>
-                {dots === 0 ? (
-                  <span style={{ color: colors.textDim, fontSize: fontSizes.xs }}>No goal set</span>
-                ) : Array.from({ length: dots }, (_, i) => (
-                  <span
-                    key={i}
-                    className={i < lit ? 'pipe-light' : undefined}
-                    style={{
-                      width: 11, height: 11, borderRadius: '50%',
-                      background: i < lit ? b.color : 'transparent',
-                      border: `1.5px solid ${i < lit ? b.color : colors.border}`,
-                      boxShadow: i < lit ? `0 0 8px ${b.color}88` : 'none',
-                      // A publish past the goal still lights, ringed to show overflow.
-                      outline: i >= goal ? `1px dashed ${b.color}88` : 'none', outlineOffset: 2,
-                    }}
-                  />
-                ))}
-              </div>
-              <div style={{ color: colors.textSubtle, fontSize: fontSizes.xs }}>
-                {lit} / {goal} {period === 'weekly' ? 'this week' : 'this month'}
+            <div key={it.id} className="pipe-card" style={{ left: pos.x, top: pos.y, width: CARD_W, height: CARD_H, zIndex: 2 }}>
+              <div
+                style={{
+                  width: '100%', height: '100%', boxSizing: 'border-box',
+                  padding: `${spacing.sm}px ${spacing.md}px`,
+                  borderRadius: radii.md,
+                  border: `1px solid ${st.color}55`,
+                  background: `linear-gradient(${st.color}1f, ${st.color}10), ${colors.bgInput}`,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+                  textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3,
+                }}
+              >
+                <div style={{ color: colors.text, fontSize: fontSizes.md, fontWeight: fontWeights.semibold, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {it.sheet?.title || 'Untitled'}
+                </div>
+                <div className="pipe-blink" style={{ color: st.color, fontSize: fontSizes.xs, fontWeight: fontWeights.semibold, letterSpacing: 1, textTransform: 'uppercase' }}>
+                  {st.label}
+                </div>
+                <div style={{ color: colors.textSubtle, fontSize: fontSizes.xs, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {owner || '—'}
+                </div>
+                <div style={{ color: qColor, fontSize: fontSizes.xs, fontWeight: fontWeights.medium }}>
+                  {queueTypeLabel(it.queue_type)}
+                </div>
               </div>
             </div>
           );
-        })}
+        }))}
+
+        {/* Monthly Goals — under the Projects column, aligned with Weekly */}
+        <div
+          {...goalZoneFence}
+          style={{ position: 'absolute', left: layout.leftX, top: layout.goalsRowTop, width: COL_W, cursor: 'default', userSelect: 'text' }}
+        >
+          <GoalsSection bare period="monthly" />
+        </div>
+
+        {/* Weekly Goals — under the Film Queue column, same row */}
+        <div
+          {...goalZoneFence}
+          style={{ position: 'absolute', left: layout.rightX, top: layout.goalsRowTop, width: COL_W, cursor: 'default', userSelect: 'text' }}
+        >
+          <GoalsSection bare period="weekly" />
+        </div>
       </div>
 
       {detail && (
@@ -760,10 +597,8 @@ export default function Pipeline({ onOpenProject }) {
           card={detail}
           roster={roster}
           rosterById={rosterById}
-          parentName={nameById[detail.p.parent_project_id]}
+          parentName={parentNameById[detail.parent_project_id]}
           onAssignmentsChange={(projectId, rows) => {
-            // Mirror the DB write into local state so the floor (owners,
-            // arrows, desk stacks) re-derives without waiting for a poll.
             setProjects((prev) => prev.map((pr) => (pr.id === projectId
               ? { ...pr, project_stage_assignments: rows.map((r) => ({ stage: r.stage, user_id: r.user_id })) }
               : pr)));
@@ -771,36 +606,22 @@ export default function Pipeline({ onOpenProject }) {
           onClose={() => setDetail(null)}
         />
       )}
-      {bucketMenu && (
-        <BucketMenu
-          bucket={BUCKETS[BUCKET_INDEX[bucketMenu.bucket]]}
-          x={bucketMenu.x}
-          y={bucketMenu.y}
-          goal={goals[bucketMenu.bucket] || 0}
-          period={period}
-          onSave={saveBucketMenu}
-          onClose={() => setBucketMenu(null)}
-        />
-      )}
     </div>
   );
 }
 
-// Details popup for a clicked card. Read-only except the remaining-stage
-// assignee editor, which writes straight to project_stage_assignments — the
-// same rows the Projects board reads, so edits show up there too.
-function CardDetails({ card, roster, rosterById, parentName, onAssignmentsChange, onClose }) {
-  const { p, nextStage, target } = card;
+// Details popup for a clicked project card. Read-only except the
+// remaining-stage assignee editor, which writes straight to
+// project_stage_assignments — the same rows the Projects board reads.
+function CardDetails({ card: p, roster, rosterById, parentName, onAssignmentsChange, onClose }) {
   const stageColor = STAGE_COLORS[p.status] || colors.textSubtle;
   const tc = typeColors(p.type);
   const isClip = !!p.parent_project_id;
 
-  // Local mirror of the project's stage assignments, edited optimistically.
   const [assigns, setAssigns] = useState(
     (p.project_stage_assignments || []).map((a) => ({ stage: a.stage, user_id: a.user_id })),
   );
 
-  // Current stage onward, minus skipped stages and Published.
   const skipCfg = p.stage_config || {};
   const startIdx = Math.max(CANONICAL_STAGES.indexOf(p.status), 0);
   const editableStages = CANONICAL_STAGES
@@ -831,16 +652,23 @@ function CardDetails({ card, roster, rosterById, parentName, onAssignmentsChange
     if (error) console.error('Assignee remove failed:', error);
   }
 
+  // Next stop: next non-skipped stage → its assignee(s), or Published.
   let nextText;
-  if (target?.kind === 'bucket') {
-    nextText = `Published → ${BUCKETS[BUCKET_INDEX[target.bucket]].label}`;
-  } else if (nextStage === 'publish') {
-    nextText = 'Published (no bucket — no platform routed)';
-  } else {
-    const who = target?.kind === 'desk'
-      ? (rosterById[target.member]?.nickname || rosterById[target.member]?.full_name)
-      : 'Unassigned cloud';
-    nextText = `${labelFor(p.type, nextStage)} → ${who}`;
+  {
+    const order = CANONICAL_STAGES;
+    let idx = order.indexOf(p.status) + 1;
+    while (idx < order.length && skipCfg[order[idx]]?.skip) idx += 1;
+    const nextStage = idx < order.length ? order[idx] : 'publish';
+    if (nextStage === 'publish') {
+      nextText = 'Published';
+    } else {
+      const names = (p.project_stage_assignments || [])
+        .filter((a) => a.stage === nextStage)
+        .map((a) => rosterById[a.user_id])
+        .filter(Boolean)
+        .map((m) => m.nickname || m.full_name);
+      nextText = `${labelFor(p.type, nextStage)} → ${names.length ? names.join(', ') : 'Unassigned'}`;
+    }
   }
 
   const platforms = (p.short_form_platforms || [])
@@ -976,78 +804,6 @@ function CardDetails({ card, roster, rosterById, parentName, onAssignmentsChange
               );
             })}
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Right-click popover: this bucket's goal + the global window.
-function BucketMenu({ bucket, x, y, goal, period, onSave, onClose }) {
-  const [g, setG] = useState(goal);
-  const [p, setP] = useState(period);
-  const left = Math.min(x, (window.innerWidth || 1200) - 240);
-  const top = Math.min(y, (window.innerHeight || 800) - 220);
-  // Stop mousedown from starting a canvas pan underneath, but still run
-  // backdropDismiss's own arming handler.
-  const bd = backdropDismiss(onClose);
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 300 }}
-      onMouseDown={(e) => { e.stopPropagation(); bd.onMouseDown(e); }}
-      onClick={bd.onClick}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        onContextMenu={(e) => e.preventDefault()}
-        style={{
-          position: 'fixed', left, top, width: 220,
-          background: colors.bgRaised || '#1a1a2e', border: `1px solid ${colors.border}`,
-          borderRadius: radii.md, padding: spacing.md, boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-        }}
-      >
-        <div style={{ color: bucket.color, fontSize: fontSizes.sm, fontWeight: fontWeights.semibold, marginBottom: spacing.sm }}>
-          {bucket.label}
-        </div>
-        <label style={{ display: 'block', color: colors.textDim, fontSize: fontSizes.xs, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
-          Goal per window
-        </label>
-        <input
-          type="number" min="0" max="99" value={g}
-          onChange={(e) => setG(Math.max(0, Math.min(99, Number(e.target.value) || 0)))}
-          style={{
-            width: '100%', boxSizing: 'border-box', background: colors.bgInput,
-            border: `1px solid ${colors.border}`, borderRadius: radii.sm,
-            color: colors.text, padding: '6px 8px', fontSize: fontSizes.md, fontFamily: 'inherit',
-            marginBottom: spacing.sm,
-          }}
-        />
-        <label style={{ display: 'block', color: colors.textDim, fontSize: fontSizes.xs, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
-          Window (all buckets)
-        </label>
-        <div style={{ display: 'flex', gap: 6, marginBottom: spacing.md }}>
-          {['weekly', 'monthly'].map((opt) => (
-            <button
-              key={opt} type="button" onClick={() => setP(opt)}
-              style={{
-                flex: 1, padding: '5px 0', borderRadius: radii.pill,
-                border: `1px solid ${p === opt ? colors.accentBorder : colors.border}`,
-                background: p === opt ? colors.accentSoft : 'transparent',
-                color: p === opt ? colors.accentFg : colors.textSubtle,
-                fontSize: fontSizes.xs, fontFamily: 'inherit', cursor: 'pointer',
-              }}
-            >
-              {opt === 'weekly' ? 'Weekly' : 'Monthly'}
-            </button>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: spacing.sm, justifyContent: 'flex-end' }}>
-          <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', color: colors.textSubtle, fontSize: fontSizes.sm, cursor: 'pointer', fontFamily: 'inherit' }}>
-            Cancel
-          </button>
-          <button type="button" onClick={() => onSave(g, p)} style={{ background: colors.accent, border: 'none', color: '#fff', fontSize: fontSizes.sm, cursor: 'pointer', fontFamily: 'inherit', borderRadius: radii.sm, padding: '5px 14px' }}>
-            Save
-          </button>
         </div>
       </div>
     </div>
