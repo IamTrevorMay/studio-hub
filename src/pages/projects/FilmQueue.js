@@ -92,6 +92,17 @@ export default function FilmQueue({ onNavigate }) {
   const draftingCount = queueItems.filter((i) => i.sheet.status === 'drafting').length;
   const reviewCount = queueItems.filter((i) => i.sheet.status === 'ready_for_review').length;
 
+  // Not yet approved — awaiting review first (closest to the line), then
+  // drafting, oldest first within each.
+  const draftingReviewItems = useMemo(() => queueItems
+    .filter((i) => i.sheet.status !== 'approved')
+    .sort((a, b) => {
+      const ra = a.sheet.status === 'ready_for_review' ? 0 : 1;
+      const rb = b.sheet.status === 'ready_for_review' ? 0 : 1;
+      if (ra !== rb) return ra - rb;
+      return new Date(a.created_at) - new Date(b.created_at);
+    }), [queueItems]);
+
   // The session on display: the locked session for today (shoot morning), or
   // the next unlocked one. Before the 6am lock the pack is derived; after it,
   // membership is stamped on the rows.
@@ -314,6 +325,28 @@ export default function FilmQueue({ onNavigate }) {
         </section>
       )}
 
+      {/* ── Drafting / Review (not yet approved) ── */}
+      <section style={styles.section}>
+        <div style={styles.sectionHeader}>
+          <span style={styles.sectionTitle}>Drafting / Review</span>
+          <span style={styles.sectionCount}>{draftingReviewItems.length}</span>
+          <span style={styles.sectionHint}>Beat sheets still being written or awaiting approval.</span>
+        </div>
+        <div style={{ ...styles.rowGrid, ...styles.theadRow }}>
+          <span style={styles.th} />
+          <span style={styles.th}>Title</span>
+          <span style={styles.th}>Type</span>
+          <span style={styles.th}>Min</span>
+          <span style={styles.th}>Writer</span>
+          <span style={styles.th}>Editor</span>
+          <span style={styles.th}>Status</span>
+        </div>
+        {draftingReviewItems.map((item, i) => renderRow(item, i, false))}
+        {draftingReviewItems.length === 0 && (
+          <p style={styles.emptyText}>Nothing in drafting — every sheet in the queue is approved.</p>
+        )}
+      </section>
+
       {/* ── Item modal ── */}
       {openItem && (
         <FilmQueueItemModal
@@ -438,7 +471,9 @@ function FilmQueueItemModal({ item, isAdmin, pickerProfiles, nameOf, onSave, onO
 }
 
 const styles = {
-  wrap: { display: 'flex', flexDirection: 'column', gap: '20px' },
+  // Same layout margins as Beat Sheets: centered 1500px column (the Projects
+  // page shell already supplies the 40px side padding).
+  wrap: { display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1500px', margin: '0 auto', paddingBottom: '32px' },
   countsRow: { display: 'flex', gap: '12px' },
   countCard: {
     display: 'flex', alignItems: 'baseline', gap: '8px',

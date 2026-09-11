@@ -380,6 +380,73 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // ─── enqueue_sheet ──────────────────────────────────────────
+  // A beat sheet created by hand on the Beat Sheets page joins the queue when
+  // it's tagged Mayday / Short Form / Ad Read. Writer defaults to the sheet's
+  // creator; editor stays unassigned (set later in the Film Queue view).
+  // Idempotent — beat_sheet_id is unique on film_queue_items.
+  if (action === "enqueue_sheet") {
+    if (isCron) return jsonResp({ error: "enqueue_sheet needs a user" }, 400);
+    const sheetId = String(body.beat_sheet_id || "");
+    const queueType = String(body.queue_type || "");
+    if (!sheetId) return jsonResp({ error: "beat_sheet_id required" }, 400);
+    if (!(queueType in DEFAULT_MINUTES)) return jsonResp({ error: `invalid queue_type ${queueType}` }, 400);
+
+    const { data: existing } = await admin
+      .from("film_queue_items")
+      .select("id")
+      .eq("beat_sheet_id", sheetId)
+      .maybeSingle();
+    if (existing) return jsonResp({ ok: true, queue_item_id: existing.id, already: true });
+
+    const { data: sheet } = await admin
+      .from("beat_sheets")
+      .select("id, title, status, estimated_minutes, user_id")
+      .eq("id", sheetId)
+      .maybeSingle();
+    if (!sheet) return jsonResp({ error: "Beat sheet not found" }, 404);
+
+    if (sheet.estimated_minutes == null) {
+      await admin.from("beat_sheets")
+        .update({ estimated_minutes: defaultMinutesFor(queueType) })
+        .eq("id", sheetId);
+    }
+
+    const writerId = sheet.user_id || auth!.userId;
+    const { data: qItem, error: qErr } = await admin
+      .from("film_queue_items")
+      .insert({
+        beat_sheet_id: sheetId,
+        queue_type: queueType,
+        writer_id: writerId,
+        editor_id: null,
+        created_by: auth!.userId,
+      })
+      .select("id")
+      .single();
+    if (qErr || !qItem) return jsonResp({ error: `queue item insert failed: ${qErr?.message}` }, 500);
+
+    // Only a still-drafting sheet gets the write task — its completion is
+    // what advances the review pipeline. Sheets already in review/approved
+    // are driven by the manual status flips.
+    let taskId: string | null = null;
+    if ((sheet.status || "drafting") === "drafting") {
+      const task = await createFilmQueueTask(admin, {
+        stepKey: "fq_write",
+        title: `${sheet.title || "Untitled"} — Beat Sheet`,
+        description:
+          "Write the beat sheet (open it from this task), then hit Complete to send it for review.",
+        assigneeId: writerId,
+        itemId: qItem.id,
+        createdBy: auth!.userId,
+        notifyTitle: "Beat sheet added to the film queue",
+        notifyBody: `"${sheet.title || "Untitled"}" is in the film queue and assigned to you.`,
+      });
+      taskId = task?.id || null;
+    }
+    return jsonResp({ ok: true, queue_item_id: qItem.id, task_id: taskId });
+  }
+
   // ─── request_draft_review ───────────────────────────────────
   // Editor picks one of their Reviews on the fq_edit card and pings the
   // reviewer (Trevor): creates a standalone fq_draft_review task pointing at

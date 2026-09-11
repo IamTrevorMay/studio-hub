@@ -1145,13 +1145,14 @@ function TypePickerModal({ picker, tagsForIdea, sending, onChoose, onConfirm, on
   );
 }
 
-// Details modal for Add to Film Queue: per idea, the type plus the writer and
-// editor assignments (both required — the writer gets the beat sheet task
-// immediately, the editor gets the edit task after filming).
+// Details modal for Add to Film Queue: per idea, the type plus the writer
+// (required — they get the beat sheet task immediately). The editor is
+// optional here and can be assigned later in the Film Queue view; the
+// send-to-editor step is server-gated on one being set by then.
 function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange, onConfirm, onClose }) {
   const allAssigned = picker.items.every((i) => {
     const c = picker.choices[i.id] || {};
-    return c.queue_type && c.writer_id && c.editor_id;
+    return c.queue_type && c.writer_id;
   });
 
   return (
@@ -1160,7 +1161,8 @@ function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange,
         <h3 style={styles.modalTitle}>Add to Film Queue</h3>
         <p style={styles.modalHint}>
           Each idea becomes a beat sheet in the film queue — no project card. The writer
-          gets the beat sheet task right away; the editor gets the edit task after filming.
+          gets the beat sheet task right away; the editor is optional and can be assigned
+          later in the Film Queue.
         </p>
         <div style={styles.typePickList}>
           {picker.items.map((i) => {
@@ -1204,13 +1206,13 @@ function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange,
                     </select>
                   </label>
                   <label style={styles.fqSelectLabel}>
-                    Editor
+                    Editor (optional)
                     <select
                       value={c.editor_id || ''}
                       onChange={(e) => onChange(i.id, { editor_id: e.target.value })}
                       style={styles.typeSelect}
                     >
-                      <option value="">— Pick —</option>
+                      <option value="">— Later —</option>
                       {staffProfiles.map((p) => (
                         <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
                       ))}
@@ -1225,7 +1227,7 @@ function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange,
           <button
             onClick={onConfirm}
             disabled={sending || !allAssigned}
-            title={allAssigned ? undefined : 'Pick a writer and an editor for every idea'}
+            title={allAssigned ? undefined : 'Pick a writer for every idea'}
             style={{ ...styles.submitBtn, flex: 'none', padding: '8px 20px', opacity: sending || !allAssigned ? 0.4 : 1 }}
           >
             {sending ? 'Adding…' : `Add to Film Queue (${picker.items.length})`}
@@ -1604,8 +1606,9 @@ function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, t
 
 const styles = {
   page: { padding: '36px 40px 64px', maxWidth: '1500px', margin: '0 auto', minHeight: '100vh' },
-  // Embedded in Projects: that page already supplies the padding and max-width.
-  embeddedPage: {},
+  // Embedded in Projects: that page supplies the 40px side padding; this adds
+  // the same centered 1500px column the Beat Sheets page uses.
+  embeddedPage: { maxWidth: '1500px', margin: '0 auto', paddingBottom: '32px' },
   header: {
     marginBottom: '24px',
     display: 'flex',

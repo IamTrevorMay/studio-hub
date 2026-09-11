@@ -230,6 +230,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
   const [fqReviewOptions, setFqReviewOptions] = useState(null); // my recent reviews, for the fq_edit draft-review picker
   const [fqReviewDrafts, setFqReviewDrafts] = useState({}); // { [taskId]: review_id }
   const [fqNotifyState, setFqNotifyState] = useState({}); // { [taskId]: 'sending' | 'sent' }
+  const [fqEditorModal, setFqEditorModal] = useState(null); // { task, editorId } — fq_send with no editor assigned
   const [startingBeatSheet, setStartingBeatSheet] = useState(null); // task id being processed
   const [activeProfiles, setActiveProfiles] = useState([]); // for inline editor pickers
   const channelRef = useRef(null);
@@ -437,13 +438,13 @@ export default function MyTasks({ onNavigate, embedded = false }) {
     const unique = [...new Set(ids)];
     supabase
       .from('film_queue_items')
-      .select('id, beat_sheet_id, queue_type, sheet:beat_sheets(title)')
+      .select('id, beat_sheet_id, queue_type, editor_id, sheet:beat_sheets(title)')
       .in('id', unique)
       .then(({ data }) => {
         if (!data) return;
         const map = {};
         for (const i of data) {
-          map[i.id] = { beat_sheet_id: i.beat_sheet_id, queue_type: i.queue_type, sheet_title: i.sheet?.title };
+          map[i.id] = { beat_sheet_id: i.beat_sheet_id, queue_type: i.queue_type, editor_id: i.editor_id, sheet_title: i.sheet?.title };
         }
         setFqMeta(map);
       });
@@ -483,6 +484,25 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       setFqNotifyState(prev => { const next = { ...prev }; delete next[task.id]; return next; });
       toast.error(`Could not send the review request: ${err.message}`);
     }
+  }
+
+  // fq_send with no editor on the queue item: assign one right here, then
+  // continue the send. Direct film_queue_items write — fq_send is always held
+  // by an admin, and film_queue_items is admin-write under RLS.
+  async function assignEditorAndSend() {
+    if (!fqEditorModal?.editorId) return;
+    const { task, editorId } = fqEditorModal;
+    const itemId = task.related_entity_id;
+    const { error } = await supabase.from('film_queue_items')
+      .update({ editor_id: editorId })
+      .eq('id', itemId);
+    if (error) {
+      toast.error(`Could not assign the editor: ${error.message}`);
+      return;
+    }
+    setFqMeta(prev => ({ ...prev, [itemId]: { ...prev[itemId], editor_id: editorId } }));
+    setFqEditorModal(null);
+    handleComplete(task, { video_url: (fqLinkDrafts[task.id] || '').trim() });
   }
 
   // Create a beat sheet from the Mayday Video template (in the Mayday folder,
@@ -1053,7 +1073,11 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                         style={styles.primaryBtn}
                         disabled={!fqLinkValid || isCompleting}
                         title={fqLinkValid ? undefined : 'Paste the video file link to send'}
-                        onClick={() => handleComplete(task, { video_url: (fqLinkDrafts[task.id] || '').trim() })}
+                        onClick={() => {
+                          const meta = fqMeta[task.related_entity_id];
+                          if (meta && !meta.editor_id) { setFqEditorModal({ task, editorId: '' }); return; }
+                          handleComplete(task, { video_url: (fqLinkDrafts[task.id] || '').trim() });
+                        }}
                       >
                         {isCompleting ? 'Sending…' : 'Send to Editor'}
                       </button>
@@ -1459,6 +1483,46 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                 disabled={!holdReason.trim()}
               >
                 Put on Hold
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign-editor modal — fq_send clicked with no editor on the item */}
+      {fqEditorModal && (
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setFqEditorModal(null))}>
+          <div style={styles.modal} onClick={e => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>Assign an editor</h3>
+            <p style={styles.modalSubtitle}>
+              {fqMeta[fqEditorModal.task.related_entity_id]?.sheet_title || fqEditorModal.task.title} has no editor yet —
+              pick who gets the edit task when this sends.
+            </p>
+            <select
+              value={fqEditorModal.editorId}
+              onChange={e => setFqEditorModal(prev => ({ ...prev, editorId: e.target.value }))}
+              autoFocus
+              style={{
+                width: '100%', boxSizing: 'border-box', marginBottom: 14,
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 6, padding: '8px 10px', color: '#fff', fontSize: 13, fontFamily: 'inherit',
+              }}
+            >
+              <option value="">— Pick an editor —</option>
+              {activeProfiles.map((p) => (
+                <option key={p.id} value={p.id}>{p.name} ({p.role})</option>
+              ))}
+            </select>
+            <div style={styles.modalActions}>
+              <button style={styles.secondaryBtn} onClick={() => setFqEditorModal(null)}>
+                Cancel
+              </button>
+              <button
+                style={{ ...styles.primaryBtn, opacity: fqEditorModal.editorId ? 1 : 0.5 }}
+                onClick={assignEditorAndSend}
+                disabled={!fqEditorModal.editorId}
+              >
+                Assign &amp; Send
               </button>
             </div>
           </div>

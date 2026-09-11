@@ -10,6 +10,7 @@ import FindAssetsModal from '../components/FindAssetsModal';
 import GDocsEditor from './editors/doc-editor/gdocs/GDocsEditor';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { BEAT_SHEET_STATUSES, STATUS_BY_VALUE } from '../lib/filmQueue';
+import { defaultStageConfigForType, fetchDefaultAssigneeRows } from '../lib/kanbanStages';
 import { buttonReset } from '../lib/styleRecipes';
 import { colors, fontFamily, fontSizes, fontWeights, radii, spacing, transitions } from '../lib/styleTokens';
 
@@ -167,6 +168,13 @@ const TAG_WORKFLOW_EVENTS = {
   'Mayday': 'new_beat_sheet_mayday',
   'Trevor May Baseball': 'new_beat_sheet_tm_baseball',
 };
+
+// Tag-add routing (2026-09-11): tagging a hand-made sheet sends it where that
+// format is worked. Film-queue formats enqueue via the film-queue edge
+// function (idempotent on beat_sheet_id); project formats spawn a card at
+// Research linked back through projects.beat_sheet_id.
+const TAG_QUEUE_TYPES = { 'Mayday': 'mayday', 'Short Form': 'short_form', 'Ad Read': 'ad' };
+const TAG_PROJECT_TYPES = { 'Trevor May Baseball': 'tm_baseball_video', 'Podcast': 'podcast' };
 
 const TAG_PALETTE = ['#f87171', '#34d399', '#c084fc', '#fbbf24', '#38bdf8', '#8fb4d8', '#f0a3b5', '#10b981'];
 
@@ -832,6 +840,53 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     }
   }, []);
 
+  // Route a newly applied tag to its destination system. Both paths are
+  // duplicate-safe: enqueue_sheet is idempotent on beat_sheet_id, and the
+  // project path skips when a live card already links this sheet.
+  const routeTagDestination = useCallback(async (sheet, label) => {
+    const queueType = TAG_QUEUE_TYPES[label];
+    if (queueType) {
+      try {
+        await callWorkflowFn('film-queue', { action: 'enqueue_sheet', beat_sheet_id: sheet.id, queue_type: queueType });
+      } catch (e) {
+        console.error('Film queue enqueue failed:', e);
+      }
+      return;
+    }
+    const projectType = TAG_PROJECT_TYPES[label];
+    if (!projectType) return;
+    try {
+      const { data: existing } = await supabase.from('projects')
+        .select('id').eq('beat_sheet_id', sheet.id).is('archived_at', null).limit(1);
+      if (existing && existing.length > 0) return;
+      // Same shape as Ideas → Add Project: create in Queue with Research
+      // un-skipped, seed default assignees (+ a queue-stage row for the
+      // creator so their card-move passes the stage-assignee check), then
+      // advance through card-move so Research assignees get their tasks.
+      const cfg = defaultStageConfigForType(projectType);
+      delete cfg.research;
+      const { data: created, error } = await supabase.from('projects').insert({
+        name: sheet.title || 'Untitled',
+        type: projectType,
+        status: 'queue',
+        start_column: 'research',
+        beat_sheet_id: sheet.id,
+        stage_config: cfg,
+        created_by: profile?.id || null,
+      }).select('id').single();
+      if (error) throw new Error(error.message);
+      const seedRows = await fetchDefaultAssigneeRows(supabase, projectType, created.id);
+      if (profile?.id && !seedRows.some((r) => r.stage === 'queue' && r.user_id === profile.id)) {
+        seedRows.push({ project_id: created.id, stage: 'queue', user_id: profile.id });
+      }
+      const { error: aErr } = await supabase.from('project_stage_assignments').insert(seedRows);
+      if (aErr) console.error('Assignee seed failed:', aErr);
+      await callWorkflowFn('card-move', { project_id: created.id, target_stage: 'research' });
+    } catch (e) {
+      console.error('Auto project creation failed:', e);
+    }
+  }, [profile?.id]);
+
   const writeTagIds = useCallback(async (sheet, nextIds) => {
     setSheets(prev => prev.map(s => (s.id === sheet.id ? { ...s, tag_ids: nextIds } : s)));
     setActiveSheet(prev => (prev && prev.id === sheet.id ? { ...prev, tag_ids: nextIds } : prev));
@@ -847,8 +902,12 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     const ok = await writeTagIds(sheet, next);
     // Only an ADD fires the workflow, and only the first time — removing and
     // re-adding is the one case that can legitimately re-fire.
-    if (ok && adding) await fireTagWorkflow(sheet, tagById[tagId]?.label);
-  }, [writeTagIds, fireTagWorkflow, tagById]);
+    if (ok && adding) {
+      const label = tagById[tagId]?.label;
+      await fireTagWorkflow(sheet, label);
+      await routeTagDestination(sheet, label);
+    }
+  }, [writeTagIds, fireTagWorkflow, routeTagDestination, tagById]);
 
   const createTagFor = useCallback(async (sheet, label) => {
     const color = TAG_PALETTE[tags.length % TAG_PALETTE.length];
@@ -860,8 +919,11 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     if (error) { console.error('Tag create error:', error); return; }
     setTags(prev => [...prev, data]);
     const ok = await writeTagIds(sheet, [...(sheet.tag_ids || []), data.id]);
-    if (ok) await fireTagWorkflow(sheet, data.label);
-  }, [tags.length, profile?.id, writeTagIds, fireTagWorkflow]);
+    if (ok) {
+      await fireTagWorkflow(sheet, data.label);
+      await routeTagDestination(sheet, data.label);
+    }
+  }, [tags.length, profile?.id, writeTagIds, fireTagWorkflow, routeTagDestination]);
 
   // ── status / minutes (film queue fields) ──
   // Direct column writes like writeTagIds — the 1.5s autosave only covers
