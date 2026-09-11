@@ -42,6 +42,7 @@ export default function FilmQueue({ onNavigate }) {
   const [openItemId, setOpenItemId] = useState(null);
   const [showInEdit, setShowInEdit] = useState(false);
   const [savingDate, setSavingDate] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, item } — right-click delete (admin)
 
   const fetchAll = useCallback(async () => {
     const [itemsRes, sessionsRes, profilesRes] = await Promise.all([
@@ -88,8 +89,7 @@ export default function FilmQueue({ onNavigate }) {
       estimated_minutes: i.sheet.estimated_minutes ?? defaultMinutesFor(i.queue_type),
       approved_at: i.sheet.approved_at,
     })), [items]);
-  // No sheet, no row — an item is only real while its beat sheet exists.
-  const inEditItems = useMemo(() => items.filter((i) => i.state === 'filmed' && i.sheet), [items]);
+  const inEditItems = useMemo(() => items.filter((i) => i.state === 'filmed'), [items]);
 
   // Not yet approved — awaiting review first (closest to the line), then
   // drafting, oldest first within each.
@@ -167,6 +167,24 @@ export default function FilmQueue({ onNavigate }) {
 
   const openItem = openItemId ? items.find((i) => i.id === openItemId) : null;
 
+  // Right-click delete — removes only the queue item (the beat sheet stays
+  // on the Beat Sheets page). The DB trigger sweeps its tasks/sprint cards.
+  async function deleteQueueItem(item) {
+    setCtxMenu(null);
+    // eslint-disable-next-line no-alert
+    const ok = window.confirm(
+      `Remove "${item.sheet?.title || 'Untitled'}" from the Film Queue? The beat sheet is kept; the item's tasks are deleted.`,
+    );
+    if (!ok) return;
+    const { error } = await supabase.from('film_queue_items').delete().eq('id', item.id);
+    if (error) { console.error('Delete queue item failed:', error); return; }
+    setItems((prev) => prev.filter((i) => i.id !== item.id));
+  }
+
+  const rowCtxProps = (item) => (isAdmin ? {
+    onContextMenu: (e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item }); },
+  } : {});
+
   function renderRow(item, index, showSlate) {
     const status = STATUS_BY_VALUE[item.sheet.status] || STATUS_BY_VALUE.drafting;
     return (
@@ -174,6 +192,7 @@ export default function FilmQueue({ onNavigate }) {
         key={item.id}
         style={styles.row}
         onClick={() => setOpenItemId(item.id)}
+        {...rowCtxProps(item)}
         title="Open item"
       >
         <span style={styles.slateCell}>{showSlate ? index + 1 : ''}</span>
@@ -299,7 +318,7 @@ export default function FilmQueue({ onNavigate }) {
             <span style={styles.chevron}>{showInEdit ? '▲' : '▼'}</span>
           </button>
           {showInEdit && inEditItems.map((item) => (
-            <div key={item.id} style={{ ...styles.row, gridTemplateColumns: 'minmax(200px, 2fr) 110px minmax(120px, 1fr) 120px' }} onClick={() => setOpenItemId(item.id)}>
+            <div key={item.id} style={{ ...styles.row, gridTemplateColumns: 'minmax(200px, 2fr) 110px minmax(120px, 1fr) 120px' }} onClick={() => setOpenItemId(item.id)} {...rowCtxProps(item)}>
               <span style={styles.titleCell}>{item.sheet?.title || 'Untitled'}</span>
               <span>
                 <span style={{ ...styles.typeChip, background: `${queueTypeColor(item.queue_type)}26`, color: queueTypeColor(item.queue_type), borderColor: `${queueTypeColor(item.queue_type)}55` }}>
@@ -336,6 +355,28 @@ export default function FilmQueue({ onNavigate }) {
           <p style={styles.emptyText}>Nothing in drafting — every sheet in the queue is approved.</p>
         )}
       </section>
+
+      {/* ── Right-click menu ── */}
+      {ctxMenu && (
+        <div
+          style={styles.ctxOverlay}
+          onClick={() => setCtxMenu(null)}
+          onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
+        >
+          <div
+            style={{
+              ...styles.ctxMenu,
+              left: Math.min(ctxMenu.x, (window.innerWidth || 1200) - 210),
+              top: Math.min(ctxMenu.y, (window.innerHeight || 800) - 70),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button style={styles.ctxItem} onClick={() => deleteQueueItem(ctxMenu.item)}>
+              Delete from Film Queue
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Item modal ── */}
       {openItem && (
@@ -464,6 +505,17 @@ const styles = {
   // Same layout margins as Beat Sheets: centered 1500px column (the Projects
   // page shell already supplies the 40px side padding).
   wrap: { display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1500px', margin: '0 auto', paddingBottom: '32px' },
+  ctxOverlay: { position: 'fixed', inset: 0, zIndex: 999 },
+  ctxMenu: {
+    position: 'fixed', zIndex: 1000, background: colors.bgHover,
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px',
+    padding: 4, minWidth: 190, boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  ctxItem: {
+    display: 'block', width: '100%', textAlign: 'left', background: 'none',
+    border: 'none', borderRadius: 6, padding: '8px 12px', color: '#f87171',
+    fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+  },
   section: {
     background: colors.whiteA02,
     border: '1px solid rgba(255,255,255,0.07)',
