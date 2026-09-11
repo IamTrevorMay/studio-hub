@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { supabase } from '../supabaseClient';
-import { useAuth } from '../contexts/AuthContext';
-import { useConfirm } from '../contexts/ConfirmContext';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
-import { callEdgeFn } from '../lib/edgeFn';
-import { queueTypeLabel, queueTypeColor } from '../lib/filmQueue';
-import { colors } from '../lib/styleTokens';
+import { supabase } from '../../supabaseClient';
+import { useAuth } from '../../contexts/AuthContext';
+import { useConfirm } from '../../contexts/ConfirmContext';
+import useVisibilityRefresh from '../../hooks/useVisibilityRefresh';
+import { callEdgeFn } from '../../lib/edgeFn';
+import { queueTypeLabel, queueTypeColor } from '../../lib/filmQueue';
+import { colors } from '../../lib/styleTokens';
 
 function fmtDate(iso) {
   if (!iso) return '';
@@ -26,10 +26,12 @@ function cueText(entry) {
   return String(entry ?? '');
 }
 
-// Call sheets live here: one row per generated sheet, click to open. Content
-// is a frozen snapshot (call_sheets.items) taken at lock time, so later beat
-// sheet edits don't rewrite a filmed session's paperwork.
-export default function CallSheets() {
+// Call sheets section at the bottom of the Film Queue view (the standalone
+// Call Sheets page was folded in here 2026-09-11). One row per generated
+// sheet, click to open inline; right-click a row to delete it (admin).
+// Content is a frozen snapshot (call_sheets.items) taken at lock time, so
+// later beat sheet edits don't rewrite a filmed session's paperwork.
+export default function CallSheetsSection() {
   const { isAdmin } = useAuth();
   const confirm = useConfirm();
   const [callSheets, setCallSheets] = useState([]);
@@ -37,6 +39,7 @@ export default function CallSheets() {
   const [openId, setOpenId] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, sheet }
 
   const fetchAll = useCallback(async () => {
     const { data, error } = await supabase
@@ -74,17 +77,32 @@ export default function CallSheets() {
     setGenerating(false);
   }
 
+  // Right-click delete — admin only. The snapshot is only paperwork; deleting
+  // it never touches the session, queue items, or beat sheets.
+  async function deleteCallSheet(sheet) {
+    setCtxMenu(null);
+    const ok = await confirm(
+      `Delete the call sheet for ${fmtDate(sheet.session_date)}? The session and its beat sheets are untouched.`,
+    );
+    if (!ok) return;
+    const { error } = await supabase.from('call_sheets').delete().eq('id', sheet.id);
+    if (error) {
+      setNotice(`Delete failed: ${error.message}`);
+      return;
+    }
+    if (openId === sheet.id) setOpenId(null);
+    setCallSheets((prev) => prev.filter((c) => c.id !== sheet.id));
+  }
+
   const openSheet = openId ? callSheets.find((c) => c.id === openId) : null;
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
-        <div>
-          <h1 style={styles.pageTitle}>Call Sheets</h1>
-          <p style={styles.pageSubtitle}>
-            Generated from each packed film session — slates, timings, and the beat sheets inline.
-          </p>
-        </div>
+    <section style={styles.section}>
+      <div style={styles.sectionHeader}>
+        <span style={styles.sectionTitle}>Call Sheets</span>
+        <span style={styles.sectionCount}>{callSheets.length}</span>
+        <span style={styles.sectionHint}>Generated from each packed film session — slates, timings, and the beat sheets inline.</span>
+        <div style={{ flex: 1 }} />
         {isAdmin && !openSheet && (
           <button
             onClick={generateNow}
@@ -97,7 +115,7 @@ export default function CallSheets() {
         {openSheet && (
           <button onClick={() => setOpenId(null)} style={styles.backBtn}>← All Call Sheets</button>
         )}
-      </header>
+      </div>
 
       {notice && <p style={styles.notice}>{notice}</p>}
 
@@ -110,7 +128,7 @@ export default function CallSheets() {
           No call sheets yet. One is generated automatically at 6am on each session day.
         </p>
       ) : (
-        <div style={styles.list}>
+        <div>
           <div style={{ ...styles.rowGrid, ...styles.theadRow }}>
             <span style={styles.th}>Session</span>
             <span style={styles.th}>Slates</span>
@@ -120,7 +138,17 @@ export default function CallSheets() {
           {callSheets.map((cs) => {
             const items = Array.isArray(cs.items) ? cs.items : [];
             return (
-              <div key={cs.id} style={styles.row} onClick={() => setOpenId(cs.id)}>
+              <div
+                key={cs.id}
+                style={styles.row}
+                onClick={() => setOpenId(cs.id)}
+                onContextMenu={(e) => {
+                  if (!isAdmin) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setCtxMenu({ x: e.clientX, y: e.clientY, sheet: cs });
+                }}
+              >
                 <span style={styles.sessionCell}>{fmtDate(cs.session_date)}</span>
                 <span style={styles.slateCell}>{cs.slate_count}</span>
                 <span style={styles.titlesCell}>
@@ -132,7 +160,17 @@ export default function CallSheets() {
           })}
         </div>
       )}
-    </div>
+
+      {ctxMenu && (
+        <div style={styles.ctxOverlay} onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}>
+          <div style={{ ...styles.ctxMenu, left: Math.min(ctxMenu.x, (window.innerWidth || 1200) - 200), top: Math.min(ctxMenu.y, (window.innerHeight || 800) - 80) }} onClick={(e) => e.stopPropagation()}>
+            <button style={styles.ctxItem} onClick={() => deleteCallSheet(ctxMenu.sheet)}>
+              Delete call sheet
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -231,17 +269,31 @@ function BeatTable({ beats }) {
 }
 
 const styles = {
-  page: { padding: '36px 40px 64px', maxWidth: '1200px', margin: '0 auto', minHeight: '100vh' },
-  header: {
-    marginBottom: '24px',
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: '16px',
-    flexWrap: 'wrap',
+  // Section chrome mirrors the Film Queue page's sections.
+  section: {
+    background: colors.whiteA02,
+    border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: '12px',
+    padding: '14px 16px 16px',
   },
-  pageTitle: { fontSize: '28px', fontWeight: 700, color: colors.white, margin: '0 0 6px 0', letterSpacing: '-0.5px' },
-  pageSubtitle: { fontSize: '13px', color: colors.whiteA45, margin: 0 },
+  sectionHeader: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' },
+  sectionTitle: { fontSize: '15px', fontWeight: 700, color: colors.textBright },
+  sectionCount: {
+    fontSize: '11px', fontWeight: 600, color: colors.textDim,
+    background: colors.whiteA06, padding: '2px 8px', borderRadius: '10px',
+  },
+  sectionHint: { fontSize: '11px', color: colors.textDim },
+  ctxOverlay: { position: 'fixed', inset: 0, zIndex: 999 },
+  ctxMenu: {
+    position: 'fixed', zIndex: 1000, background: colors.bgHover,
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px',
+    padding: 4, minWidth: 170, boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  ctxItem: {
+    display: 'block', width: '100%', textAlign: 'left', background: 'none',
+    border: 'none', borderRadius: 6, padding: '8px 12px', color: '#f87171',
+    fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+  },
   generateBtn: {
     padding: '8px 16px', background: colors.accent, border: 'none', borderRadius: '8px',
     color: colors.white, fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',

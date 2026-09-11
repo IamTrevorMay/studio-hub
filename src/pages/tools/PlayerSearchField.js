@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { colors, spacing, radii, fontSizes, fontWeights, zIndex } from '../../../lib/styleTokens';
-import { supabase } from '../../../supabaseClient';
+import { colors, spacing, radii, fontSizes, fontWeights, zIndex } from '../../lib/styleTokens';
+import { supabase } from '../../supabaseClient';
 
 // Compact, debounced player-search field used inside widget filter panels.
 // Calls Mayday's /api/triton-search proxy (which holds the Triton anon key

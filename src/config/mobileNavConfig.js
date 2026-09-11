@@ -52,10 +52,8 @@ export const MOBILE_SUPPORT = {
   storyboard: 'excluded',
   sticky_board: 'excluded',
   post_show: 'excluded',
-  call_sheets: 'excluded',
   teleprompter: 'excluded',
   telestration: 'excluded',
-  graphics: 'excluded',
   organize: 'excluded',
   broadcast: 'excluded',
 };

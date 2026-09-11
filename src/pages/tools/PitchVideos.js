@@ -3,7 +3,7 @@ import { zipSync } from 'fflate';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import usePersistedTab from '../../hooks/usePersistedTab';
-import PlayerSearchField from './graphics/PlayerSearchField';
+import PlayerSearchField from './PlayerSearchField';
 import ShadeAssets from './ShadeAssets';
 import backdropDismiss from '../../lib/backdropDismiss';
 import { colors } from '../../lib/styleTokens';

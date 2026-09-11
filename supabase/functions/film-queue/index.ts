@@ -360,14 +360,14 @@ Deno.serve(async (req: Request) => {
         admin,
         "Prompter push failed",
         `The call sheet for ${session.session_date} is ready, but pushing "${scriptName}" to the teleprompter failed: ${prompterError}`,
-        "call_sheets",
+        "projects",
       );
     } else {
       await notifyAdmins(
         admin,
         "Call sheet ready",
         `${packed.length} slate${packed.length === 1 ? "" : "s"}, ${totalMinutes} min packed for ${session.session_date}. Prompter session "${scriptName}" is in the library.`,
-        "call_sheets",
+        "projects",
       );
     }
 

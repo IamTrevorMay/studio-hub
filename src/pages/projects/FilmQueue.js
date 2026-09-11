@@ -14,6 +14,7 @@ import {
   SESSION_ITEM_LIMIT,
 } from '../../lib/filmQueue';
 import { colors } from '../../lib/styleTokens';
+import CallSheetsSection from './CallSheetsSection';
 
 const STAFF_PICKER_ROLES = ['admin', 'director', 'director_creative', 'director_comms', 'member'];
 
@@ -88,9 +89,6 @@ export default function FilmQueue({ onNavigate }) {
       approved_at: i.sheet.approved_at,
     })), [items]);
   const inEditItems = useMemo(() => items.filter((i) => i.state === 'filmed'), [items]);
-
-  const draftingCount = queueItems.filter((i) => i.sheet.status === 'drafting').length;
-  const reviewCount = queueItems.filter((i) => i.sheet.status === 'ready_for_review').length;
 
   // Not yet approved — awaiting review first (closest to the line), then
   // drafting, oldest first within each.
@@ -200,17 +198,8 @@ export default function FilmQueue({ onNavigate }) {
 
   return (
     <div style={styles.wrap}>
-      {/* ── Counts ── */}
-      <div style={styles.countsRow}>
-        <div style={styles.countCard}>
-          <span style={styles.countValue}>{draftingCount}</span>
-          <span style={styles.countLabel}>drafting</span>
-        </div>
-        <div style={styles.countCard}>
-          <span style={{ ...styles.countValue, color: colors.gold }}>{reviewCount}</span>
-          <span style={styles.countLabel}>awaiting review</span>
-        </div>
-      </div>
+      {/* ── Call sheets (the old standalone page, folded in) ── */}
+      <CallSheetsSection />
 
       {/* ── Next session ── */}
       <section style={{ ...styles.section, ...styles.sessionSection }}>
@@ -474,17 +463,6 @@ const styles = {
   // Same layout margins as Beat Sheets: centered 1500px column (the Projects
   // page shell already supplies the 40px side padding).
   wrap: { display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '1500px', margin: '0 auto', paddingBottom: '32px' },
-  countsRow: { display: 'flex', gap: '12px' },
-  countCard: {
-    display: 'flex', alignItems: 'baseline', gap: '8px',
-    background: colors.whiteA03, border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '12px', padding: '12px 18px',
-  },
-  countValue: { fontSize: '22px', fontWeight: 700, color: colors.textBright },
-  countLabel: {
-    fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px',
-    color: colors.textDim,
-  },
   section: {
     background: colors.whiteA02,
     border: '1px solid rgba(255,255,255,0.07)',

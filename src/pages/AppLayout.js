@@ -24,12 +24,10 @@ import Analytics from './analytics/Analytics';
 import Tracking from './Tracking';
 import Accounting from './Accounting';
 import Research from './Research';
-import ResearchDocs from './ResearchDocs';
 import BusinessDev from './BusinessDev';
 import Invoicing from './Invoicing';
 import Payroll from './Payroll';
 import Production from './Production';
-import CallSheets from './CallSheets';
 import Screenwriter from './Screenwriter';
 import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
@@ -40,7 +38,6 @@ import PitchVideos from './tools/PitchVideos';
 import Timeline from './tools/Timeline';
 import Broadcast from './tools/Broadcast';
 import Mailer from './tools/Mailer';
-import Graphics from './tools/Graphics';
 
 import ContractorDashboard from './ContractorDashboard';
 import ContractorHours from './ContractorHours';
@@ -79,8 +76,6 @@ const NAV_ITEMS = [
 
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
-  { key: 'call_sheets', label: 'Call Sheets', icon: ProductionIcon },
-  { key: 'research_docs', label: 'Research', icon: ResourcesIcon },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
   { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true },
@@ -90,7 +85,6 @@ const NAV_ITEMS = [
   { key: 'post_show', label: 'Video Tools', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon, adminOnly: true },
   { key: 'mailer', label: 'Mailer', icon: MailerIcon, adminOnly: true },
-  { key: 'graphics', label: 'Graphics', icon: GraphicsIcon },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
   { key: 'deliverables', label: 'Deliverables', icon: DeliverablesIcon },
@@ -270,8 +264,6 @@ const NAV_ICON_MAP = {
 
   write: ResourcesIcon,
   production: ProductionIcon,
-  call_sheets: ProductionIcon,
-  research_docs: ResourcesIcon,
   screenwriter: IdeationIcon,
   teleprompter: ToolsIcon,
   broadcast: ToolsIcon,
@@ -281,7 +273,6 @@ const NAV_ICON_MAP = {
   post_show: ToolsIcon,
   timeline: ToolsIcon,
   mailer: MailerIcon,
-  graphics: GraphicsIcon,
   reviews: ReviewsIcon,
   organize: ToolsIcon,
   projects: ProjectsIcon,
@@ -1294,7 +1285,6 @@ export default function AppLayout() {
           {activeTab === 'deliverables' && <PageErrorBoundary key="deliverables"><Deliverables initialCampaignId={navTarget} onCampaignOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'calendar' && <PageErrorBoundary key="calendar"><Calendar onNavigate={navigateTo} /></PageErrorBoundary>}
           {activeTab === 'production' && <PageErrorBoundary key="production"><Production initialSheetId={navTarget} onSheetOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
-          {activeTab === 'call_sheets' && <PageErrorBoundary key="call_sheets"><CallSheets /></PageErrorBoundary>}
           {activeTab === 'ideation' && <PageErrorBoundary key="ideation"><Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'resources' && <PageErrorBoundary key="resources"><Resources /></PageErrorBoundary>}
           {activeTab === 'screenwriter' && <PageErrorBoundary key="screenwriter"><Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
@@ -1307,12 +1297,10 @@ export default function AppLayout() {
           {activeTab === 'organize' && <PageErrorBoundary key="organize"><Organize onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {canAccessBroadcast(profile?.role) && activeTab === 'broadcast' && <PageErrorBoundary key="broadcast"><Broadcast onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'mailer' && <PageErrorBoundary key="mailer"><Mailer onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'graphics' && <PageErrorBoundary key="graphics"><Graphics onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'analytics' && <PageErrorBoundary key="analytics"><Analytics /></PageErrorBoundary>}
           {isAdmin && activeTab === 'tracking' && <PageErrorBoundary key="tracking"><Tracking /></PageErrorBoundary>}
           {isAdmin && activeTab === 'accounting' && <PageErrorBoundary key="accounting"><Accounting initialTab={navTarget} onTabOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'research' && <PageErrorBoundary key="research"><Research /></PageErrorBoundary>}
-          {activeTab === 'research_docs' && <PageErrorBoundary key="research_docs"><ResearchDocs /></PageErrorBoundary>}
           {activeTab === 'reviews' && <PageErrorBoundary key="reviews"><Reviews initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {(isAdmin || isPartner) && activeTab === 'business_dev' && <PageErrorBoundary key="business_dev"><BusinessDev /></PageErrorBoundary>}
           {isAdmin && activeTab === 'payroll' && <PageErrorBoundary key="payroll"><Payroll /></PageErrorBoundary>}
