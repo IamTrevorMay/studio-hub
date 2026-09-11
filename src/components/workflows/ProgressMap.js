@@ -152,12 +152,14 @@ export default function ProgressMap({
           const sprintActive = !sprintHold && inSet(sprintActiveTaskIds, t);
           const snoozed = !sprintActive && !sprintHold
             && t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
-          let status = 'pending';
-          if (sprintActive) status = 'active';
-          else if (sprintHold || t.status === 'on_hold') status = 'hold';
+          // Same meaning as the table's "N active" pill: anything not
+          // snoozed / on hold / planned is Active. Sprint In-Progress cards
+          // are flagged so the card can glow brighter than plain actives.
+          let status = 'active';
+          if (sprintHold || (!sprintActive && t.status === 'on_hold')) status = 'hold';
           else if (snoozed) status = 'snoozed';
-          else if (t.planned_date) status = 'planned';
-          pending.push({ t, owner: ownerId, groupKey: g.key, status });
+          else if (!sprintActive && t.planned_date) status = 'planned';
+          pending.push({ t, owner: ownerId, groupKey: g.key, status, sprintActive });
         }
         for (const t of bucket.done || []) pushDone(t, ownerId, g.key);
       }
@@ -553,9 +555,10 @@ export default function ProgressMap({
           const st = STATUS_STYLE[c.status];
           const phase = hash01(c.t.id);
           const clickable = !isMirrorRow(c.t) && !!onTaskClick;
-          const statusLine = c.status === 'planned' && c.t.planned_date
-            ? `Planned · ${fmtShort(c.t.planned_date + 'T00:00:00')}`
-            : st.label;
+          const statusLine = c.sprintActive ? 'In Progress'
+            : c.status === 'planned' && c.t.planned_date
+              ? `Planned · ${fmtShort(c.t.planned_date + 'T00:00:00')}`
+              : st.label;
           return (
             <div
               key={c.t.id}
@@ -571,9 +574,9 @@ export default function ProgressMap({
                   width: '100%', height: '100%', boxSizing: 'border-box',
                   padding: `${spacing.xs}px ${spacing.sm}px`,
                   borderRadius: radii.md, cursor: clickable ? 'pointer' : 'default',
-                  border: `1px solid ${st.color}55`,
-                  background: `linear-gradient(${st.color}1f, ${st.color}10), ${colors.bgInput}`,
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+                  border: `1px solid ${st.color}${c.sprintActive ? 'aa' : '55'}`,
+                  background: `linear-gradient(${st.color}${c.sprintActive ? '33' : '1f'}, ${st.color}10), ${colors.bgInput}`,
+                  boxShadow: c.sprintActive ? `0 0 14px ${st.color}44` : '0 2px 8px rgba(0,0,0,0.35)',
                   textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
                   animationDelay: `${-phase * 5.2}s`, animationDuration: `${4.6 + phase * 1.6}s`,
                 }}
