@@ -3,6 +3,8 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { callEdgeFn } from '../lib/edgeFn';
+import { QUEUE_TYPES, IDEA_TAG_TO_QUEUE_TYPE } from '../lib/filmQueue';
 import { colors } from '../lib/styleTokens';
 
 // One shared list + a shared "Up Next" bucket above it. The old category
@@ -30,6 +32,9 @@ const PROJECT_TYPE_OPTIONS = [
   { value: 'short_form', label: 'Short Form' },
   { value: 'podcast', label: 'Podcast' },
 ];
+
+// Who the Film Queue writer/editor pickers offer: every active staff member.
+const STAFF_PICKER_ROLES = ['admin', 'director', 'director_creative', 'director_comms', 'member'];
 
 const TAG_COLOR_CHOICES = ['#f87171', '#fb923c', '#fbbf24', '#34d399', '#22d3ee', '#8fb4d8', '#93c5fd', '#c084fc', '#f9a8d4'];
 
@@ -70,6 +75,8 @@ export default function Ideas({ embedded = false }) {
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, id, bucket }
   const [showAddModal, setShowAddModal] = useState(false);
   const [typePicker, setTypePicker] = useState(null); // { items, choices: { ideaId: type } }
+  const [filmQueuePicker, setFilmQueuePicker] = useState(null); // { items, choices: { ideaId: { queue_type, writer_id, editor_id } } }
+  const [staffProfiles, setStaffProfiles] = useState([]); // writer/editor picker options
   const [tagEditorId, setTagEditorId] = useState(null); // idea id with open tag popover
   const [tags, setTags] = useState([]);
   // View-only sort override, shared by both buckets. null = manual drag order.
@@ -510,6 +517,81 @@ export default function Ideas({ embedded = false }) {
     exitSelectMode();
   }
 
+  // ── Add to Film Queue ──
+  // Queue types an idea's tags map to (podcast deliberately maps to nothing).
+  function queueTypesFor(idea) {
+    const types = [];
+    for (const t of tagsForIdea(idea)) {
+      const type = IDEA_TAG_TO_QUEUE_TYPE[t.label];
+      if (type && !types.includes(type)) types.push(type);
+    }
+    return types;
+  }
+
+  // The details modal always opens — it captures the writer and editor
+  // assignments per idea, not just the type.
+  function requestSendToFilmQueue() {
+    const items = BUCKETS.flatMap((k) => byBucket[k] || []).filter((i) => selectedIds.has(i.id));
+    if (items.length === 0 || sending) return;
+    setFilmQueuePicker({
+      items,
+      choices: Object.fromEntries(items.map((i) => [i.id, {
+        queue_type: queueTypesFor(i)[0] || 'mayday',
+        writer_id: '',
+        editor_id: '',
+      }])),
+    });
+  }
+
+  // The edge function creates the beat sheet + queue item + writer task and
+  // deletes the idea — no project card. Non-admins can't insert those rows
+  // directly (RLS), so this must go through film-queue.
+  async function sendToFilmQueue() {
+    if (!filmQueuePicker || sending) return;
+    setSending(true);
+    try {
+      const payload = filmQueuePicker.items.map((i) => ({
+        idea_id: i.id,
+        ...filmQueuePicker.choices[i.id],
+      }));
+      const result = await callEdgeFn('film-queue', { action: 'enqueue_ideas', items: payload });
+      const createdIds = new Set((result.created || []).map((c) => c.idea_id));
+      if (createdIds.size > 0) {
+        setByBucket((prev) => {
+          const next = {};
+          for (const k of BUCKETS) next[k] = (prev[k] || []).filter((i) => !createdIds.has(i.id));
+          return next;
+        });
+      }
+      if (result.errors?.length) {
+        alert(`Some ideas could not be queued:\n${result.errors.map((e) => e.error).join('\n')}`);
+      } else {
+        setFilmQueuePicker(null);
+        exitSelectMode();
+      }
+    } catch (err) {
+      alert(`Could not add to Film Queue: ${err.message}`);
+    }
+    setSending(false);
+  }
+
+  // Staff list for the writer/editor pickers, loaded when the modal first opens.
+  useEffect(() => {
+    if (!filmQueuePicker || staffProfiles.length > 0) return undefined;
+    let alive = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role')
+        .in('role', STAFF_PICKER_ROLES)
+        .is('deactivated_at', null)
+        .order('full_name', { ascending: true, nullsFirst: false });
+      if (error) { console.error('Error loading staff:', error); return; }
+      if (alive) setStaffProfiles(data || []);
+    })();
+    return () => { alive = false; };
+  }, [filmQueuePicker, staffProfiles.length]);
+
   function cycleSort(key) {
     setSort((prev) => {
       if (prev?.key !== key) return { key, dir: 'asc' };
@@ -559,6 +641,17 @@ export default function Ideas({ embedded = false }) {
             }}
           >
             {sending ? 'Adding…' : `Add to Projects (${selectedIds.size})`}
+          </button>
+          <button
+            onClick={requestSendToFilmQueue}
+            disabled={selectedIds.size === 0 || sending}
+            style={{
+              ...styles.addToFilmQueueBtn,
+              opacity: selectedIds.size === 0 || sending ? 0.4 : 1,
+              cursor: selectedIds.size === 0 || sending ? 'default' : 'pointer',
+            }}
+          >
+            {`Add to Film Queue (${selectedIds.size})`}
           </button>
           <button onClick={exitSelectMode} style={styles.selectCancelBtn}>Cancel</button>
         </>
@@ -642,6 +735,21 @@ export default function Ideas({ embedded = false }) {
             if (ok) setShowAddModal(false);
           }}
           onClose={() => setShowAddModal(false)}
+        />
+      )}
+
+      {filmQueuePicker && (
+        <FilmQueueModal
+          picker={filmQueuePicker}
+          tagsForIdea={tagsForIdea}
+          staffProfiles={staffProfiles}
+          sending={sending}
+          onChange={(ideaId, patch) => setFilmQueuePicker((prev) => ({
+            ...prev,
+            choices: { ...prev.choices, [ideaId]: { ...prev.choices[ideaId], ...patch } },
+          }))}
+          onConfirm={sendToFilmQueue}
+          onClose={() => setFilmQueuePicker(null)}
         />
       )}
 
@@ -847,6 +955,98 @@ function TypePickerModal({ picker, tagsForIdea, sending, onChoose, onConfirm, on
             style={{ ...styles.submitBtn, flex: 'none', padding: '8px 20px', opacity: sending ? 0.4 : 1 }}
           >
             {sending ? 'Adding…' : `Add to Projects (${picker.items.length})`}
+          </button>
+          <button onClick={onClose} style={{ ...styles.cancelBtn, flex: 'none', padding: '8px 16px' }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Details modal for Add to Film Queue: per idea, the type plus the writer and
+// editor assignments (both required — the writer gets the beat sheet task
+// immediately, the editor gets the edit task after filming).
+function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange, onConfirm, onClose }) {
+  const allAssigned = picker.items.every((i) => {
+    const c = picker.choices[i.id] || {};
+    return c.queue_type && c.writer_id && c.editor_id;
+  });
+
+  return (
+    <div style={styles.modalOverlay} onClick={onClose}>
+      <div style={{ ...styles.modal, ...styles.modalWide }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={styles.modalTitle}>Add to Film Queue</h3>
+        <p style={styles.modalHint}>
+          Each idea becomes a beat sheet in the film queue — no project card. The writer
+          gets the beat sheet task right away; the editor gets the edit task after filming.
+        </p>
+        <div style={styles.typePickList}>
+          {picker.items.map((i) => {
+            const c = picker.choices[i.id] || {};
+            return (
+              <div key={i.id} style={styles.fqPickRow}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={styles.typePickIdea}>{i.text}</div>
+                  <div style={styles.typePickTags}>
+                    {tagsForIdea(i).map((t) => (
+                      <span key={t.id} style={{ ...styles.tagChip, background: `${t.color}26`, color: t.color, borderColor: `${t.color}55` }}>
+                        {t.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div style={styles.fqSelectRow}>
+                  <label style={styles.fqSelectLabel}>
+                    Type
+                    <select
+                      value={c.queue_type || 'mayday'}
+                      onChange={(e) => onChange(i.id, { queue_type: e.target.value })}
+                      style={styles.typeSelect}
+                    >
+                      {QUEUE_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={styles.fqSelectLabel}>
+                    Writer
+                    <select
+                      value={c.writer_id || ''}
+                      onChange={(e) => onChange(i.id, { writer_id: e.target.value })}
+                      style={styles.typeSelect}
+                    >
+                      <option value="">— Pick —</option>
+                      {staffProfiles.map((p) => (
+                        <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={styles.fqSelectLabel}>
+                    Editor
+                    <select
+                      value={c.editor_id || ''}
+                      onChange={(e) => onChange(i.id, { editor_id: e.target.value })}
+                      style={styles.typeSelect}
+                    >
+                      <option value="">— Pick —</option>
+                      {staffProfiles.map((p) => (
+                        <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={styles.modalBtnRow}>
+          <button
+            onClick={onConfirm}
+            disabled={sending || !allAssigned}
+            title={allAssigned ? undefined : 'Pick a writer and an editor for every idea'}
+            style={{ ...styles.submitBtn, flex: 'none', padding: '8px 20px', opacity: sending || !allAssigned ? 0.4 : 1 }}
+          >
+            {sending ? 'Adding…' : `Add to Film Queue (${picker.items.length})`}
           </button>
           <button onClick={onClose} style={{ ...styles.cancelBtn, flex: 'none', padding: '8px 16px' }}>Cancel</button>
         </div>
@@ -1211,6 +1411,16 @@ const styles = {
     fontWeight: 600,
     fontFamily: 'inherit',
   },
+  addToFilmQueueBtn: {
+    padding: '8px 16px',
+    background: colors.info.bg,
+    border: `1px solid ${colors.info.border}`,
+    borderRadius: '8px',
+    color: colors.info.fgSoft,
+    fontSize: '13px',
+    fontWeight: 600,
+    fontFamily: 'inherit',
+  },
   selectCancelBtn: {
     padding: '8px 16px',
     background: 'rgba(255,255,255,0.06)',
@@ -1427,6 +1637,18 @@ const styles = {
   },
   modalBtnRow: { display: 'flex', gap: '8px', marginTop: '18px', justifyContent: 'flex-end' },
   typePickList: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  modalWide: { maxWidth: '640px' },
+  fqPickRow: {
+    display: 'flex', flexDirection: 'column', gap: '10px',
+    padding: '10px', background: colors.whiteA03,
+    border: `1px solid ${colors.border}`, borderRadius: '10px',
+  },
+  fqSelectRow: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
+  fqSelectLabel: {
+    display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '140px',
+    fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px',
+    color: colors.textDim,
+  },
   typePickRow: {
     display: 'flex', alignItems: 'center', gap: '12px',
     padding: '10px', background: 'rgba(255,255,255,0.03)',

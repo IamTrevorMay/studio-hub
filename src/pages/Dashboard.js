@@ -259,6 +259,29 @@ export default function Dashboard({ onNavigate }) {
     if (onNavigate) onNavigate('freelancers', notif.link_target);
   }
 
+  // Outstanding film-queue reviews (beat sheets sitting in ready_for_review),
+  // shown as a count card in Today for admins.
+  const [fqReviewCount, setFqReviewCount] = useState(0);
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let alive = true;
+    (async () => {
+      const { count, error } = await supabase
+        .from('film_queue_items')
+        .select('id, sheet:beat_sheets!inner(status)', { count: 'exact', head: true })
+        .eq('state', 'queued')
+        .eq('sheet.status', 'ready_for_review');
+      if (!error && alive) setFqReviewCount(count || 0);
+    })();
+    return () => { alive = false; };
+  }, [isAdmin]);
+
+  function goToFilmQueue() {
+    // Film Queue is a view inside Projects; the view choice persists there.
+    localStorage.setItem('projects_view', 'film_queue');
+    if (onNavigate) onNavigate('projects');
+  }
+
   // Tiptap editor for announcement modal
   const announcementEditor = useEditor({
     extensions: [
@@ -1615,6 +1638,21 @@ export default function Dashboard({ onNavigate }) {
               />
             )}
           </div>
+          {isAdmin && fqReviewCount > 0 && (
+            <div style={styles.assignmentCommentCard}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: colors.white, marginBottom: '2px' }}>
+                  {fqReviewCount} beat sheet{fqReviewCount === 1 ? '' : 's'} awaiting review
+                </div>
+                <div style={{ fontSize: '12px', color: colors.textSubtle }}>
+                  Writers have submitted drafts in the Film Queue.
+                </div>
+              </div>
+              <button onClick={goToFilmQueue} style={styles.assignmentCommentBtn}>
+                Go There
+              </button>
+            </div>
+          )}
           {assignmentCommentNotifs.map(notif => (
             <div key={notif.id} style={styles.assignmentCommentCard}>
               <div style={{ flex: 1, minWidth: 0 }}>

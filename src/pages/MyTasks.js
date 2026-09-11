@@ -40,6 +40,20 @@ function cloneBeatsFresh(items) {
   });
 }
 
+// Inline link input on fq_send / fq_edit film-queue task cards.
+const FQ_LINK_INPUT_STYLE = {
+  flex: 1,
+  minWidth: 0,
+  background: 'rgba(255,255,255,0.06)',
+  border: '1px solid rgba(255,255,255,0.12)',
+  borderRadius: 6,
+  padding: '7px 10px',
+  color: '#fff',
+  fontSize: 13,
+  fontFamily: 'inherit',
+  outline: 'none',
+};
+
 // ─── Helpers ──────────────────────────────────────────────────
 
 function timeAgo(dateStr) {
@@ -211,6 +225,8 @@ export default function MyTasks({ onNavigate, embedded = false }) {
   const [confirmNotes, setConfirmNotes] = useState({}); // { [taskId]: notes } added when approving an automation gate
   const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
   const [projectMeta, setProjectMeta] = useState({}); // { [project_id]: { name, type } }
+  const [fqMeta, setFqMeta] = useState({}); // { [film_queue_item_id]: { beat_sheet_id, queue_type, sheet_title } }
+  const [fqLinkDrafts, setFqLinkDrafts] = useState({}); // { [taskId]: url draft for fq_send / fq_edit }
   const [startingBeatSheet, setStartingBeatSheet] = useState(null); // task id being processed
   const [activeProfiles, setActiveProfiles] = useState([]); // for inline editor pickers
   const channelRef = useRef(null);
@@ -405,6 +421,28 @@ export default function MyTasks({ onNavigate, embedded = false }) {
         const map = {};
         for (const p of data) map[p.id] = p;
         setProjectMeta(map);
+      });
+  }, [tasks]);
+
+  // Fetch film-queue metadata for fq_* tasks (the Open Beat Sheet button needs
+  // the sheet id behind the queue item).
+  useEffect(() => {
+    const ids = tasks
+      .filter(t => t.related_entity_type === 'film_queue_item' && t.related_entity_id)
+      .map(t => t.related_entity_id);
+    if (ids.length === 0) return;
+    const unique = [...new Set(ids)];
+    supabase
+      .from('film_queue_items')
+      .select('id, beat_sheet_id, queue_type, sheet:beat_sheets(title)')
+      .in('id', unique)
+      .then(({ data }) => {
+        if (!data) return;
+        const map = {};
+        for (const i of data) {
+          map[i.id] = { beat_sheet_id: i.beat_sheet_id, queue_type: i.queue_type, sheet_title: i.sheet?.title };
+        }
+        setFqMeta(map);
       });
   }, [tasks]);
 
@@ -815,6 +853,14 @@ export default function MyTasks({ onNavigate, embedded = false }) {
           const isMaydayWrite = task.related_entity_type === 'project'
             && task.step_key === 'write'
             && projectMeta[task.related_entity_id]?.type === 'mayday_video';
+          // Film-queue pipeline tasks (fq_write → fq_review → fq_send → fq_edit).
+          // fq_send and fq_edit need a link to complete — the server enforces
+          // it too (workflow-complete-task), this is just the friendly path.
+          const isFilmQueue = task.related_entity_type === 'film_queue_item';
+          const isFqOpenSheet = isFilmQueue && (task.step_key === 'fq_write' || task.step_key === 'fq_review');
+          const isFqSend = isFilmQueue && task.step_key === 'fq_send';
+          const isFqEdit = isFilmQueue && task.step_key === 'fq_edit';
+          const fqLinkValid = /^https?:\/\//i.test((fqLinkDrafts[task.id] || '').trim());
 
           return (
             <div
@@ -869,7 +915,12 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                   </p>
                 );
               })()}
-              {!isReviewProposal && task.related_entity_type && task.related_entity_type !== 'deliverable' && (
+              {isFilmQueue && (
+                <p style={styles.entitySummary}>
+                  Film Queue{fqMeta[task.related_entity_id]?.sheet_title ? ` \u2022 ${fqMeta[task.related_entity_id].sheet_title}` : ''}
+                </p>
+              )}
+              {!isReviewProposal && !isFilmQueue && task.related_entity_type && task.related_entity_type !== 'deliverable' && (
                 <p style={styles.entitySummary}>
                   {task.related_entity_type}{task.related_entity_id ? ` \u2022 ${task.related_entity_id.slice(0, 8)}...` : ''}
                 </p>
@@ -895,7 +946,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
               )}
 
               {/* Action row */}
-              <div style={{ ...styles.actionRow, ...(isWriteAdRead ? { flexWrap: 'wrap' } : {}) }}>
+              <div style={{ ...styles.actionRow, ...(isWriteAdRead || isFqEdit ? { flexWrap: 'wrap' } : {}) }}>
                 {task.requires_sign_off && !isOnHold ? (
                   <button
                     style={styles.signOffBtn}
@@ -927,6 +978,35 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                     >
                       {startingBeatSheet === task.id ? 'Creating…' : 'Start the Beat Sheet'}
                     </button>
+                ) : isFqOpenSheet ? (
+                    <button
+                      style={styles.primaryBtn}
+                      onClick={() => {
+                        const sheetId = fqMeta[task.related_entity_id]?.beat_sheet_id;
+                        if (onNavigate && sheetId) onNavigate('production', sheetId);
+                      }}
+                      disabled={isCompleting || !fqMeta[task.related_entity_id]}
+                    >
+                      Open Beat Sheet
+                    </button>
+                ) : isFqSend ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                      <input
+                        value={fqLinkDrafts[task.id] || ''}
+                        onChange={e => setFqLinkDrafts(prev => ({ ...prev, [task.id]: e.target.value }))}
+                        placeholder="Link to the video file…"
+                        style={FQ_LINK_INPUT_STYLE}
+                        disabled={isCompleting}
+                      />
+                      <button
+                        style={styles.primaryBtn}
+                        disabled={!fqLinkValid || isCompleting}
+                        title={fqLinkValid ? undefined : 'Paste the video file link to send'}
+                        onClick={() => handleComplete(task, { video_url: (fqLinkDrafts[task.id] || '').trim() })}
+                      >
+                        {isCompleting ? 'Sending…' : 'Send to Editor'}
+                      </button>
+                    </div>
                 ) : action.type === 'editor_picker' ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                     <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Assign an editor</label>
@@ -1086,6 +1166,27 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                   </>
                 )}
 
+                {/* Finished-cut link for edit tasks — completing requires it */}
+                {isFqEdit && !isOnHold && (
+                  <div style={{ flexBasis: '100%', width: '100%', display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                    <input
+                      value={fqLinkDrafts[task.id] || ''}
+                      onChange={e => setFqLinkDrafts(prev => ({ ...prev, [task.id]: e.target.value }))}
+                      placeholder="Link to the finished cut…"
+                      style={FQ_LINK_INPUT_STYLE}
+                      disabled={isCompleting}
+                    />
+                    <button
+                      style={styles.primaryBtn}
+                      disabled={!fqLinkValid || isCompleting}
+                      title={fqLinkValid ? undefined : 'Paste the finished-cut link to complete'}
+                      onClick={() => handleComplete(task, { cut_url: (fqLinkDrafts[task.id] || '').trim() })}
+                    >
+                      {isCompleting ? 'Working…' : 'Deliver Cut'}
+                    </button>
+                  </div>
+                )}
+
                 {/* Go to Deliverables — pinned right */}
                 {isWriteAdRead && !isOnHold && (
                   <button
@@ -1103,7 +1204,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
               {/* Bottom row: Complete + Decline left, Hold + Snooze right */}
               <div style={styles.cardBottomRow}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {!isOnHold && !isReviewProposal && !isConfirmAutomation && !isConfirmOvertime && !isResearchScope && action.type !== 'auto' && (
+                  {!isOnHold && !isReviewProposal && !isConfirmAutomation && !isConfirmOvertime && !isResearchScope && !isFqSend && !isFqEdit && action.type !== 'auto' && (
                     <button
                       style={styles.primaryBtn}
                       onClick={() => handlePrimaryAction(task)}

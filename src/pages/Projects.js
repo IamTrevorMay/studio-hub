@@ -8,6 +8,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import UnifiedBoard from './projects/UnifiedBoard';
 import Ideas from './Ideas';
 import Pipeline from './projects/Pipeline';
+import FilmQueue from './projects/FilmQueue';
 import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
 import { callEdgeFn } from '../lib/edgeFn';
 import { fetchAllRows } from './analytics/utils';
@@ -30,6 +31,7 @@ const VIEWS = [
   // would be the alternative; that is a security call, not a rendering one.
   { key: 'pipeline', label: 'Pipeline', adminOnly: true },
   { key: 'ideas',    label: 'Ideas' },
+  { key: 'film_queue', label: 'Film Queue' },
 ];
 const VIEW_KEYS = VIEWS.map(v => v.key);
 const STATUS_LABELS = {
@@ -544,6 +546,8 @@ export default function Projects({ onNavigate }) {
         </div>
       ) : view === 'ideas' ? (
         <Ideas embedded />
+      ) : view === 'film_queue' ? (
+        <FilmQueue onNavigate={onNavigate} />
       ) : loading ? (
         <p style={styles.emptyText}>Loading projects...</p>
       ) : layout === 'board' ? (

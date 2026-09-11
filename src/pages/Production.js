@@ -9,6 +9,7 @@ import { fetchAllRows } from './analytics/utils';
 import FindAssetsModal from '../components/FindAssetsModal';
 import GDocsEditor from './editors/doc-editor/gdocs/GDocsEditor';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { BEAT_SHEET_STATUSES, STATUS_BY_VALUE } from '../lib/filmQueue';
 import { buttonReset } from '../lib/styleRecipes';
 import { colors, fontFamily, fontSizes, fontWeights, radii, spacing, transitions } from '../lib/styleTokens';
 
@@ -860,6 +861,25 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     const ok = await writeTagIds(sheet, [...(sheet.tag_ids || []), data.id]);
     if (ok) await fireTagWorkflow(sheet, data.label);
   }, [tags.length, profile?.id, writeTagIds, fireTagWorkflow]);
+
+  // ── status / minutes (film queue fields) ──
+  // Direct column writes like writeTagIds — the 1.5s autosave only covers
+  // title/beats, so these persist immediately on change. A manual flip to
+  // approved stamps approved_at (the line orders on it); leaving approved
+  // clears it. Film date is packer-set, never written here.
+  const writeSheetFields = useCallback(async (sheet, patch) => {
+    setSheets(prev => prev.map(s => (s.id === sheet.id ? { ...s, ...patch } : s)));
+    setActiveSheet(prev => (prev && prev.id === sheet.id ? { ...prev, ...patch } : prev));
+    const { error } = await supabase.from('beat_sheets').update(patch).eq('id', sheet.id);
+    if (error) { console.error('Sheet field update error:', error); fetchSheets(); }
+  }, [fetchSheets]);
+
+  const setSheetStatus = useCallback((sheet, status) => {
+    const patch = { status };
+    if (status === 'approved') patch.approved_at = new Date().toISOString();
+    else if (sheet.status === 'approved') patch.approved_at = null;
+    writeSheetFields(sheet, patch);
+  }, [writeSheetFields]);
 
   const openCtx = (e, sheet) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, sheet }); };
   const closeCtx = () => setCtxMenu(null);
@@ -2690,6 +2710,42 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           )}
         </div>
 
+        {/* Film-queue status + estimated minutes. Assignments deliberately
+            don't live here — they're edited in the Film Queue view. */}
+        <select
+          value={activeSheet.status || 'drafting'}
+          onChange={e => setSheetStatus(activeSheet, e.target.value)}
+          title="Beat sheet status"
+          style={{
+            ...styles.statusSelect,
+            color: (STATUS_BY_VALUE[activeSheet.status] || STATUS_BY_VALUE.drafting).color,
+          }}
+        >
+          {BEAT_SHEET_STATUSES.map(s => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+        <label style={styles.minutesWrap} title="Estimated film minutes">
+          <input
+            type="number"
+            min={1}
+            max={120}
+            value={activeSheet.estimated_minutes ?? ''}
+            placeholder="min"
+            onChange={e => {
+              const v = e.target.value;
+              writeSheetFields(activeSheet, { estimated_minutes: v === '' ? null : Math.max(1, Math.round(Number(v) || 0)) });
+            }}
+            style={styles.minutesInput}
+          />
+          min
+        </label>
+        {activeSheet.film_date && (
+          <span style={styles.filmDateChip} title="Set by the session packer">
+            Films {new Date(activeSheet.film_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+
         <button onClick={openFolderBrowser} style={styles.folderBtn} title="Select Google Drive folder">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
             <path d="M1 3a1.5 1.5 0 011.5-1.5h2.879a1.5 1.5 0 011.06.44l.622.62a1.5 1.5 0 001.06.44H11.5A1.5 1.5 0 0113 4.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 011 10.5V3z"/>
@@ -4023,6 +4079,50 @@ const styles = {
     padding: '8px 16px',
     textAlign: 'left',
     cursor: 'pointer',
+  },
+
+  // ── film-queue fields in the config bar ──
+  statusSelect: {
+    padding: '6px 8px',
+    background: colors.whiteA06,
+    border: `1px solid ${colors.borderStrong}`,
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 600,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  minutesWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    fontSize: 11,
+    color: colors.whiteA45,
+    flexShrink: 0,
+  },
+  minutesInput: {
+    width: 48,
+    padding: '6px 6px',
+    background: colors.whiteA06,
+    border: `1px solid ${colors.borderStrong}`,
+    borderRadius: 8,
+    color: colors.textBright,
+    fontSize: 12,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
+    boxSizing: 'border-box',
+  },
+  filmDateChip: {
+    padding: '3px 9px',
+    borderRadius: 10,
+    border: `1px solid ${colors.borderStrong}`,
+    fontSize: 11,
+    fontWeight: 600,
+    color: colors.textMuted,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
 
 };

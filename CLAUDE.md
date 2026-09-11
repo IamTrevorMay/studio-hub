@@ -281,6 +281,38 @@ Research and Split render the same flex row; pane order is CSS `order` and the h
 
 Both new tables are `is_staff()`-scoped, deliberately narrower than the `auth.uid() IS NOT NULL` rule `beat_sheets` itself still carries. Migration `20260908140000_beat_sheet_research.sql`.
 
+## Film Queue (added 2026-09-10)
+
+Concept-to-edit pipeline for filmed content that skips Projects entirely: idea → beat sheet → review → approval → session packing → call sheet → edit handoff. NO project card anywhere in this path.
+
+### Ideas → Film Queue
+- Ideas select mode now has two actions: **Add to Projects (N)** (unchanged) and **Add to Film Queue (N)**.
+- New seeded `Ad` idea tag. Queue types + default minutes: `mayday` 25, `tm_baseball` 25, `short_form` 5, `ad` 5. **Podcast is not queue-eligible** (Projects only).
+- The Film Queue details modal captures per idea: type, writer, editor (pickers list all active staff). Confirm calls the `film-queue` edge function's `enqueue_ideas` (service role — staff can't insert `tasks`/`film_queue_items` under RLS): creates the beat sheet (Mayday Video template for `mayday`, blank otherwise; beat-sheet tag from `QUEUE_TYPE_TO_SHEET_TAG`; `status='drafting'`; appended to Backlog), a `film_queue_items` row (idea context/titles preserved in `source_context`/`source_titles`), the writer's `fq_write` task + notification, then deletes the idea.
+
+### Beat sheet fields
+- `beat_sheets` gained `status` (`drafting`/`ready_for_review`/`approved`, on ALL sheets), `estimated_minutes`, `film_date` (packer-set, never by hand), `approved_at`. Edited in the Production config bar (status select + minutes input; film date is a read-only chip). A manual flip to approved stamps `approved_at`; leaving approved clears it.
+- Assignments deliberately do NOT live on `beat_sheets` — writer/editor sit on `film_queue_items` and are edited only in the Film Queue item modal (admin-tier).
+
+### Task pipeline (`tasks` rows, `step_key` `fq_*`, `related_entity_type='film_queue_item'`)
+- `fq_write` (writer) → complete → sheet `ready_for_review` + `fq_review` task for Trevor (`FILM_QUEUE_REVIEWER` in `shared/film-queue.ts`, same UUID as `RESEARCH_SCOPE_OWNER`).
+- `fq_review` → complete → `approved` + `approved_at` + `fq_send` ("Send to Editor") task for Trevor.
+- `fq_send` requires a video-file link to complete — server-gated in `workflow-complete-task` (mirrors `requires_hours`; client shows an inline input + **Send to Editor** button). **Send = filmed**: item `state='filmed'`, leaves the queue for the edit pile, `fq_edit` task created for the editor with `link_url` = the video.
+- `fq_edit` requires the finished-cut link; completing sets `state='done'` and stores `cut_url`.
+- Transitions live in `supabase/functions/shared/film-queue.ts` (`advanceFilmQueue` / `filmQueueCompletionGate`), wired into `workflow-complete-task`. Gotcha: TaskEditModal's direct client status write bypasses the edge function, so it skips fq transitions (same pre-existing gap as project stage advance).
+- fq tasks appear in My Tasks even for sprint-routed users (`film_queue_item` passes the routing filter, like `research_scope`). MyTasks renders **Open Beat Sheet** on `fq_write`/`fq_review` via the `fqMeta` lookup.
+
+### Film Queue view (4th Projects tab, `src/pages/projects/FilmQueue.js`)
+- Top counts: drafting / awaiting review. **Next Session**: manual date (admin sets it in the header; stored in `film_sessions`); pre-lock the pack is derived client-side, post-lock rows come from stamped `session_id`/`slate_order`. **The Line**: approved + unpacked, ads floated first, then oldest `approved_at`. **In Edit**: `state='filmed'` items until the cut lands. No drag ordering anywhere.
+- Packer: fill to 60 min / 6 items, whichever first, as a strict prefix of the line (overflow keeps its place at the front). KEEP `src/lib/filmQueue.js` and `supabase/functions/shared/film-queue.ts` in sync.
+- Dashboard (admin): "N beat sheets awaiting review" card in the Today block, deep-links via `localStorage.projects_view='film_queue'`.
+
+### Sessions, call sheets, 6am job
+- `film_sessions` (manual `session_date`, `locked_at`), `call_sheets` (frozen `items` jsonb snapshot — later sheet edits don't rewrite history). Call Sheets page: `src/pages/CallSheets.js`, nav key `call_sheets` in the Pre-Production folder, staff view + admin **Lock & Generate Now** (`lock_session` with `force: true`); desktop-only (`call_sheets: 'excluded'` in mobileNavConfig).
+- Cron `film-session-lock-pdt`/`-pst` at 13:05/14:05 UTC both hit `film-queue` `lock_session`; the function gates on PT hour === 6, so exactly one runs per day year-round. Lock: pack → stamp `session_id`/`slate_order`/`film_date` → generate call sheet → compile the prompter session (pushScript beat format + slate title cards + hard breaks) into Trevor's `teleprompter_scripts` as "Film Session — YYYY-MM-DD" → notify admins (`type='automation'`). A prompter push failure notifies immediately. Items approved after the lock roll to the next session automatically (locked sessions never repack).
+- RLS: staff read / admin write on `film_sessions`, `film_queue_items`, `call_sheets`; all pipeline writes go through service-role edge functions.
+- Migrations: `20260910120000_film_queue.sql`, `20260910130000_cron_film_session_lock.sql`, `20260910140000_call_sheets_nav.sql`. Deploy: `film-queue`, `workflow-complete-task`.
+
 ## Admin Mode / Work Mode
 
 Two sidebar modes toggled via button at bottom of sidebar (`AppLayout.js`).

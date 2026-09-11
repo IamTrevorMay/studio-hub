@@ -29,6 +29,7 @@ import BusinessDev from './BusinessDev';
 import Invoicing from './Invoicing';
 import Payroll from './Payroll';
 import Production from './Production';
+import CallSheets from './CallSheets';
 import Screenwriter from './Screenwriter';
 import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
@@ -78,6 +79,7 @@ const NAV_ITEMS = [
 
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
+  { key: 'call_sheets', label: 'Call Sheets', icon: ProductionIcon },
   { key: 'research_docs', label: 'Research', icon: ResourcesIcon },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
@@ -268,6 +270,7 @@ const NAV_ICON_MAP = {
 
   write: ResourcesIcon,
   production: ProductionIcon,
+  call_sheets: ProductionIcon,
   research_docs: ResourcesIcon,
   screenwriter: IdeationIcon,
   teleprompter: ToolsIcon,
@@ -1266,6 +1269,7 @@ export default function AppLayout() {
           {activeTab === 'deliverables' && <PageErrorBoundary key="deliverables"><Deliverables initialCampaignId={navTarget} onCampaignOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'calendar' && <PageErrorBoundary key="calendar"><Calendar onNavigate={navigateTo} /></PageErrorBoundary>}
           {activeTab === 'production' && <PageErrorBoundary key="production"><Production initialSheetId={navTarget} onSheetOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {activeTab === 'call_sheets' && <PageErrorBoundary key="call_sheets"><CallSheets /></PageErrorBoundary>}
           {activeTab === 'ideation' && <PageErrorBoundary key="ideation"><Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'resources' && <PageErrorBoundary key="resources"><Resources /></PageErrorBoundary>}
           {activeTab === 'screenwriter' && <PageErrorBoundary key="screenwriter"><Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
