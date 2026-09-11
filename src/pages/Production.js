@@ -175,6 +175,8 @@ const TAG_WORKFLOW_EVENTS = {
 // Research linked back through projects.beat_sheet_id.
 const TAG_QUEUE_TYPES = { 'Mayday': 'mayday', 'Short Form': 'short_form', 'Ad Read': 'ad' };
 const TAG_PROJECT_TYPES = { 'Trevor May Baseball': 'tm_baseball_video', 'Podcast': 'podcast' };
+// Applying one of these tags stamps the estimated film minutes automatically.
+const TAG_DEFAULT_MINUTES = { 'Mayday': 25, 'Short Form': 5, 'Ad Read': 5 };
 
 const TAG_PALETTE = ['#f87171', '#34d399', '#c084fc', '#fbbf24', '#38bdf8', '#8fb4d8', '#f0a3b5', '#10b981'];
 
@@ -404,7 +406,8 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   };
 
   // ── templates ──
-  const [showTemplates, setShowTemplates] = useState(false);
+  // Actions dropdown (toolbar far right): null | 'menu' | 'templates'
+  const [actionsMenu, setActionsMenu] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const templateBtnRef = useRef(null);
@@ -413,6 +416,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createTemplateId, setCreateTemplateId] = useState(null); // null = blank
+  const [createTagId, setCreateTagId] = useState(null); // required — routes the sheet on create
   const [createBusy, setCreateBusy] = useState(false);
 
   // ── add menu ──
@@ -629,13 +633,14 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   const openCreateModal = () => {
     setCreateName('');
     setCreateTemplateId(null);
+    setCreateTagId(null);
     setShowCreateModal(true);
     fetchTemplates();
   };
 
   const confirmCreate = async () => {
     const name = createName.trim();
-    if (!name || createBusy) return;
+    if (!name || !createTagId || createBusy) return;
     setCreateBusy(true);
     let initialBeats = [newBeat()];
     if (createTemplateId) {
@@ -650,12 +655,23 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     const activeCount = sheets.filter(sheet => !sheet.is_archived && sheet.section === 'active').length;
     const { data, error } = await supabase
       .from('beat_sheets')
-      .insert({ user_id: profile.id, title: name, beats: initialBeats, section: 'active', position: activeCount })
+      .insert({
+        user_id: profile.id, title: name, beats: initialBeats, section: 'active',
+        position: activeCount, tag_ids: [createTagId],
+        estimated_minutes: TAG_DEFAULT_MINUTES[tagById[createTagId]?.label] ?? null,
+      })
       .select()
       .single();
     setCreateBusy(false);
     if (error) { console.error(error); return; }
     setShowCreateModal(false);
+    // The required tag routes the sheet immediately: film-queue formats
+    // enqueue (writer = creator), project formats spawn a Research card with
+    // the creator as the Write-stage assignee. Fire-and-forget so the editor
+    // opens without waiting on the round-trips.
+    const tagLabel = tagById[createTagId]?.label;
+    fireTagWorkflow(data, tagLabel);
+    routeTagDestination(data, tagLabel);
     openSheet(data);
   };
 
@@ -843,6 +859,19 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   // Route a newly applied tag to its destination system. Both paths are
   // duplicate-safe: enqueue_sheet is idempotent on beat_sheet_id, and the
   // project path skips when a live card already links this sheet.
+  // ── status / minutes (film queue fields) ──
+  // Direct column writes like writeTagIds — the 1.5s autosave only covers
+  // title/beats, so these persist immediately on change. A manual flip to
+  // approved stamps approved_at (the line orders on it); leaving approved
+  // clears it. Film date is packer-set, never written here. Declared above
+  // the tag handlers because toggleSheetTag stamps default minutes with it.
+  const writeSheetFields = useCallback(async (sheet, patch) => {
+    setSheets(prev => prev.map(s => (s.id === sheet.id ? { ...s, ...patch } : s)));
+    setActiveSheet(prev => (prev && prev.id === sheet.id ? { ...prev, ...patch } : prev));
+    const { error } = await supabase.from('beat_sheets').update(patch).eq('id', sheet.id);
+    if (error) { console.error('Sheet field update error:', error); fetchSheets(); }
+  }, [fetchSheets]);
+
   const routeTagDestination = useCallback(async (sheet, label) => {
     const queueType = TAG_QUEUE_TYPES[label];
     if (queueType) {
@@ -875,9 +904,15 @@ export default function Production({ initialSheetId, onSheetOpened }) {
         created_by: profile?.id || null,
       }).select('id').single();
       if (error) throw new Error(error.message);
-      const seedRows = await fetchDefaultAssigneeRows(supabase, projectType, created.id);
-      if (profile?.id && !seedRows.some((r) => r.stage === 'queue' && r.user_id === profile.id)) {
-        seedRows.push({ project_id: created.id, stage: 'queue', user_id: profile.id });
+      let seedRows = await fetchDefaultAssigneeRows(supabase, projectType, created.id);
+      if (profile?.id) {
+        // The sheet's creator is the writer — they replace the type's
+        // default Write-stage assignees on this card.
+        seedRows = seedRows.filter((r) => r.stage !== 'write');
+        seedRows.push({ project_id: created.id, stage: 'write', user_id: profile.id });
+        if (!seedRows.some((r) => r.stage === 'queue' && r.user_id === profile.id)) {
+          seedRows.push({ project_id: created.id, stage: 'queue', user_id: profile.id });
+        }
       }
       const { error: aErr } = await supabase.from('project_stage_assignments').insert(seedRows);
       if (aErr) console.error('Assignee seed failed:', aErr);
@@ -904,10 +939,13 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     // re-adding is the one case that can legitimately re-fire.
     if (ok && adding) {
       const label = tagById[tagId]?.label;
+      if (TAG_DEFAULT_MINUTES[label] != null) {
+        writeSheetFields(sheet, { estimated_minutes: TAG_DEFAULT_MINUTES[label] });
+      }
       await fireTagWorkflow(sheet, label);
       await routeTagDestination(sheet, label);
     }
-  }, [writeTagIds, fireTagWorkflow, routeTagDestination, tagById]);
+  }, [writeTagIds, writeSheetFields, fireTagWorkflow, routeTagDestination, tagById]);
 
   const createTagFor = useCallback(async (sheet, label) => {
     const color = TAG_PALETTE[tags.length % TAG_PALETTE.length];
@@ -924,18 +962,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       await routeTagDestination(sheet, data.label);
     }
   }, [tags.length, profile?.id, writeTagIds, fireTagWorkflow, routeTagDestination]);
-
-  // ── status / minutes (film queue fields) ──
-  // Direct column writes like writeTagIds — the 1.5s autosave only covers
-  // title/beats, so these persist immediately on change. A manual flip to
-  // approved stamps approved_at (the line orders on it); leaving approved
-  // clears it. Film date is packer-set, never written here.
-  const writeSheetFields = useCallback(async (sheet, patch) => {
-    setSheets(prev => prev.map(s => (s.id === sheet.id ? { ...s, ...patch } : s)));
-    setActiveSheet(prev => (prev && prev.id === sheet.id ? { ...prev, ...patch } : prev));
-    const { error } = await supabase.from('beat_sheets').update(patch).eq('id', sheet.id);
-    if (error) { console.error('Sheet field update error:', error); fetchSheets(); }
-  }, [fetchSheets]);
 
   const setSheetStatus = useCallback((sheet, status) => {
     const patch = { status };
@@ -1064,17 +1090,17 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [showAddMenuTop, showAddMenuBottom, showColorDropdown]);
 
-  // close templates dropdown on outside click
+  // close the Actions dropdown on outside click
   useEffect(() => {
-    if (!showTemplates) return;
+    if (!actionsMenu) return;
     const handler = (e) => {
       if (templateBtnRef.current && !templateBtnRef.current.parentElement.contains(e.target)) {
-        setShowTemplates(false);
+        setActionsMenu(null);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [showTemplates]);
+  }, [actionsMenu]);
 
   const fetchVersions = async (sheetId) => {
     setVersionsLoading(true);
@@ -1528,11 +1554,32 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     setFoldersLoading(false);
   };
 
+  // Set when Actions › Push Beat Sheet needs a folder first: the very next
+  // selectFolder pushes immediately. Cancelling the browser clears it.
+  const pushAfterSelectRef = useRef(false);
+
   const openFolderBrowser = () => {
     setShowFolderBrowser(true);
     setFolderStack([]);
     setNewFolderName('');
     loadFolders(null);
+  };
+
+  const cancelFolderBrowser = () => {
+    pushAfterSelectRef.current = false;
+    setShowFolderBrowser(false);
+  };
+
+  // Actions › Push Beat Sheet: a saved folder pushes right away; otherwise
+  // the folder picker opens and the pick itself triggers the push.
+  const handlePushBeatSheetAction = () => {
+    setActionsMenu(null);
+    if (driveFolderId) {
+      pushBeatSheet();
+      return;
+    }
+    pushAfterSelectRef.current = true;
+    openFolderBrowser();
   };
 
   const navigateToFolder = (folderId, folderName) => {
@@ -1548,17 +1595,26 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   };
 
   const selectFolder = () => {
+    let id;
     if (folderStack.length === 0) {
       // Selecting the root folder itself
       if (!driveRootId.current) return;
-      setDriveFolderId(driveRootId.current);
+      id = driveRootId.current;
+      setDriveFolderId(id);
       setDriveFolderName('Long Form');
     } else {
       const current = folderStack[folderStack.length - 1];
-      setDriveFolderId(current.id);
+      id = current.id;
+      setDriveFolderId(id);
       setDriveFolderName(folderStack.map(f => f.name).join(' / '));
     }
     setShowFolderBrowser(false);
+    // Actions › Push Beat Sheet with no folder saved yet: the pick IS the
+    // push — the chosen folder persists with the sheet via autosave.
+    if (pushAfterSelectRef.current) {
+      pushAfterSelectRef.current = false;
+      pushBeatSheet(id);
+    }
   };
 
   const createFolder = async () => {
@@ -1583,8 +1639,9 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   };
 
   // ─── push actions ───────────────────────────────────────────────────────────
-  const pushBeatSheet = async () => {
-    if (!driveFolderId) {
+  const pushBeatSheet = async (folderIdOverride) => {
+    const folderId = typeof folderIdOverride === 'string' ? folderIdOverride : driveFolderId;
+    if (!folderId) {
       setToast({ type: 'error', message: 'Select a Google Drive folder first.' });
       return;
     }
@@ -1597,7 +1654,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ folderId: driveFolderId, title, beats: flattenBeats(beats) }),
+        body: JSON.stringify({ folderId, title, beats: flattenBeats(beats) }),
       });
       if (!resp.ok) throw new Error(await resp.text());
       const data = await resp.json();
@@ -2122,11 +2179,11 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     if (!showFolderBrowser) return null;
     const currentPath = folderStack.map(f => f.name).join(' / ') || 'Long Form';
     return (
-      <div style={styles.modalOverlay} onMouseDown={(e) => { if (e.target === e.currentTarget) setShowFolderBrowser(false); }}>
+      <div style={styles.modalOverlay} onMouseDown={(e) => { if (e.target === e.currentTarget) cancelFolderBrowser(); }}>
         <div style={styles.modal} onClick={e => e.stopPropagation()}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h3 style={{ margin: 0, color: 'rgba(255,255,255,0.9)', fontSize: 16 }}>Select Drive Folder</h3>
-            <button onClick={() => setShowFolderBrowser(false)} style={styles.iconBtn}>&times;</button>
+            <button onClick={cancelFolderBrowser} style={styles.iconBtn}>&times;</button>
           </div>
 
           {/* Breadcrumb */}
@@ -2186,7 +2243,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
 
           {/* Actions */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button onClick={() => setShowFolderBrowser(false)} style={styles.btnSecondary}>Cancel</button>
+            <button onClick={cancelFolderBrowser} style={styles.btnSecondary}>Cancel</button>
             <button
               onClick={selectFolder}
               style={styles.btnPrimary}
@@ -2218,7 +2275,29 @@ export default function Production({ initialSheetId, onSheetOpened }) {
             style={{ ...styles.input, width: '100%', boxSizing: 'border-box', marginBottom: 16 }}
           />
 
-          <label style={styles.createLabel}>Start from</label>
+          <label style={styles.createLabel}>Tag</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+            {tags.map(t => {
+              const active = createTagId === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setCreateTagId(t.id)}
+                  style={{
+                    padding: '4px 12px', borderRadius: 999, cursor: 'pointer',
+                    fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                    background: active ? `${t.color}26` : 'rgba(255,255,255,0.04)',
+                    color: active ? t.color : 'rgba(255,255,255,0.55)',
+                    border: `1px solid ${active ? `${t.color}66` : 'rgba(255,255,255,0.1)'}`,
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <label style={styles.createLabel}>Start from Template</label>
           <div style={styles.createOptionList}>
             <button
               onClick={() => setCreateTemplateId(null)}
@@ -2246,8 +2325,9 @@ export default function Production({ initialSheetId, onSheetOpened }) {
             <button onClick={() => setShowCreateModal(false)} style={styles.btnSecondary}>Cancel</button>
             <button
               onClick={confirmCreate}
-              disabled={!createName.trim() || createBusy}
-              style={{ ...styles.btnPrimary, opacity: !createName.trim() || createBusy ? 0.5 : 1, cursor: !createName.trim() || createBusy ? 'default' : 'pointer' }}
+              disabled={!createName.trim() || !createTagId || createBusy}
+              title={createTagId ? undefined : 'Pick a tag — it decides where the sheet goes'}
+              style={{ ...styles.btnPrimary, opacity: !createName.trim() || !createTagId || createBusy ? 0.5 : 1, cursor: !createName.trim() || !createTagId || createBusy ? 'default' : 'pointer' }}
             >
               {createBusy ? 'Creating...' : 'Create'}
             </button>
@@ -2726,6 +2806,16 @@ export default function Production({ initialSheetId, onSheetOpened }) {
             </button>
           ))}
         </div>
+        <div style={{ position: 'absolute', right: 44, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={styles.saveIndicator}>
+            {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'unsaved' ? 'Unsaved' : 'Saved'}
+          </span>
+          {lastSavedAt && (
+            <span style={styles.updatedIndicator}>
+              Updated {fullTimestamp(lastSavedAt)}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Beat sheet toolbar — only when the beat sheet itself is on screen */}
@@ -2810,7 +2900,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
             }}
             style={styles.minutesInput}
           />
-          min
         </label>
         {activeSheet.film_date && (
           <span style={styles.filmDateChip} title="Set by the session packer">
@@ -2818,60 +2907,44 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           </span>
         )}
 
-        <button onClick={openFolderBrowser} style={styles.folderBtn} title="Select Google Drive folder">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
-            <path d="M1 3a1.5 1.5 0 011.5-1.5h2.879a1.5 1.5 0 011.06.44l.622.62a1.5 1.5 0 001.06.44H11.5A1.5 1.5 0 0113 4.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 011 10.5V3z"/>
-          </svg>
-          <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {driveFolderName || 'Select Folder'}
-          </span>
-        </button>
-
-        <button
-          onClick={pushBeatSheet}
-          disabled={pushingSheet}
-          style={{ ...styles.btnPrimary, opacity: pushingSheet ? 0.5 : 1 }}
-        >
-          {pushingSheet ? 'Pushing...' : 'Push Beat Sheet'}
-        </button>
-
-        <button
-          onClick={pushScript}
-          disabled={pushingScript}
-          style={{ ...styles.btnSecondary, opacity: pushingScript ? 0.5 : 1 }}
-        >
-          {pushingScript ? 'Pushing...' : 'Push Script'}
-        </button>
-
-        <button onClick={() => setFindAssetsOpen(true)} style={styles.btnSecondary}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" style={{ marginRight: 6 }}>
-            <circle cx="6" cy="6" r="4.5" />
-            <path d="M9.5 9.5L13 13" />
-          </svg>
-          Find Assets
-        </button>
-
-        <button onClick={openVersionHistory} style={styles.btnSecondary}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" style={{ marginRight: 6 }}>
-            <circle cx="7" cy="7" r="5.5" />
-            <path d="M7 4v3.5l2.5 1.5" />
-          </svg>
-          History
-        </button>
-
-        <div style={{ position: 'relative' }}>
+        {/* Actions — every toolbar tool lives in this one dropdown now */}
+        <div style={{ position: 'relative', marginLeft: 'auto' }}>
           <button
             ref={templateBtnRef}
-            onClick={() => { setShowTemplates(prev => !prev); if (!showTemplates) fetchTemplates(); }}
-            style={styles.btnSecondary}
+            onClick={() => setActionsMenu(prev => (prev ? null : 'menu'))}
+            style={styles.btnPrimary}
           >
-            Templates
+            {pushingSheet || pushingScript ? 'Pushing…' : 'Actions ▾'}
           </button>
-          {showTemplates && (
+          {actionsMenu === 'menu' && (
             <div style={styles.templatesDropdown}>
-              <button onClick={saveAsTemplate} style={styles.templatesSaveBtn}>
+              <button style={styles.actionsItem} onClick={() => { setActionsMenu(null); saveAsTemplate(); }}>
                 Save as Template
               </button>
+              <button style={styles.actionsItem} onClick={() => { fetchTemplates(); setActionsMenu('templates'); }}>
+                Load a Template
+              </button>
+              <button style={styles.actionsItem} onClick={() => { setActionsMenu(null); setFindAssetsOpen(true); }}>
+                Find Assets
+              </button>
+              <button style={styles.actionsItem} disabled={pushingScript} onClick={() => { setActionsMenu(null); pushScript(); }}>
+                Push Script to Teleprompter
+              </button>
+              <button style={styles.actionsItem} disabled={pushingSheet} onClick={handlePushBeatSheetAction}>
+                Push Beat Sheet
+              </button>
+              <button style={styles.actionsItem} onClick={() => { setActionsMenu(null); openVersionHistory(); }}>
+                History
+              </button>
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
+              <button style={{ ...styles.actionsItem, color: 'rgba(255,255,255,0.45)', fontSize: 12 }} onClick={() => { setActionsMenu(null); openFolderBrowser(); }}>
+                Drive folder: {driveFolderName || 'not set'} — change…
+              </button>
+            </div>
+          )}
+          {actionsMenu === 'templates' && (
+            <div style={styles.templatesDropdown}>
+              <button onClick={() => setActionsMenu('menu')} style={styles.actionsItem}>← Back</button>
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
               {templatesLoading ? (
                 <div style={{ padding: '12px 16px', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Loading...</div>
@@ -2880,7 +2953,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
               ) : (
                 templates.map(t => (
                   <div key={t.id} style={styles.templateRow}>
-                    <button onClick={() => loadTemplate(t)} style={styles.templateName}>
+                    <button onClick={() => { setActionsMenu(null); loadTemplate(t); }} style={styles.templateName}>
                       <span>{t.name}</span>
                       <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>{countBeats(t.beats || [])} beats</span>
                     </button>
@@ -2892,16 +2965,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
             </div>
           )}
         </div>
-
-        <span style={styles.saveIndicator}>
-          {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'unsaved' ? 'Unsaved' : 'Saved'}
-        </span>
-
-        {lastSavedAt && (
-          <span style={styles.updatedIndicator}>
-            Updated {fullTimestamp(lastSavedAt)}
-          </span>
-        )}
       </div>
       )}
 
@@ -3459,6 +3522,8 @@ const styles = {
     alignItems: 'center',
     gap: 10,
     marginBottom: 20,
+    paddingBottom: 14,
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
     flexWrap: 'wrap',
   },
 
@@ -4027,6 +4092,19 @@ const styles = {
   },
 
   // ── templates ──
+  actionsItem: {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    background: 'none',
+    border: 'none',
+    padding: '8px 16px',
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+  },
   templatesDropdown: {
     position: 'absolute',
     top: '100%',
