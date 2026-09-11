@@ -46,9 +46,6 @@ export default function ScriptEditor({ script, onChange, onClose }) {
   const { profile } = useAuth();
   const editorRef = useRef(null);
   const isInternalChange = useRef(false);
-  const [showLibrary, setShowLibrary] = useState(false);
-  const [savedScripts, setSavedScripts] = useState([]);
-  const [libraryLoading, setLibraryLoading] = useState(false);
 
   // Sync script prop to editor (skip when change came from user input)
   useEffect(() => {
@@ -96,28 +93,11 @@ export default function ScriptEditor({ script, onChange, onClose }) {
 
   useEffect(() => {
     function handleKey(e) {
-      if (e.key === 'Escape') {
-        if (showLibrary) {
-          setShowLibrary(false);
-        } else {
-          onClose();
-        }
-      }
+      if (e.key === 'Escape') onClose();
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [onClose, showLibrary]);
-
-  const refreshLibrary = async () => {
-    setLibraryLoading(true);
-    const { data, error } = await supabase
-      .from('teleprompter_scripts')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) console.error('Load scripts error:', error);
-    setSavedScripts(data || []);
-    setLibraryLoading(false);
-  };
+  }, [onClose]);
 
   const handleSave = async () => {
     const name = prompt('Script name:');
@@ -132,26 +112,6 @@ export default function ScriptEditor({ script, onChange, onClose }) {
       console.error('Save script error:', error);
       alert('Failed to save script.');
     }
-  };
-
-  const handleOpenLibrary = () => {
-    refreshLibrary();
-    setShowLibrary(true);
-  };
-
-  const handleLoad = (s) => {
-    onChange(s.content);
-    setShowLibrary(false);
-  };
-
-  const handleDelete = async (id) => {
-    await supabase.from('teleprompter_scripts').delete().eq('id', id);
-    refreshLibrary();
-  };
-
-  const formatDate = (ts) => {
-    const d = new Date(ts);
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
   const handleNew = () => {
@@ -194,7 +154,7 @@ export default function ScriptEditor({ script, onChange, onClose }) {
           </button>
         </div>
 
-        <div style={{ ...styles.editorWrapper, display: showLibrary ? 'none' : 'flex' }}>
+        <div style={{ ...styles.editorWrapper, display: 'flex' }}>
           <div
             ref={editorRef}
             contentEditable
@@ -209,50 +169,12 @@ export default function ScriptEditor({ script, onChange, onClose }) {
           )}
         </div>
 
-        <div style={{ ...styles.libraryContainer, display: showLibrary ? 'flex' : 'none' }}>
-          <div style={styles.libraryHeader}>
-            <span style={styles.libraryTitle}>Saved Scripts</span>
-            <button onClick={() => setShowLibrary(false)} style={styles.libraryBackBtn}>
-              Back to Editor
-            </button>
-          </div>
-          {libraryLoading ? (
-            <div style={styles.emptyLibrary}>Loading...</div>
-          ) : savedScripts.length === 0 ? (
-            <div style={styles.emptyLibrary}>
-              No saved scripts yet. Write a script and click Save.
-            </div>
-          ) : (
-            <div style={styles.scriptList}>
-              {savedScripts.map(s => (
-                <div key={s.id} style={styles.scriptItem}>
-                  <div style={styles.scriptInfo}>
-                    <span style={styles.scriptName}>{s.name}</span>
-                    <span style={styles.scriptMeta}>
-                      {formatDate(s.created_at)} &middot; {(s.content || '').replace(/<[^>]*>/g, '').length.toLocaleString()} chars
-                    </span>
-                  </div>
-                  <div style={styles.scriptActions}>
-                    <button onClick={() => handleLoad(s)} style={styles.loadBtn}>Load</button>
-                    <button onClick={() => handleDelete(s.id)} style={styles.deleteBtn} title="Delete">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div style={styles.footer}>
           <span style={styles.hint}>
             {getCharCount().toLocaleString()} characters
           </span>
           <div style={styles.footerActions}>
             <button onClick={handleNew} style={styles.secondaryBtn}>New</button>
-            <button onClick={handleOpenLibrary} style={styles.secondaryBtn}>Load</button>
             <button onClick={handleSave} style={styles.secondaryBtn}>Save</button>
             <button onClick={onClose} style={styles.doneBtn}>Done</button>
           </div>

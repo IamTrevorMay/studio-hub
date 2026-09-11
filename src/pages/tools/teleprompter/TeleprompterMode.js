@@ -4,6 +4,172 @@ import usePedalScroll from './usePedalScroll';
 import TeleprompterControls from './TeleprompterControls';
 import ScriptEditor, { ensureHtml } from './ScriptEditor';
 import DOMPurify from 'dompurify';
+import { supabase } from '../../../supabaseClient';
+import { colors } from '../../../lib/styleTokens';
+
+const SELECTED_SCRIPT_KEY = 'teleprompter-selected-script-id';
+
+// Persistent library rail on the right: every saved script, the loaded one
+// highlighted. Clicking a row loads it into the prompter. Hidden in focus
+// mode; refreshKey re-fetches after the editor drawer saves/deletes.
+function ScriptsPanel({ selectedId, onSelect, refreshKey }) {
+  const [scripts, setScripts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, script }
+
+  async function deleteScript(s) {
+    setCtxMenu(null);
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Delete "${s.name}"? This can't be undone.`)) return;
+    const { error } = await supabase.from('teleprompter_scripts').delete().eq('id', s.id);
+    if (error) { console.error('Delete script error:', error); return; }
+    setScripts((prev) => prev.filter((x) => x.id !== s.id));
+  }
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from('teleprompter_scripts')
+        .select('id, name, content, created_at')
+        .order('created_at', { ascending: false });
+      if (!alive) return;
+      if (error) console.error('Load scripts error:', error);
+      setScripts(data || []);
+      setLoading(false);
+    })();
+    return () => { alive = false; };
+  }, [refreshKey]);
+
+  return (
+    <div style={panelStyles.panel}>
+      <div style={panelStyles.header}>Scripts</div>
+      <div style={panelStyles.list}>
+        {loading ? (
+          <div style={panelStyles.empty}>Loading…</div>
+        ) : scripts.length === 0 ? (
+          <div style={panelStyles.empty}>No saved scripts yet.</div>
+        ) : scripts.map((s) => {
+          const active = s.id === selectedId;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => onSelect(s)}
+              onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, script: s }); }}
+              style={{ ...panelStyles.item, ...(active ? panelStyles.itemActive : {}) }}
+              title={active ? 'Currently loaded' : 'Load this script'}
+            >
+              <span style={{ ...panelStyles.itemName, ...(active ? { color: colors.accentFg } : {}) }}>{s.name}</span>
+              <span style={panelStyles.itemMeta}>
+                {new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {ctxMenu && (
+        <div
+          style={panelStyles.ctxOverlay}
+          onClick={() => setCtxMenu(null)}
+          onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
+        >
+          <div
+            style={{
+              ...panelStyles.ctxMenu,
+              left: Math.min(ctxMenu.x, (window.innerWidth || 1200) - 180),
+              top: Math.min(ctxMenu.y, (window.innerHeight || 800) - 70),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button style={panelStyles.ctxItem} onClick={() => deleteScript(ctxMenu.script)}>
+              Delete script
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const panelStyles = {
+  panel: {
+    width: '224px',
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    background: 'rgba(15,15,30,0.95)',
+    borderLeft: '1px solid rgba(255,255,255,0.08)',
+    overflow: 'hidden',
+  },
+  header: {
+    padding: '12px 14px 8px',
+    fontSize: '11px',
+    fontWeight: 700,
+    letterSpacing: '0.6px',
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.4)',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    flexShrink: 0,
+  },
+  list: { flex: 1, overflowY: 'auto', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px' },
+  empty: { padding: '12px 8px', fontSize: '12px', color: 'rgba(255,255,255,0.3)' },
+  item: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: '2px',
+    padding: '8px 10px',
+    borderRadius: '8px',
+    border: '1px solid transparent',
+    background: 'transparent',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    textAlign: 'left',
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+  itemActive: {
+    background: colors.accentA15,
+    border: `1px solid ${colors.accentBorder}`,
+  },
+  itemName: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#e2e8f0',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    maxWidth: '100%',
+  },
+  itemMeta: { fontSize: '10px', color: 'rgba(255,255,255,0.35)' },
+  ctxOverlay: { position: 'fixed', inset: 0, zIndex: 999 },
+  ctxMenu: {
+    position: 'fixed',
+    zIndex: 1000,
+    background: '#1b2331',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '10px',
+    padding: 4,
+    minWidth: 150,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  ctxItem: {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    background: 'none',
+    border: 'none',
+    borderRadius: 6,
+    padding: '8px 12px',
+    color: '#f87171',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+};
 
 export default function TeleprompterMode({
   stream,
@@ -18,6 +184,16 @@ export default function TeleprompterMode({
   const containerRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  const [selectedScriptId, setSelectedScriptId] = useState(() => {
+    try { return localStorage.getItem(SELECTED_SCRIPT_KEY) || null; } catch { return null; }
+  });
+  const [libRefresh, setLibRefresh] = useState(0);
+
+  const handleSelectScript = useCallback((s) => {
+    onScriptChange(s.content || '');
+    setSelectedScriptId(s.id);
+    try { localStorage.setItem(SELECTED_SCRIPT_KEY, s.id); } catch { /* ignore */ }
+  }, [onScriptChange]);
   const [countdown, setCountdown] = useState(null);
   const countdownRef = useRef(null);
   const [controlsVisible, setControlsVisible] = useState(false);
@@ -184,6 +360,7 @@ export default function TeleprompterMode({
 
   return (
     <div ref={containerRef} style={styles.container}>
+      <div style={styles.bodyRow}>
       <div style={{
         ...styles.mainArea,
         flexDirection: isSideBySide ? 'row' : 'column',
@@ -257,6 +434,16 @@ export default function TeleprompterMode({
         </div>
       </div>
 
+      {/* Script library rail — persists beside the prompter, gone in focus mode */}
+      {!focusMode && (
+        <ScriptsPanel
+          selectedId={selectedScriptId}
+          onSelect={handleSelectScript}
+          refreshKey={libRefresh}
+        />
+      )}
+      </div>
+
       {(!focusMode || controlsVisible) && (
         <div style={focusMode ? { position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10 } : undefined}>
           <TeleprompterControls
@@ -295,7 +482,7 @@ export default function TeleprompterMode({
         <ScriptEditor
           script={script}
           onChange={onScriptChange}
-          onClose={() => setShowEditor(false)}
+          onClose={() => { setShowEditor(false); setLibRefresh((n) => n + 1); }}
         />
       )}
     </div>
@@ -308,6 +495,11 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     background: '#000',
+    overflow: 'hidden',
+  },
+  bodyRow: {
+    flex: 1,
+    display: 'flex',
     overflow: 'hidden',
   },
   mainArea: {
