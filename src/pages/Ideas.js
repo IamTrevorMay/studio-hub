@@ -679,6 +679,10 @@ export default function Ideas({ embedded = false }) {
     selectedIds,
     onToggleSelect: toggleSelect,
     onAddProject: (item) => setProjectModal(item),
+    onAddFilmQueue: (item) => setFilmQueuePicker({
+      items: [item],
+      choices: { [item.id]: { queue_type: queueTypesFor(item)[0] || 'mayday', writer_id: '', editor_id: '' } },
+    }),
   };
 
   // Rendered inline in the Ideas section header, next to the title.
@@ -1235,13 +1239,22 @@ function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange,
   );
 }
 
-function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, tags, tagsForIdea, sort, onSort, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, onSaveTitles, onSaveTags, onCreateTag, tagEditorId, setTagEditorId, canRate, currentUserId, ratingsByIdea, onRate, selectMode, selectedIds, onToggleSelect, onAddProject }) {
+function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, tags, tagsForIdea, sort, onSort, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, onSaveTitles, onSaveTags, onCreateTag, tagEditorId, setTagEditorId, canRate, currentUserId, ratingsByIdea, onRate, selectMode, selectedIds, onToggleSelect, onAddProject, onAddFilmQueue }) {
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [contextEditingId, setContextEditingId] = useState(null);
   const [contextDraft, setContextDraft] = useState('');
   const [titleAddingId, setTitleAddingId] = useState(null);
   const [titleDraft, setTitleDraft] = useState('');
+  const [addMenuId, setAddMenuId] = useState(null);
+
+  // Close the "+ Add" menu on any outside click.
+  useEffect(() => {
+    if (!addMenuId) return undefined;
+    const close = () => setAddMenuId(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [addMenuId]);
 
   // Grid template gains a Rating column only for rater roles, and Up Next
   // carries a trailing Project column ("Add Project" / "In Production").
@@ -1544,14 +1557,34 @@ function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, t
                               In Production
                             </span>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onAddProject(item); }}
-                              disabled={selectMode}
-                              style={{ ...styles.addProjectBtn, opacity: selectMode ? 0.4 : 1 }}
-                            >
-                              + Add Project
-                            </button>
+                            <div style={styles.projectColActions}>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setAddMenuId(addMenuId === item.id ? null : item.id); }}
+                                disabled={selectMode}
+                                style={{ ...styles.addProjectBtn, opacity: selectMode ? 0.4 : 1 }}
+                              >
+                                + Add
+                              </button>
+                              {addMenuId === item.id && (
+                                <div style={styles.addMenu} onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setAddMenuId(null); onAddProject(item); }}
+                                    style={styles.addMenuItem}
+                                  >
+                                    to Projects
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setAddMenuId(null); onAddFilmQueue(item); }}
+                                    style={styles.addMenuItem}
+                                  >
+                                    to Film Queue
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       )}
@@ -1846,6 +1879,19 @@ const styles = {
     border: `1px solid ${colors.accentBorder}`, background: colors.accentSoft,
     color: colors.accentFg, fontSize: '11px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+  },
+  projectColActions: { position: 'relative', display: 'inline-block' },
+  addMenu: {
+    position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 20,
+    display: 'flex', flexDirection: 'column', minWidth: '140px',
+    background: '#1a1a2e', border: `1px solid ${colors.border}`,
+    borderRadius: '8px', padding: '4px', boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+  },
+  addMenuItem: {
+    padding: '7px 10px', borderRadius: '6px', border: 'none',
+    background: 'transparent', color: colors.text, textAlign: 'left',
+    fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+    fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
   inProductionTag: {
     display: 'inline-block', padding: '3px 10px', borderRadius: '999px',

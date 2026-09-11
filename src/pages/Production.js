@@ -258,7 +258,7 @@ function TagEditor({ tags, selected, onToggle, onCreate, onClose }) {
 }
 
 // Header and data rows share one column spec so they can never drift apart.
-const TABLE_COLS = '24px minmax(200px, 2.2fr) minmax(150px, 1.4fr) 64px 96px 104px minmax(90px, 0.7fr)';
+const TABLE_COLS = '24px minmax(200px, 2.2fr) minmax(150px, 1.4fr) 64px 96px 104px minmax(90px, 0.7fr) 118px';
 
 const thStyle = {
   fontSize: fontSizes.xxs,
@@ -733,6 +733,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           case 'created': return x.created_at || '';
           case 'updated': return x.updated_at || '';
           case 'who':     return creatorName(x.user_id).toLowerCase();
+          case 'status':  return BEAT_SHEET_STATUSES.findIndex(s => s.value === (x.status || 'drafting'));
           default:        return 0;
         }
       };
@@ -2267,6 +2268,14 @@ export default function Production({ initialSheetId, onSheetOpened }) {
               <span style={styles.cellDate} title={fullTimestamp(sheet.created_at)}>{shortDate(sheet.created_at)}</span>
               <span style={styles.cellDate} title={fullTimestamp(sheet.updated_at)}>{timeAgo(sheet.updated_at)}</span>
               <span style={styles.cellWho} title={creatorName(sheet.user_id)}>{creatorName(sheet.user_id)}</span>
+              {(() => {
+                const st = STATUS_BY_VALUE[sheet.status] || STATUS_BY_VALUE.drafting;
+                return (
+                  <span style={{ ...styles.statusPill, color: st.color, borderColor: `${st.color}55`, background: `${st.color}18` }}>
+                    {st.label}
+                  </span>
+                );
+              })()}
             </div>
           )}
         </Draggable>
@@ -2299,6 +2308,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                 <SortableTh label="Created" k="created" sort={sort} onSort={onSort} />
                 <SortableTh label="Updated" k="updated" sort={sort} onSort={onSort} />
                 <SortableTh label="Created by" k="who" sort={sort} onSort={onSort} />
+                <SortableTh label="Status" k="status" sort={sort} onSort={onSort} />
               </div>
 
               <Droppable droppableId={key}>
@@ -3253,6 +3263,16 @@ const styles = {
     padding: `${spacing.sm}px ${spacing.md}px`,
     borderBottom: `1px solid ${colors.whiteA03}`,
     background: colors.bg,
+  },
+  statusPill: {
+    display: 'inline-block',
+    padding: '3px 10px',
+    borderRadius: 999,
+    border: '1px solid',
+    fontSize: 11,
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+    justifySelf: 'start',
   },
   tableRowDragging: {
     background: colors.bgHover,

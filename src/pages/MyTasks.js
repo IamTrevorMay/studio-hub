@@ -227,6 +227,9 @@ export default function MyTasks({ onNavigate, embedded = false }) {
   const [projectMeta, setProjectMeta] = useState({}); // { [project_id]: { name, type } }
   const [fqMeta, setFqMeta] = useState({}); // { [film_queue_item_id]: { beat_sheet_id, queue_type, sheet_title } }
   const [fqLinkDrafts, setFqLinkDrafts] = useState({}); // { [taskId]: url draft for fq_send / fq_edit }
+  const [fqReviewOptions, setFqReviewOptions] = useState(null); // my recent reviews, for the fq_edit draft-review picker
+  const [fqReviewDrafts, setFqReviewDrafts] = useState({}); // { [taskId]: review_id }
+  const [fqNotifyState, setFqNotifyState] = useState({}); // { [taskId]: 'sending' | 'sent' }
   const [startingBeatSheet, setStartingBeatSheet] = useState(null); // task id being processed
   const [activeProfiles, setActiveProfiles] = useState([]); // for inline editor pickers
   const channelRef = useRef(null);
@@ -445,6 +448,42 @@ export default function MyTasks({ onNavigate, embedded = false }) {
         setFqMeta(map);
       });
   }, [tasks]);
+
+  // Recent reviews (everyone's), for the "notify Trevor" draft-review picker
+  // on fq_edit cards. Loaded once, only when an fq_edit task is on screen.
+  useEffect(() => {
+    if (fqReviewOptions !== null || !profile?.id) return;
+    if (!tasks.some(t => t.step_key === 'fq_edit' && t.related_entity_type === 'film_queue_item')) return;
+    supabase
+      .from('reviews')
+      .select('id, title, created_at')
+      .order('created_at', { ascending: false })
+      .limit(50)
+      .then(({ data, error }) => {
+        if (error) { console.error('Error loading reviews:', error); return; }
+        setFqReviewOptions(data || []);
+      });
+  }, [tasks, profile?.id, fqReviewOptions]);
+
+  // fq_edit → "Notify Trevor": creates the fq_draft_review task + notification
+  // via the film-queue edge function (staff can't insert tasks under RLS).
+  async function requestDraftReview(task) {
+    const reviewId = fqReviewDrafts[task.id];
+    if (!reviewId || fqNotifyState[task.id] === 'sending') return;
+    setFqNotifyState(prev => ({ ...prev, [task.id]: 'sending' }));
+    try {
+      await callWorkflowFn('film-queue', {
+        action: 'request_draft_review',
+        item_id: task.related_entity_id,
+        review_id: reviewId,
+      });
+      setFqNotifyState(prev => ({ ...prev, [task.id]: 'sent' }));
+      toast.success('Trevor has been sent a review task.');
+    } catch (err) {
+      setFqNotifyState(prev => { const next = { ...prev }; delete next[task.id]; return next; });
+      toast.error(`Could not send the review request: ${err.message}`);
+    }
+  }
 
   // Create a beat sheet from the Mayday Video template (in the Mayday folder,
   // named after the project) and jump straight into it.
@@ -860,6 +899,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
           const isFqOpenSheet = isFilmQueue && (task.step_key === 'fq_write' || task.step_key === 'fq_review');
           const isFqSend = isFilmQueue && task.step_key === 'fq_send';
           const isFqEdit = isFilmQueue && task.step_key === 'fq_edit';
+          const isFqDraftReview = task.step_key === 'fq_draft_review' && task.related_entity_type === 'review';
           const fqLinkValid = /^https?:\/\//i.test((fqLinkDrafts[task.id] || '').trim());
 
           return (
@@ -920,7 +960,10 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                   Film Queue{fqMeta[task.related_entity_id]?.sheet_title ? ` \u2022 ${fqMeta[task.related_entity_id].sheet_title}` : ''}
                 </p>
               )}
-              {!isReviewProposal && !isFilmQueue && task.related_entity_type && task.related_entity_type !== 'deliverable' && (
+              {isFqDraftReview && (
+                <p style={styles.entitySummary}>Film Queue &bull; draft check-in</p>
+              )}
+              {!isReviewProposal && !isFilmQueue && !isFqDraftReview && task.related_entity_type && task.related_entity_type !== 'deliverable' && (
                 <p style={styles.entitySummary}>
                   {task.related_entity_type}{task.related_entity_id ? ` \u2022 ${task.related_entity_id.slice(0, 8)}...` : ''}
                 </p>
@@ -989,6 +1032,14 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                     >
                       Open Beat Sheet
                     </button>
+                ) : isFqDraftReview ? (
+                    <button
+                      style={styles.primaryBtn}
+                      onClick={() => { if (onNavigate) onNavigate('reviews', task.related_entity_id); }}
+                      disabled={isCompleting}
+                    >
+                      Open Review
+                    </button>
                 ) : isFqSend ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                       <input
@@ -1054,7 +1105,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                         Skip
                       </button>
                     </>
-                ) : (action.type === 'external_link' || task.link_url) ? (
+                ) : !isFqEdit && (action.type === 'external_link' || task.link_url) ? (
                     <button
                       style={styles.primaryBtn}
                       onClick={() => {
@@ -1166,9 +1217,36 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                   </>
                 )}
 
-                {/* Finished-cut link for edit tasks — completing requires it */}
+                {/* Draft check-in: pick one of my Reviews and ping Trevor to look at it */}
                 {isFqEdit && !isOnHold && (
                   <div style={{ flexBasis: '100%', width: '100%', display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                    <select
+                      value={fqReviewDrafts[task.id] || ''}
+                      onChange={e => setFqReviewDrafts(prev => ({ ...prev, [task.id]: e.target.value }))}
+                      style={{ ...FQ_LINK_INPUT_STYLE, cursor: 'pointer' }}
+                      disabled={fqNotifyState[task.id] === 'sending'}
+                    >
+                      <option value="">— Select a review for a draft check-in —</option>
+                      {(fqReviewOptions || []).map(r => (
+                        <option key={r.id} value={r.id}>{r.title || 'Untitled review'}</option>
+                      ))}
+                    </select>
+                    <button
+                      style={{ ...styles.primaryBtn, opacity: !fqReviewDrafts[task.id] || fqNotifyState[task.id] ? 0.5 : 1 }}
+                      disabled={!fqReviewDrafts[task.id] || !!fqNotifyState[task.id]}
+                      title={fqReviewDrafts[task.id] ? 'Sends Trevor a task to review this draft' : 'Pick a review first'}
+                      onClick={() => requestDraftReview(task)}
+                    >
+                      {fqNotifyState[task.id] === 'sending' ? 'Notifying…'
+                        : fqNotifyState[task.id] === 'sent' ? 'Notified ✓'
+                        : 'Notify'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Finished-cut link for edit tasks — completing requires it */}
+                {isFqEdit && !isOnHold && (
+                  <div style={{ flexBasis: '100%', width: '100%', display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
                     <input
                       value={fqLinkDrafts[task.id] || ''}
                       onChange={e => setFqLinkDrafts(prev => ({ ...prev, [task.id]: e.target.value }))}

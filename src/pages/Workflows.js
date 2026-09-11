@@ -5,6 +5,8 @@ import KanbanPanel from './workflows/KanbanPanel';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 import TaskEditModal from '../components/TaskEditModal';
 import ProgressTable from '../components/workflows/ProgressTable';
+import ProgressMap from '../components/workflows/ProgressMap';
+import usePersistedTab from '../hooks/usePersistedTab';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors, radii, shadows, zIndex } from '../lib/styleTokens';
@@ -434,6 +436,7 @@ export default function Workflows() {
 
   const [teamProfiles, setTeamProfiles] = useState([]);
   const [contractorProfiles, setContractorProfiles] = useState([]);
+  const [progressView, setProgressView] = usePersistedTab('workflows-progress-view', 'table', ['table', 'map']);
   const [teamPending, setTeamPending] = useState([]);
   const [teamDone, setTeamDone] = useState([]);
   const [flPending, setFlPending] = useState([]);
@@ -485,10 +488,11 @@ export default function Workflows() {
     const TASK_DONE_COLS = TASK_COLS + ', completed_at';
     const FL_COLS = 'id, title, description, contractor_id, status, due_date, due_time, pay_amount, asset_url, completed_at, created_at, created_by';
     const [
-      pend,
+      pendRaw,
       { data: completed },
       { data: flPend },
       { data: flDoneData },
+      { data: parkedRows },
     ] = await Promise.all([
       fetchAllRows(supabase.from('tasks').select(TASK_COLS)
         .in('status', ['active', 'pending', 'on_hold'])
@@ -506,7 +510,17 @@ export default function Workflows() {
         .select(FL_COLS)
         .eq('status', 'completed')
         .gte('completed_at', cutoff),
+      // Sprint cards parked in Inbox/Backlog hide their linked task from the
+      // owner's Progress row — same rule the Dashboard badge uses
+      // (get_notification_summary / get_badge_task_list). The task reappears
+      // the moment the card moves back into the active sprint columns.
+      supabase.from('personal_tasks')
+        .select('task_id, created_by')
+        .in('status', ['inbox', 'backlog'])
+        .not('task_id', 'is', null),
     ]);
+    const parked = new Set((parkedRows || []).map((r) => `${r.created_by}:${r.task_id}`));
+    const pend = (pendRaw || []).filter((t) => !parked.has(`${t.assignee_id}:${t.id}`));
     // Alias contractor_id → assignee_id so the shared ProgressTable
     // grouping logic doesn't need a special case for contractors.
     setFlPending((flPend || []).map((a) => ({ ...a, assignee_id: a.contractor_id })));
@@ -1251,17 +1265,54 @@ export default function Workflows() {
         </div>
       </div>
 
-      {/* ── Team section (Team + Contractors table) ── */}
-      <ProgressTable
-        groups={[
-          { key: 'team', label: 'Team', profiles: teamProfiles, byAssignee: teamByAssignee },
-          { key: 'contractors', label: 'Contractors', profiles: contractorProfiles, byAssignee: contractorByAssignee },
-        ]}
-        sprintActiveTaskIds={sprintActiveTaskIds}
-        sprintHoldingTaskIds={sprintHoldingTaskIds}
-        sprintDoneTaskIds={sprintDoneTaskIds}
-        onTaskClick={(task, person, groupKey) => openProgressTaskEditor(task, groupKey)}
-      />
+      {/* ── Progress section (Team + Contractors) — Table | Map views ── */}
+      <div style={{ marginTop: 32 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 12px' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: '#ffffff', margin: 0 }}>Progress</h2>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[['table', 'Table'], ['map', 'Map']].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setProgressView(key)}
+                style={{
+                  height: 26, padding: '0 12px', borderRadius: 6,
+                  border: `1px solid ${progressView === key ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                  background: progressView === key ? 'rgba(99,102,241,0.15)' : 'transparent',
+                  color: progressView === key ? '#c7d2fe' : 'rgba(255,255,255,0.45)',
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {progressView === 'map' ? (
+          <ProgressMap
+            groups={[
+              { key: 'team', label: 'Team', profiles: teamProfiles, byAssignee: teamByAssignee },
+              { key: 'contractors', label: 'Contractors', profiles: contractorProfiles, byAssignee: contractorByAssignee },
+            ]}
+            sprintActiveTaskIds={sprintActiveTaskIds}
+            sprintHoldingTaskIds={sprintHoldingTaskIds}
+            sprintDoneTaskIds={sprintDoneTaskIds}
+            onTaskClick={(task, person, groupKey) => openProgressTaskEditor(task, groupKey)}
+          />
+        ) : (
+          <ProgressTable
+            groups={[
+              { key: 'team', label: 'Team', profiles: teamProfiles, byAssignee: teamByAssignee },
+              { key: 'contractors', label: 'Contractors', profiles: contractorProfiles, byAssignee: contractorByAssignee },
+            ]}
+            sprintActiveTaskIds={sprintActiveTaskIds}
+            sprintHoldingTaskIds={sprintHoldingTaskIds}
+            sprintDoneTaskIds={sprintDoneTaskIds}
+            onTaskClick={(task, person, groupKey) => openProgressTaskEditor(task, groupKey)}
+            showHeader={false}
+          />
+        )}
+      </div>
       </>
       )}
 

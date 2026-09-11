@@ -233,6 +233,9 @@ export function NotificationProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contractor_documents' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contractor_assignments' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => refreshNotifications())
+      // Sprint-card moves change the badge: a card parked in Inbox/Backlog
+      // hides its linked task from my_task_count, moving it back restores it.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'personal_tasks', filter: `created_by=eq.${profile.id}` }, () => refreshNotifications())
       .subscribe();
 
     const interval = setInterval(() => {

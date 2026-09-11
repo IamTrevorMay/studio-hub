@@ -18,6 +18,7 @@ import {
   getAdminClient,
   corsHeaders,
   jsonResp,
+  notifyUser,
 } from "../shared/workflow-engine.ts";
 import {
   FILM_QUEUE_REVIEWER,
@@ -377,6 +378,72 @@ Deno.serve(async (req: Request) => {
       call_sheet: callSheet.id,
       prompter_error: prompterError,
     });
+  }
+
+  // ─── request_draft_review ───────────────────────────────────
+  // Editor picks one of their Reviews on the fq_edit card and pings the
+  // reviewer (Trevor): creates a standalone fq_draft_review task pointing at
+  // the review + a notification. Service role because staff can't insert tasks.
+  if (action === "request_draft_review") {
+    if (isCron) return jsonResp({ error: "request_draft_review needs a user" }, 400);
+    const itemId = String(body.item_id || "");
+    const reviewId = String(body.review_id || "");
+    if (!itemId || !reviewId) return jsonResp({ error: "item_id and review_id required" }, 400);
+
+    const { data: item } = await admin
+      .from("film_queue_items")
+      .select("id, sheet:beat_sheets(title)")
+      .eq("id", itemId)
+      .maybeSingle();
+    if (!item) return jsonResp({ error: "Film queue item not found" }, 404);
+
+    const { data: review } = await admin
+      .from("reviews")
+      .select("id, title")
+      .eq("id", reviewId)
+      .maybeSingle();
+    if (!review) return jsonResp({ error: "Review not found" }, 404);
+
+    // One open draft-review task per review — re-notifying is a no-op.
+    const { data: existing } = await admin
+      .from("tasks")
+      .select("id")
+      .eq("step_key", "fq_draft_review")
+      .eq("related_entity_type", "review")
+      .eq("related_entity_id", reviewId)
+      .in("status", ["pending", "active", "on_hold"])
+      .limit(1);
+    if (existing && existing.length > 0) {
+      return jsonResp({ ok: true, task_id: existing[0].id, already_requested: true });
+    }
+
+    const sheetTitle = (item.sheet as { title?: string } | null)?.title || "Untitled";
+    const reviewTitle = review.title || sheetTitle;
+    const { data: task, error: taskErr } = await admin
+      .from("tasks")
+      .insert({
+        step_key: "fq_draft_review",
+        title: `Review the draft: ${reviewTitle}`,
+        description: `A draft cut of "${sheetTitle}" is up for review ("${reviewTitle}"). Open it on the Reviews page to leave timestamped feedback.`,
+        assignee_id: FILM_QUEUE_REVIEWER,
+        status: "pending",
+        related_entity_type: "review",
+        related_entity_id: reviewId,
+        created_by: auth!.userId,
+      })
+      .select("id")
+      .single();
+    if (taskErr || !task) {
+      return jsonResp({ error: `Could not create the review task: ${taskErr?.message}` }, 500);
+    }
+    await notifyUser(
+      admin,
+      FILM_QUEUE_REVIEWER,
+      "Draft ready for review",
+      `A draft cut of "${sheetTitle}" is waiting on the Reviews page.`,
+      task.id,
+    );
+    return jsonResp({ ok: true, task_id: task.id });
   }
 
   return jsonResp({ error: `Unknown action: ${action}` }, 400);
