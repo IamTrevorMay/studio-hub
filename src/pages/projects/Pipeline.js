@@ -229,7 +229,7 @@ export default function Pipeline({ onOpenProject }) {
     } else {
       upNext = orderTheLine(approvedUnpacked);
     }
-    const editing = fqItems.filter((i) => i.state === 'filmed');
+    const editing = fqItems.filter((i) => i.state === 'filmed' && i.sheet);
     return { review, up_next: upNext, filming, editing, session: displaySession };
   }, [fqItems, sessions]);
 

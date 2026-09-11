@@ -88,7 +88,8 @@ export default function FilmQueue({ onNavigate }) {
       estimated_minutes: i.sheet.estimated_minutes ?? defaultMinutesFor(i.queue_type),
       approved_at: i.sheet.approved_at,
     })), [items]);
-  const inEditItems = useMemo(() => items.filter((i) => i.state === 'filmed'), [items]);
+  // No sheet, no row — an item is only real while its beat sheet exists.
+  const inEditItems = useMemo(() => items.filter((i) => i.state === 'filmed' && i.sheet), [items]);
 
   // Not yet approved — awaiting review first (closest to the line), then
   // drafting, oldest first within each.

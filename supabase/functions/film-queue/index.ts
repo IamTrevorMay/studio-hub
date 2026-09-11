@@ -130,11 +130,12 @@ Deno.serve(async (req: Request) => {
       .limit(1)
       .maybeSingle();
 
-    // Append to the end of the Backlog section.
+    // Append to the end of the Active section — a freshly queued idea is
+    // live work for its writer, not backlog.
     const { data: lastRow } = await admin
       .from("beat_sheets")
       .select("position")
-      .eq("section", "backlog")
+      .eq("section", "active")
       .eq("is_archived", false)
       .order("position", { ascending: false })
       .limit(1)
@@ -176,7 +177,7 @@ Deno.serve(async (req: Request) => {
             tag_ids: tagIds,
             status: "drafting",
             estimated_minutes: defaultMinutesFor(queueType),
-            section: "backlog",
+            section: "active",
             position: nextPosition,
           })
           .select("id, title")
