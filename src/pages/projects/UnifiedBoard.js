@@ -10,19 +10,20 @@ import { colors, spacing, radii, fontSizes, fontWeights } from '../../lib/styleT
 import {
   CANONICAL_STAGES,
   PROJECT_TYPE_OPTIONS,
+  SHORT_FORM_PLATFORMS,
   STAGE_COLORS,
   labelFor,
   typeLabel,
   typeColors,
   defaultStageConfigForType,
-  defaultAssigneeRowsForType,
+  fetchDefaultAssigneeRows,
 } from '../../lib/kanbanStages';
 import backdropDismiss from '../../lib/backdropDismiss';
 import { clickableKeyProps } from '../../lib/styleRecipes';
 
 const SELECT = `
   id, name, type, status, deadline, film_date, edit_deadline,
-  beat_sheet_id,
+  beat_sheet_id, short_form_platforms, parent_project_id, notes,
   on_hold, hold_reason, archived_at, stage_config, sort_order,
   project_stage_assignments(id, stage, user_id, profile:profiles(id, full_name, nickname, title, role))
 `;
@@ -80,6 +81,8 @@ export default function UnifiedBoard({ onNavigate }) {
   const [handoffModal, setHandoffModal] = useState(null);
   const [actionSheet, setActionSheet] = useState(null); // mobile only: { project }
   const [editProject, setEditProject] = useState(null);
+  const [clipsProject, setClipsProject] = useState(null);
+  const [defaultsOpen, setDefaultsOpen] = useState(false);
   const [cardCtxMenu, setCardCtxMenu] = useState(null); // { x, y, project }
   const [busy, setBusy] = useState(false);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
@@ -155,6 +158,14 @@ export default function UnifiedBoard({ onNavigate }) {
 
   const untyped = useMemo(() => projects.filter((p) => !p.type), [projects]);
   const typed = useMemo(() => projects.filter((p) => p.type), [projects]);
+  // Live clip counts per parent — clips are ordinary fetched rows with a parent link.
+  const clipCounts = useMemo(() => {
+    const counts = {};
+    for (const p of projects) {
+      if (p.parent_project_id) counts[p.parent_project_id] = (counts[p.parent_project_id] || 0) + 1;
+    }
+    return counts;
+  }, [projects]);
 
   const filteredTyped = useMemo(
     () => typed.filter((p) => typeFilter.includes(p.type)),
@@ -412,6 +423,15 @@ export default function UnifiedBoard({ onNavigate }) {
               >{t.label}</button>
             );
           })}
+          {isAdmin && (
+            <button
+              onClick={() => setDefaultsOpen(true)}
+              title="Default stage assignees per project type"
+              style={{ ...s.chip, padding: `${spacing.xs}px ${spacing.sm}px` }}
+            >
+              ⚙
+            </button>
+          )}
         </div>
         <div style={{ display: 'flex', gap: spacing.sm }}>
           <button
@@ -449,6 +469,8 @@ export default function UnifiedBoard({ onNavigate }) {
                     projects={byStage.queue}
                     taskPlannedDates={taskPlannedDates}
                     canDragProject={canDrag}
+                    clipCounts={clipCounts}
+                    onClipsClick={(p) => setClipsProject(p)}
                     onCardClick={(p) => setEditProject(p)}
                     onCardContextMenu={isAdmin ? (e, p) => { e.preventDefault(); setCardCtxMenu({ x: e.clientX, y: e.clientY, project: p }); } : null}
                   />
@@ -459,6 +481,8 @@ export default function UnifiedBoard({ onNavigate }) {
                     projects={byStage[stage]}
                     taskPlannedDates={taskPlannedDates}
                     canDragProject={canDrag}
+                    clipCounts={clipCounts}
+                    onClipsClick={(p) => setClipsProject(p)}
                     onCardClick={(p) => setEditProject(p)}
                     onCardContextMenu={isAdmin ? (e, p) => { e.preventDefault(); setCardCtxMenu({ x: e.clientX, y: e.clientY, project: p }); } : null}
                     footer={stage === 'publish' ? (
@@ -547,6 +571,19 @@ export default function UnifiedBoard({ onNavigate }) {
           onNavigate={onNavigate}
         />
       )}
+      {defaultsOpen && (
+        <TypeDefaultsModal onClose={() => setDefaultsOpen(false)} />
+      )}
+      {clipsProject && (
+        <ModalShell title={`Clips — ${clipsProject.name}`} onClose={() => setClipsProject(null)}>
+          <ClipsSection
+            parentProject={clipsProject}
+            userId={profile?.id}
+            canEdit={isAdmin || (clipsProject.project_stage_assignments || []).some((a) => a.stage === clipsProject.status && a.user_id === profile?.id)}
+            onChanged={fetchProjects}
+          />
+        </ModalShell>
+      )}
       {cardCtxMenu && (
         <CardContextMenu
           x={cardCtxMenu.x}
@@ -594,7 +631,7 @@ export default function UnifiedBoard({ onNavigate }) {
 
 // ─── Column ──────────────────────────────────────────────────────
 
-function Column({ stage, projects, canDragProject, onCardClick, onCardContextMenu, footer, taskPlannedDates }) {
+function Column({ stage, projects, canDragProject, onCardClick, onCardContextMenu, footer, taskPlannedDates, clipCounts, onClipsClick }) {
   return (
     <div style={s.column}>
       <div style={{ ...s.columnHeader, color: STAGE_COLORS[stage] }}>
@@ -633,7 +670,7 @@ function Column({ stage, projects, canDragProject, onCardClick, onCardContextMen
                       boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : CARD_SHADOW,
                     }}
                   >
-                    <KanbanCard project={p} taskPlannedDates={taskPlannedDates} />
+                    <KanbanCard project={p} taskPlannedDates={taskPlannedDates} clipCount={clipCounts?.[p.id]} onClipsClick={onClipsClick} />
                   </div>
                 )}
               </Draggable>
@@ -649,7 +686,7 @@ function Column({ stage, projects, canDragProject, onCardClick, onCardContextMen
 
 // ─── QueueColumn ─────────────────────────────────────────────────
 
-function QueueColumn({ projects, canDragProject, onCardClick, onCardContextMenu, taskPlannedDates }) {
+function QueueColumn({ projects, canDragProject, onCardClick, onCardContextMenu, taskPlannedDates, clipCounts, onClipsClick }) {
   const typeGroups = useMemo(() => {
     const groups = [];
     for (const opt of PROJECT_TYPE_OPTIONS) {
@@ -709,7 +746,7 @@ function QueueColumn({ projects, canDragProject, onCardClick, onCardContextMenu,
                               boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : CARD_SHADOW,
                             }}
                           >
-                            <KanbanCard project={p} taskPlannedDates={taskPlannedDates} priorityNumber={idx + 1} />
+                            <KanbanCard project={p} taskPlannedDates={taskPlannedDates} priorityNumber={idx + 1} clipCount={clipCounts?.[p.id]} onClipsClick={onClipsClick} />
                           </div>
                         )}
                       </Draggable>
@@ -1240,11 +1277,12 @@ function TypeBar({ type, dim }) {
   );
 }
 
-function KanbanCard({ project, taskPlannedDates, priorityNumber }) {
+function KanbanCard({ project, taskPlannedDates, priorityNumber, clipCount, onClipsClick }) {
   const stageAssignments = (project.project_stage_assignments || [])
     .filter((a) => a.stage === project.status);
   const projectPlanned = taskPlannedDates?.[project.id];
   const hasDates = project.deadline || project.film_date || project.edit_deadline;
+  const showClips = !!onClipsClick && LONG_FORM_TYPES.includes(project.type);
   return (
     <>
       <TypeBar type={project.type} />
@@ -1254,9 +1292,24 @@ function KanbanCard({ project, taskPlannedDates, priorityNumber }) {
         )}
         {project.name}
       </div>
-      {(hasDates || stageAssignments.length > 0) && (
+      {(hasDates || stageAssignments.length > 0 || showClips) && (
         <div style={s.cardFooter}>
           <div style={s.cardDates}>
+            {showClips && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onClipsClick(project); }}
+                title={`${clipCount || 0} clip${clipCount === 1 ? '' : 's'} — short-form sub-projects cut from this video. Click to view or add clips.`}
+                style={{
+                  minWidth: 18, padding: `0 ${spacing.xs}px`, lineHeight: '16px',
+                  borderRadius: radii.pill, border: `1px solid ${colors.accentBorder}`,
+                  background: colors.accentSoft, color: colors.accentFg,
+                  fontSize: fontSizes.xs, fontFamily: 'inherit', cursor: 'pointer',
+                }}
+              >
+                {clipCount || 0}
+              </button>
+            )}
             {project.deadline && (
               <span style={s.dueDate}>
                 🕐 {new Date(project.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -1573,7 +1626,8 @@ function RetagModal({ untyped, onClose }) {
 function NewProjectModal({ onClose, onCreated, createdBy }) {
   const [name, setName] = useState('');
   const [type, setType] = useState(PROJECT_TYPE_OPTIONS[0].value);
-  const [startColumn, setStartColumn] = useState('queue');
+  const [platforms, setPlatforms] = useState([]);
+  const [startColumn, setStartColumn] = useState('backlog');
   const [deadline, setDeadline] = useState('');
   const [filmDate, setFilmDate] = useState('');
   const [editDeadline, setEditDeadline] = useState('');
@@ -1583,15 +1637,17 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
     e.preventDefault();
     if (!name.trim()) return;
     setBusy(true);
-    // Always create in Queue. Starting a card in a working column must route
-    // through card-move — the only path that fans out stage tasks. Inserting
-    // directly at a working status seeds assignees but creates zero tasks, so
-    // the start stage's assignees never get a task (sprint card / My Tasks).
+    // Backlog inserts land there directly (it has no stage tasks). Anything
+    // else creates in Queue first: starting a card in a working column must
+    // route through card-move — the only path that fans out stage tasks.
+    // Inserting directly at a working status seeds assignees but creates zero
+    // tasks, so the start stage's assignees never get a task.
     const { data: created, error } = await supabase.from('projects').insert({
       name: name.trim(),
       type,
-      status: 'queue',
-      start_column: startColumn,
+      short_form_platforms: type === 'short_form' ? platforms : [],
+      status: startColumn === 'backlog' ? 'backlog' : 'queue',
+      start_column: startColumn === 'backlog' ? 'queue' : startColumn,
       deadline: deadline || null,
       film_date: filmDate || null,
       edit_deadline: editDeadline || null,
@@ -1605,14 +1661,14 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
     }
     // Seed default stage assignees before moving, so card-move can fan out
     // tasks to the start column's assignees.
-    const assigneeRows = defaultAssigneeRowsForType(type, created.id);
+    const assigneeRows = await fetchDefaultAssigneeRows(supabase, type, created.id);
     if (assigneeRows.length) {
       const { error: aErr } = await supabase.from('project_stage_assignments').insert(assigneeRows);
       if (aErr) console.error('Default assignee seed failed:', aErr);
     }
     // If the user chose to start past Queue, advance through card-move so the
     // start stage's assignees get their tasks (sprint card or My Tasks + notify).
-    if (startColumn && startColumn !== 'queue') {
+    if (startColumn && startColumn !== 'queue' && startColumn !== 'backlog') {
       try {
         await callEdgeFn('card-move', { project_id: created.id, target_stage: startColumn });
       } catch (err) {
@@ -1643,8 +1699,14 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
             ))}
           </select>
         </Field>
+        {type === 'short_form' && (
+          <Field label="Platforms">
+            <PlatformPicker value={platforms} onChange={setPlatforms} />
+          </Field>
+        )}
         <Field label="Start at column">
           <select value={startColumn} onChange={(e) => setStartColumn(e.target.value)} style={s.input}>
+            <option value="backlog">Backlog</option>
             {CANONICAL_STAGES.map((st) => (
               <option key={st} value={st}>{labelFor(type, st)}</option>
             ))}
@@ -1691,13 +1753,150 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
   );
 }
 
+// ─── TypeDefaultsModal ───────────────────────────────────────────
+// Admin config for default stage assignees per project type (the ⚙ next to
+// the type filter pills). One tab per type; Save upserts every type's row in
+// project_type_defaults, which the creation flows read.
+
+function TypeDefaultsModal({ onClose }) {
+  const [tab, setTab] = useState(PROJECT_TYPE_OPTIONS[0].value);
+  const [defaults, setDefaults] = useState(null); // { type: { stage: [ids] } }
+  const [members, setMembers] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [defsQ, memQ] = await Promise.all([
+        supabase.from('project_type_defaults').select('type, assignees'),
+        supabase.from('profiles')
+          .select('id, full_name, nickname, role')
+          .is('deactivated_at', null)
+          .in('role', ['admin', 'director', 'member', 'contractor']),
+      ]);
+      if (cancelled) return;
+      const map = {};
+      for (const t of PROJECT_TYPE_OPTIONS) map[t.value] = {};
+      for (const row of defsQ.data || []) map[row.type] = row.assignees || {};
+      setDefaults(map);
+      setMembers((memQ.data || []).sort((a, b) =>
+        (a.full_name || '').localeCompare(b.full_name || ''),
+      ));
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const memberById = Object.fromEntries(members.map((m) => [m.id, m]));
+
+  function setStage(stage, ids) {
+    setDefaults((prev) => {
+      const next = { ...prev, [tab]: { ...prev[tab] } };
+      if (ids.length === 0) delete next[tab][stage];
+      else next[tab][stage] = ids;
+      return next;
+    });
+  }
+
+  async function save() {
+    setBusy(true);
+    const rows = PROJECT_TYPE_OPTIONS.map((t) => ({
+      type: t.value,
+      assignees: defaults[t.value] || {},
+      updated_at: new Date().toISOString(),
+    }));
+    const { error } = await supabase.from('project_type_defaults').upsert(rows);
+    setBusy(false);
+    if (error) { toast.error(`Save failed: ${error.message}`); return; }
+    toast.success('Default assignees saved.');
+    onClose();
+  }
+
+  return (
+    <ModalShell title="Default assignees" onClose={onClose} wide>
+      <p style={{ color: colors.textSubtle, fontSize: fontSizes.sm, margin: `0 0 ${spacing.md}px` }}>
+        Who gets auto-assigned to each stage when a project of this type is created.
+      </p>
+      <div style={{ display: 'flex', gap: spacing.sm, marginBottom: spacing.md, flexWrap: 'wrap' }}>
+        {PROJECT_TYPE_OPTIONS.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => setTab(t.value)}
+            style={{ ...s.chip, ...(tab === t.value ? s.chipActive : null) }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {!defaults ? (
+        <div style={{ color: colors.textDim, fontSize: fontSizes.sm, padding: spacing.lg }}>Loading…</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm, maxHeight: '52vh', overflowY: 'auto' }}>
+          {CANONICAL_STAGES.filter((st) => st !== 'queue').map((stage) => {
+            const ids = defaults[tab]?.[stage] || [];
+            return (
+              <div key={stage} style={{
+                display: 'flex', alignItems: 'center', gap: spacing.md, flexWrap: 'wrap',
+                padding: `${spacing.xs}px ${spacing.sm}px`,
+                background: colors.bgInput, border: `1px solid ${colors.border}`, borderRadius: radii.sm,
+              }}>
+                <span style={{ width: 170, flexShrink: 0, color: colors.textSubtle, fontSize: fontSizes.xs, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  {labelFor(tab, stage)}
+                </span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: 1, alignItems: 'center' }}>
+                  {ids.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setStage(stage, ids.filter((x) => x !== id))}
+                      title="Remove"
+                      style={{
+                        padding: '2px 10px', borderRadius: radii.pill,
+                        border: `1px solid ${colors.accentBorder}`, background: colors.accentSoft,
+                        color: colors.accentFg, fontSize: fontSizes.xs, fontFamily: 'inherit', cursor: 'pointer',
+                      }}
+                    >
+                      {memberById[id]?.nickname || memberById[id]?.full_name || 'Unknown'} ✕
+                    </button>
+                  ))}
+                  <select
+                    value=""
+                    onChange={(e) => { if (e.target.value) setStage(stage, [...ids, e.target.value]); }}
+                    style={{ ...s.input, width: 'auto', padding: `2px ${spacing.sm}px`, fontSize: fontSizes.xs }}
+                  >
+                    <option value="">+ Add…</option>
+                    {members.filter((m) => !ids.includes(m.id)).map((m) => (
+                      <option key={m.id} value={m.id}>{m.full_name || m.nickname}</option>
+                    ))}
+                  </select>
+                </div>
+                {tab === 'tm_baseball_video' && stage === 'research' && (
+                  <span style={{ color: colors.textDim, fontSize: fontSizes.xs, width: '100%' }}>
+                    Research on TM Baseball is scope-driven — leave empty to avoid colliding with the scope modal.
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div style={s.modalActions}>
+        <button type="button" onClick={onClose} style={s.ghostBtn} disabled={busy}>Cancel</button>
+        <button type="button" onClick={save} style={s.primaryBtn} disabled={busy || !defaults}>
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
 // ─── EditProjectModal ────────────────────────────────────────────
 
 function EditProjectModal({ project, isAdmin, userId, onClose, onSaved, onNavigate }) {
   const confirm = useConfirm();
   const [name, setName] = useState(project.name || '');
   const [type, setType] = useState(project.type || PROJECT_TYPE_OPTIONS[0].value);
-  const [status, setStatus] = useState(project.status);
+  const [platforms, setPlatforms] = useState(project.short_form_platforms || []);
   const [deadline, setDeadline] = useState(project.deadline ? project.deadline.slice(0, 10) : '');
   const [filmDate, setFilmDate] = useState(project.film_date ? project.film_date.slice(0, 10) : '');
   const [editDeadline, setEditDeadline] = useState(project.edit_deadline ? project.edit_deadline.slice(0, 10) : '');
@@ -1770,13 +1969,6 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved, onNaviga
   const isAssignee = stageAssignments
     .some((a) => a.stage === project.status && a.user_id === userId);
   const canEdit = isAdmin || isAssignee;
-  const canMoveBackward = isAdmin;
-  const currentIdx = CANONICAL_STAGES.indexOf(project.status);
-  const stageOptions = CANONICAL_STAGES.filter((_, idx) => {
-    if (idx === currentIdx) return true;
-    if (idx < currentIdx) return canMoveBackward;
-    return canEdit;
-  });
 
   async function saveStageSkip(stage, skip) {
     const next = { ...stageConfig };
@@ -1826,6 +2018,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved, onNaviga
       const patch = {
         name: name.trim(),
         type,
+        short_form_platforms: type === 'short_form' ? platforms : [],
         deadline: deadline || null,
         film_date: filmDate || null,
         edit_deadline: editDeadline || null,
@@ -1834,12 +2027,6 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved, onNaviga
       };
       const { error } = await supabase.from('projects').update(patch).eq('id', project.id);
       if (error) throw error;
-      if (status !== project.status) {
-        await callEdgeFn('card-move', {
-          project_id: project.id,
-          target_stage: status,
-        });
-      }
       // Calendar event lifecycle. An event should exist only for a video-type
       // project with a full post date + time; in every other case (cleared date,
       // or type changed away from video) any existing linked event is removed.
@@ -1924,18 +2111,11 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved, onNaviga
             ))}
           </select>
         </Field>
-        <Field label="Stage">
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            disabled={!canEdit}
-            style={s.input}
-          >
-            {stageOptions.map((st) => (
-              <option key={st} value={st}>{labelFor(type, st)}</option>
-            ))}
-          </select>
-        </Field>
+        {type === 'short_form' && (
+          <Field label="Platforms">
+            <PlatformPicker value={platforms} onChange={setPlatforms} disabled={!canEdit} />
+          </Field>
+        )}
         <div style={{ display: 'flex', gap: spacing.sm }}>
           <div style={{ flex: 1 }}>
             <Field label="Post Date">
@@ -2022,6 +2202,12 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved, onNaviga
             <div style={{ color: colors.danger.fg, fontSize: fontSizes.xs, marginTop: spacing.xs }}>{sheetsError}</div>
           )}
         </Field>
+
+        {LONG_FORM_TYPES.includes(type) && (
+          <div style={{ marginBottom: spacing.md }}>
+            <ClipsSection parentProject={project} userId={userId} canEdit={canEdit} onChanged={onSaved} />
+          </div>
+        )}
 
         {/* Assignments */}
         <div style={{ marginTop: spacing.md, marginBottom: spacing.md }}>
@@ -2125,6 +2311,298 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved, onNaviga
         </div>
       </form>
     </ModalShell>
+  );
+}
+
+// Types that can own clips (short_form sub-projects).
+const LONG_FORM_TYPES = ['mayday_video', 'tm_baseball_video', 'podcast'];
+
+// ─── Clips ───────────────────────────────────────────────────────
+// A clip is a projects row: type 'short_form', parent_project_id set. It's a
+// real board card, created straight into the Edit column via card-move so the
+// assignee gets a genuine stage task + notification.
+
+function ClipsSection({ parentProject, userId, canEdit, onChanged }) {
+  const [clips, setClips] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [clipModal, setClipModal] = useState(null); // 'new' | clip object
+  const [teamMembers, setTeamMembers] = useState([]);
+
+  const fetchClips = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('id, name, notes, status, deadline, short_form_platforms, project_stage_assignments(id, stage, user_id, profile:profiles(id, full_name, nickname))')
+      .eq('parent_project_id', parentProject.id)
+      .is('archived_at', null)
+      .order('created_at', { ascending: true });
+    if (error) { console.error('fetchClips', error); setLoading(false); return; }
+    setClips(data || []);
+    setLoading(false);
+  }, [parentProject.id]);
+
+  useEffect(() => { fetchClips(); }, [fetchClips]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, nickname')
+        .neq('status', 'archived')
+        .is('deactivated_at', null);
+      if (cancelled) return;
+      setTeamMembers((data || []).sort((a, b) =>
+        (a.full_name || a.nickname || '').localeCompare(b.full_name || b.nickname || ''),
+      ));
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function deleteClip(clip) {
+    const { error } = await supabase.from('projects').delete().eq('id', clip.id);
+    if (error) { toast.error(`Delete failed: ${error.message}`); return; }
+    fetchClips();
+    onChanged?.();
+  }
+
+  const platformLabel = (clip) => {
+    const v = (clip.short_form_platforms || [])[0];
+    return SHORT_FORM_PLATFORMS.find((p) => p.value === v)?.label || null;
+  };
+  const editAssignee = (clip) =>
+    (clip.project_stage_assignments || []).find((a) => a.stage === 'edit')?.profile;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs }}>
+        <label style={s.fieldLabel}>Clips</label>
+        {canEdit && (
+          <button type="button" onClick={() => setClipModal('new')} style={s.ghostBtn}>
+            + Clip
+          </button>
+        )}
+      </div>
+      {loading ? (
+        <div style={{ color: colors.textDim, fontSize: fontSizes.sm }}>Loading clips…</div>
+      ) : clips.length === 0 ? (
+        <div style={{ color: colors.textDim, fontSize: fontSizes.sm }}>No clips yet.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.xs }}>
+          {clips.map((clip) => {
+            const assignee = editAssignee(clip);
+            const plat = platformLabel(clip);
+            return (
+              <div
+                key={clip.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: spacing.sm,
+                  padding: `${spacing.xs}px ${spacing.sm}px`,
+                  background: colors.bgInput, border: `1px solid ${colors.border}`,
+                  borderRadius: radii.sm,
+                }}
+              >
+                <span style={{ color: colors.text, fontSize: fontSizes.sm, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {clip.name}
+                </span>
+                {plat && (
+                  <span style={{ color: colors.accentFg, fontSize: fontSizes.xs, background: colors.accentSoft, border: `1px solid ${colors.accentBorder}`, borderRadius: radii.pill, padding: `1px ${spacing.sm}px` }}>
+                    {plat}
+                  </span>
+                )}
+                <span style={{ color: STAGE_COLORS[clip.status] || colors.textSubtle, fontSize: fontSizes.xs, textTransform: 'uppercase' }}>
+                  {clip.status === 'publish' ? 'Published' : clip.status.replace('_', '-')}
+                </span>
+                {clip.deadline && (
+                  <span style={{ color: colors.textSubtle, fontSize: fontSizes.xs }}>
+                    🕐 {new Date(clip.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+                )}
+                {assignee && (
+                  <span style={{ color: colors.textSubtle, fontSize: fontSizes.xs }} title={assignee.full_name}>
+                    {assignee.nickname || assignee.full_name}
+                  </span>
+                )}
+                {canEdit && (
+                  <>
+                    <button type="button" onClick={() => setClipModal(clip)} style={{ ...s.closeBtn, fontSize: fontSizes.sm }} title="Edit clip">✎</button>
+                    <button type="button" onClick={() => deleteClip(clip)} style={{ ...s.closeBtn, fontSize: fontSizes.sm }} title="Delete clip">✕</button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {clipModal && (
+        <ClipModal
+          parentProject={parentProject}
+          clip={clipModal === 'new' ? null : clipModal}
+          teamMembers={teamMembers}
+          userId={userId}
+          onClose={() => setClipModal(null)}
+          onSaved={() => { fetchClips(); onChanged?.(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ClipModal({ parentProject, clip, teamMembers, userId, onClose, onSaved }) {
+  const [title, setTitle] = useState(clip?.name || '');
+  const [platform, setPlatform] = useState((clip?.short_form_platforms || [])[0] || SHORT_FORM_PLATFORMS[0].value);
+  const [description, setDescription] = useState(clip?.notes || '');
+  const [assigneeId, setAssigneeId] = useState(
+    (clip?.project_stage_assignments || []).find((a) => a.stage === 'edit')?.user_id || '',
+  );
+  const [deadline, setDeadline] = useState(clip?.deadline ? clip.deadline.slice(0, 10) : '');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    // Inside EditProjectModal this form is nested in the project form — React
+    // submit events bubble, so without this the parent save fires too.
+    e.stopPropagation();
+    if (!title.trim()) return;
+    setBusy(true);
+    try {
+      if (!clip) {
+        // Create in Queue, seed the edit-stage assignee, then advance to Edit
+        // through card-move so the assignee gets a real task + notification.
+        const { data: created, error } = await supabase.from('projects').insert({
+          name: title.trim(),
+          type: 'short_form',
+          short_form_platforms: [platform],
+          notes: description.trim() || null,
+          deadline: deadline || null,
+          parent_project_id: parentProject.id,
+          status: 'queue',
+          start_column: 'edit',
+          created_by: userId,
+          stage_config: defaultStageConfigForType('short_form'),
+        }).select('id').single();
+        if (error) throw error;
+        // Queue-stage row for the creator lets a non-admin's card-move pass its
+        // current-stage-assignee check; edit-stage row is the clip's assignee.
+        const seedRows = [{ project_id: created.id, stage: 'queue', user_id: userId }];
+        if (assigneeId) seedRows.push({ project_id: created.id, stage: 'edit', user_id: assigneeId });
+        const { error: aErr } = await supabase.from('project_stage_assignments').insert(seedRows);
+        if (aErr) console.error('Clip assignee seed failed:', aErr);
+        await callEdgeFn('card-move', { project_id: created.id, target_stage: 'edit' });
+      } else {
+        const { error } = await supabase.from('projects').update({
+          name: title.trim(),
+          short_form_platforms: [platform],
+          notes: description.trim() || null,
+          deadline: deadline || null,
+        }).eq('id', clip.id);
+        if (error) throw error;
+        // Re-point the edit-stage assignment if it changed.
+        const existing = (clip.project_stage_assignments || []).filter((a) => a.stage === 'edit');
+        if ((existing[0]?.user_id || '') !== assigneeId) {
+          if (existing.length) {
+            await supabase.from('project_stage_assignments').delete()
+              .in('id', existing.map((a) => a.id));
+          }
+          if (assigneeId) {
+            await supabase.from('project_stage_assignments').insert({
+              project_id: clip.id, stage: 'edit', user_id: assigneeId,
+            });
+          }
+        }
+      }
+      onSaved?.();
+      onClose();
+    } catch (err) {
+      toast.error(`${clip ? 'Save' : 'Create'} failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ModalShell title={clip ? 'Edit clip' : `New clip — ${parentProject.name}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <Field label="Title">
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            placeholder="e.g. Best moment from the interview"
+            style={s.input}
+          />
+        </Field>
+        <Field label="Type">
+          <select value={platform} onChange={(e) => setPlatform(e.target.value)} style={s.input}>
+            {SHORT_FORM_PLATFORMS.map((p) => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Description (optional)">
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            style={{ ...s.textarea, minHeight: 60 }}
+          />
+        </Field>
+        <Field label="Assignee">
+          <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} style={s.input}>
+            <option value="">Unassigned</option>
+            {teamMembers.map((m) => (
+              <option key={m.id} value={m.id}>{m.full_name || m.nickname}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Deadline">
+          <input
+            type="date"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+            style={s.input}
+          />
+        </Field>
+        <div style={s.modalActions}>
+          <button type="button" onClick={onClose} style={s.ghostBtn} disabled={busy}>Cancel</button>
+          <button type="submit" style={s.primaryBtn} disabled={busy}>
+            {busy ? (clip ? 'Saving…' : 'Creating…') : (clip ? 'Save' : 'Create clip')}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// Multi-select toggle pills for short_form platforms.
+function PlatformPicker({ value = [], onChange, disabled }) {
+  function toggle(v) {
+    if (disabled) return;
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  }
+  return (
+    <div style={{ display: 'flex', gap: spacing.sm, flexWrap: 'wrap' }}>
+      {SHORT_FORM_PLATFORMS.map((p) => {
+        const on = value.includes(p.value);
+        return (
+          <button
+            key={p.value}
+            type="button"
+            onClick={() => toggle(p.value)}
+            disabled={disabled}
+            style={{
+              padding: `${spacing.xs}px ${spacing.md}px`,
+              borderRadius: radii.pill,
+              border: `1px solid ${on ? colors.accentBorder : colors.border}`,
+              background: on ? colors.accentSoft : colors.bgInput,
+              color: on ? colors.accentFg : colors.textSubtle,
+              fontSize: fontSizes.sm, fontFamily: 'inherit',
+              cursor: disabled ? 'default' : 'pointer',
+            }}
+          >
+            {p.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

@@ -19,8 +19,9 @@ const CONTRACTOR_SUB_ROLES = [
   'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
 ];
 const DIRECTOR_SUB_ROLES = [
-  { value: 'communications', label: 'Director of Communications' },
-  { value: 'creative', label: 'Director of Creative' },
+  { value: 'communications', label: 'Director of Communication' },
+  { value: 'production', label: 'Director of Production' },
+  { value: 'content_strategy', label: 'Director of Content & Strategy' },
 ];
 const PAY_METHODS = [
   { value: '', label: 'Not set' },

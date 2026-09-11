@@ -17,8 +17,9 @@ const CONTRACTOR_TITLES = [
 
 // Director sub-roles.
 const DIRECTOR_SUB_ROLE_OPTIONS = [
-  { value: 'communications', label: 'Director of Communications' },
-  { value: 'creative', label: 'Director of Creative' },
+  { value: 'communications', label: 'Director of Communication' },
+  { value: 'production', label: 'Director of Production' },
+  { value: 'content_strategy', label: 'Director of Content & Strategy' },
 ];
 
 // Sub-role option list for a given role ({value,label} pairs), or [] if none.

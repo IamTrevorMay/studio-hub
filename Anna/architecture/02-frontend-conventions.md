@@ -85,7 +85,7 @@ imports **DM Sans** from Google Fonts (`@import url(...DM+Sans...)`), sets
 | `useRealtimeTable` (`useRealtimeTable.js`) | Subscribe to `postgres_changes` for one table with `onInsert/onUpdate/onDelete/onAny` callbacks + exponential-backoff resubscribe on `CHANNEL_ERROR`/`TIMED_OUT`. |
 | `useIsMobile` (`useIsMobile.js`) | `isMobileViewport()` boot check (for the App.js lazy split) + reactive `useIsMobile()` hook. Breakpoint `640px`. |
 | `usePersistedTab` (`usePersistedTab.js`) | `useState` drop-in for a page's sub-view that survives refresh; stores under `tab:<key>` in localStorage, guarded by an optional `validValues` allowlist. |
-| `useReadOnlyOnMobile` (`useReadOnlyOnMobile.js`) | Flags pages that are view-only on phones. |
+| Mobile support (`config/mobileNavConfig.js`) | Filters mobile navigation and excluded routes. Individual pages implement editing controls; the unused read-only hook was removed 2026-09-10. |
 | `useUsageTracking` (`useUsageTracking.js`) | TEMP clickstream tracker for the FE revamp study; no-op outside production. Slated for teardown (see project memory). |
 
 ## Page-level conventions

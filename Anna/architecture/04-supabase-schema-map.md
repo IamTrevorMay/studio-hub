@@ -93,17 +93,20 @@ files).
   `monthly_goals` (scope='bd') + `platform_daily_metrics` rollups; Notes read
   `bd_user_notes`. All preserved verbatim from the old page.
 
-### Business Dev (`bd_*`) — DORMANT after the Roadmap rebuild (2026-07-24)
+### Business Dev (`bd_*`) — legacy tables with remaining consumers
 - `bd_phases`, `bd_initiatives`, `bd_initiative_links`, `bd_tasks`,
-  `bd_milestones`, `bd_settings`
-  (`20260503000000_create_business_dev.sql`, `..._phases.sql`). **Left in the DB
-  intentionally (not dropped), but the rebuilt Roadmap page no longer reads or
-  writes them.** Consider dropping later once confirmed unused.
-- `src/lib/bdAttention.js` (tag/status metadata, PT "Needs Attention" buckets,
-  `syncBdTaskToBacklog` personal_tasks mirror) is now **orphaned** — nothing on the
-  rebuilt page imports it. The `personal_tasks`-backlog integration and the
-  `20260503000001_cron_business_dev_notifications.sql` cron both scan the now-empty
-  `bd_tasks`/`bd_initiatives` — dead but harmless; flagged for cleanup.
+  `bd_milestones`, `bd_settings` originated in
+  `20260503000000_create_business_dev.sql` and related migrations. The Roadmap
+  page moved to `roadmap_*` on 2026-07-24, but this does not retire all legacy data.
+- `AshleyRead.js` still reads `bd_initiatives` and creates `bd_tasks`;
+  `SprintBoard.js` updates linked `bd_tasks` completion through
+  `personal_tasks.bd_task_id`; `assistant-roadmap` reads both legacy tables.
+  Preserve these contracts until the remaining consumers are migrated.
+- The unused `src/lib/bdAttention.js` helper (attention buckets and client-side
+  backlog mirror) was removed 2026-09-10. Its removal changes no current caller.
+- `20260503000001_cron_business_dev_notifications.sql` also references the legacy
+  tables. The cleanup audit did not inspect deployed schedules or table contents;
+  do not infer that either is empty or inactive from the Roadmap rebuild.
 
 ### Automations & workflows
 - `automations` (trigger_type `schedule|event`, `trigger_config` jsonb, `actions`

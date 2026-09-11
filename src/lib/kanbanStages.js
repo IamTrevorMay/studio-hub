@@ -150,11 +150,47 @@ export function defaultAssigneeRowsForType(projectType, projectId) {
   return rows;
 }
 
+// DB-driven variant: reads the configurable project_type_defaults row (edited
+// from the Projects board's ⚙ modal), falling back to the hardcoded map above
+// if the row is missing or the read fails. Pass the supabase client in so
+// this module stays import-cycle-free.
+export async function fetchDefaultAssigneeRows(supabase, projectType, projectId) {
+  let map = null;
+  try {
+    const { data, error } = await supabase
+      .from('project_type_defaults')
+      .select('assignees')
+      .eq('type', projectType)
+      .maybeSingle();
+    if (!error && data) map = data.assignees || {};
+  } catch (err) {
+    console.error('fetchDefaultAssigneeRows:', err);
+  }
+  if (!map) map = TYPE_DEFAULT_ASSIGNEES[projectType] || {};
+  const rows = [];
+  for (const [stage, userIds] of Object.entries(map)) {
+    for (const userId of userIds || []) {
+      rows.push({ project_id: projectId, stage, user_id: userId });
+    }
+  }
+  return rows;
+}
+
 export const PROJECT_TYPE_OPTIONS = [
   { value: 'mayday_video',      label: 'Mayday Video',     channel: 'More Mayday' },
   { value: 'tm_baseball_video', label: 'TM Baseball Video', channel: 'Trevor May Baseball' },
   { value: 'podcast',           label: 'Podcast',           channel: 'Podcast' },
   { value: 'short_form',        label: 'Short Form',        channel: 'Shorts' },
+];
+
+// Where a short_form project will live. Stored in projects.short_form_platforms
+// (text[], empty for every other type) — values are stable identifiers for later logic.
+export const SHORT_FORM_PLATFORMS = [
+  { value: 'facebook',  label: 'Facebook' },
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'twitter',   label: 'Twitter' },
+  { value: 'tiktok',    label: 'TikTok' },
+  { value: 'youtube',   label: 'YouTube' },
 ];
 
 export const TYPE_COLORS = {

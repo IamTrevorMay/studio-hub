@@ -388,6 +388,8 @@ export default function AppLayout() {
   // Collapsed-sidebar hover labels. { label, top, left } measured off the
   // hovered button, rendered fixed outside the aside so overflow can't clip it.
   const [navTip, setNavTip] = useState(null);
+  const [badgeTip, setBadgeTip] = useState(null);
+  const [badgeTasks, setBadgeTasks] = useState(null);
   const [viewAsContractors, setViewAsContractors] = useState([]);
   // "View as… staff" opens a separate tab running under that member's own
   // session — a real read of their data, not the chrome-only portal preview.
@@ -575,6 +577,35 @@ export default function AppLayout() {
   }
   function hideNavTip() {
     setNavTip(null);
+  }
+
+  // Hovering the Dashboard badge lists the open tasks behind the number
+  // (get_badge_task_list mirrors get_notification_summary's my_task_count).
+  async function showBadgeTip(e) {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    setNavTip(null);
+    setBadgeTip({ top: r.top + r.height / 2, left: r.right + 10 });
+    try {
+      const { data, error } = await supabase.rpc('get_badge_task_list');
+      if (error) throw error;
+      setBadgeTasks(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Error fetching badge task list:', err);
+      setBadgeTasks([]);
+    }
+  }
+  function hideBadgeTip() {
+    setBadgeTip(null);
+  }
+
+  function renderDashboardBadge() {
+    if (dashboardNotifCount <= 0) return null;
+    return (
+      <span style={styles.navBadge} onMouseEnter={showBadgeTip} onMouseLeave={hideBadgeTip}>
+        {dashboardNotifCount}
+      </span>
+    );
   }
 
   function toggleFolder(folderId) {
@@ -885,9 +916,7 @@ export default function AppLayout() {
                             onMouseLeave={hideNavTip}
                           >
                             {Icon && <Icon active={activeTab === child.key} />}
-                            {child.key === 'dashboard' && dashboardNotifCount > 0 && (
-                              <span style={styles.navBadge}>{dashboardNotifCount}</span>
-                            )}
+                            {child.key === 'dashboard' && renderDashboardBadge()}
                             {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                               <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                             )}
@@ -937,9 +966,7 @@ export default function AppLayout() {
                             >
                               {Icon && <Icon active={activeTab === child.key} />}
                               <span>{child.label}</span>
-                              {child.key === 'dashboard' && dashboardNotifCount > 0 && (
-                                <span style={styles.navBadge}>{dashboardNotifCount}</span>
-                              )}
+                              {child.key === 'dashboard' && renderDashboardBadge()}
                               {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                                 <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                               )}
@@ -978,9 +1005,7 @@ export default function AppLayout() {
                     >
                       {Icon && <Icon active={activeTab === entry.key} />}
                       {!sidebarCollapsed && <span>{entry.label}</span>}
-                      {entry.key === 'dashboard' && dashboardNotifCount > 0 && (
-                        <span style={styles.navBadge}>{dashboardNotifCount}</span>
-                      )}
+                      {entry.key === 'dashboard' && renderDashboardBadge()}
                       {entry.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                         <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                       )}
@@ -1333,6 +1358,32 @@ export default function AppLayout() {
       {navTip && sidebarCollapsed && (
         <div style={{ ...styles.collapsedTip, top: navTip.top, left: navTip.left }}>
           {navTip.label}
+        </div>
+      )}
+      {badgeTip && (
+        <div style={{ ...styles.badgeTipPanel, top: badgeTip.top, left: badgeTip.left }}>
+          <div style={styles.badgeTipHeader}>Open tasks</div>
+          {badgeTasks === null ? (
+            <div style={styles.badgeTipEmpty}>Loading…</div>
+          ) : badgeTasks.length === 0 ? (
+            <div style={styles.badgeTipEmpty}>No open tasks</div>
+          ) : (
+            badgeTasks.map((t) => (
+              <div key={t.id} style={styles.badgeTipRow}>
+                <span style={{
+                  ...styles.badgeTipDot,
+                  background: t.status === 'on_hold' ? '#f59e0b' : t.status === 'pending' ? 'rgba(255,255,255,0.35)' : '#22c55e',
+                }} />
+                <span style={styles.badgeTipTitle}>{t.title}</span>
+              </div>
+            ))
+          )}
+          {unreadAnnouncementCount > 0 && (
+            <div style={styles.badgeTipFooter}>+ {unreadAnnouncementCount} announcement{unreadAnnouncementCount === 1 ? '' : 's'}</div>
+          )}
+          {isAdmin && flCommentCount > 0 && (
+            <div style={styles.badgeTipFooter}>+ {flCommentCount} contractor comment{flCommentCount === 1 ? '' : 's'}</div>
+          )}
         </div>
       )}
     </div>
@@ -2052,6 +2103,57 @@ const styles = {
     whiteSpace: 'nowrap',
     pointerEvents: 'none',
     zIndex: 400,
+  },
+  badgeTipPanel: {
+    position: 'fixed',
+    transform: 'translateY(-50%)',
+    padding: '8px 0',
+    borderRadius: '8px',
+    background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.14)',
+    boxShadow: '0 6px 18px rgba(0,0,0,0.45)',
+    minWidth: '220px',
+    maxWidth: '300px',
+    pointerEvents: 'none',
+    zIndex: 400,
+  },
+  badgeTipHeader: {
+    padding: '0 12px 6px',
+    fontSize: '10px',
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.45)',
+  },
+  badgeTipRow: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '8px',
+    padding: '4px 12px',
+  },
+  badgeTipDot: {
+    width: '7px',
+    height: '7px',
+    borderRadius: '50%',
+    flexShrink: 0,
+    marginTop: '4px',
+  },
+  badgeTipTitle: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.85)',
+    lineHeight: 1.35,
+  },
+  badgeTipEmpty: {
+    padding: '4px 12px',
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.45)',
+  },
+  badgeTipFooter: {
+    padding: '6px 12px 0',
+    marginTop: '4px',
+    borderTop: '1px solid rgba(255,255,255,0.08)',
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.55)',
   },
   // Hover label for the icon-only buttons. Sits above the button and ignores
   // pointer events so it can't swallow the click it's describing.

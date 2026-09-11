@@ -200,7 +200,7 @@ Deno.serve(async (req: Request) => {
   // Load project.
   const { data: project, error: projErr } = await admin
     .from("projects")
-    .select("id, name, type, status, deadline, on_hold, stage_config")
+    .select("id, name, type, status, deadline, on_hold, stage_config, published_at")
     .eq("id", project_id)
     .single();
   if (projErr || !project) return jsonResp({ error: "Project not found" }, 404);
@@ -282,10 +282,16 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // Update project status (card move).
+  // Update project status (card move). Entering Published stamps published_at
+  // (first time only — a re-publish after an admin pull-back keeps the original
+  // stamp so goal-window counts don't shift).
+  const statusPatch: Record<string, unknown> = { status: resolvedTargetStage, updated_at: new Date().toISOString() };
+  if (resolvedTargetStage === "publish" && !project.published_at) {
+    statusPatch.published_at = new Date().toISOString();
+  }
   const { error: updErr } = await admin
     .from("projects")
-    .update({ status: resolvedTargetStage, updated_at: new Date().toISOString() })
+    .update(statusPatch)
     .eq("id", project.id);
   if (updErr) return jsonResp({ error: `Failed to update project: ${updErr.message}` }, 500);
 

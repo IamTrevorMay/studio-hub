@@ -176,7 +176,7 @@ Named side-effects are the **action registry** (`action-registry.ts:189-295`): `
 
 - `src/lib/workflowSteps.js` — `getStepAction(stepKey, task)` picks which button MyTasks renders: `sign_off` if `requires_sign_off`, `write_ad_read` for `write_ad_reads`, else default `complete` (`:13-18`). Also names `step_key: 'automation'` for standalone automation-created tasks.
 - `src/lib/workflowModals.js` — modal registry for tasks whose `action_type === 'modal'` (MyTasks looks up by `modalKey`): `PickVideoEventModal`, `AddBriefModal`, `WriteAdReadModal`, etc.
-- `src/lib/workflowCatalog.js` — plain-English label catalogs for the Workflows **builder** UI (trigger/action sentence builder).
+- The retired visual builder and its `workflowCatalog.js` label catalog were removed 2026-09-10. Runtime task helpers and server orchestration remain in place.
 - `src/lib/workflowApi.js` — thin client (`callWorkflowFn`) that carries the JWT and enforces the creation gate above.
 
 None of these orchestrate; the state machine is entirely server-side in `workflow-engine.ts`.

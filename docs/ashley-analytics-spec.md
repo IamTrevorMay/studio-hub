@@ -66,7 +66,9 @@ weekly report already produces reliably.
 ## 2. Source tables & columns Ashley reads (verified names)
 
 All columns below are confirmed against `constants.js` `AVAILABLE_METRICS`, `generate-weekly-report`,
-`PlatformView.js`, `FormatPerformance.js`, `BestPostTimes.js`, and migration grep.
+`FormatPerformance.js`, `BestPostTimes.js`, and migration grep. The original review also
+consulted the retired `PlatformView.js` (removed 2026-09-10); use the live consumers
+and defining migrations for current schema references.
 
 ### 2.1 `analytics_youtube_daily` (channel-level daily; keyed by `platform_account_id`, also `channel_id`)
 Columns used: `date`, `platform_account_id`, `impressions`, `impressions_ctr`, `watch_time_hours`,

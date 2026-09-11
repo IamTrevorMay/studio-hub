@@ -9,7 +9,7 @@ import UnifiedBoard from './projects/UnifiedBoard';
 import Ideas from './Ideas';
 import Pipeline from './projects/Pipeline';
 import FilmQueue from './projects/FilmQueue';
-import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
+import { labelFor as stageTaskLabel, SHORT_FORM_PLATFORMS } from '../lib/kanbanStages';
 import { callEdgeFn } from '../lib/edgeFn';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
@@ -29,7 +29,7 @@ const VIEWS = [
   // node they aren't personally assigned to as unassigned and never-blocked,
   // which reads as authoritative and is wrong. Widening tasks RLS to all staff
   // would be the alternative; that is a security call, not a rendering one.
-  { key: 'pipeline', label: 'Pipeline', adminOnly: true },
+  { key: 'pipeline', label: 'Funnel', adminOnly: true },
   { key: 'ideas',    label: 'Ideas' },
   { key: 'film_queue', label: 'Film Queue' },
 ];
@@ -336,6 +336,7 @@ export default function Projects({ onNavigate }) {
     const { error } = await supabase.from('projects').insert({
       name: `${project.name} (copy)`,
       type: project.type,
+      short_form_platforms: project.short_form_platforms || [],
       status: 'queue',
       start_column: 'queue',
       deadline: project.deadline || null,
@@ -422,28 +423,12 @@ export default function Projects({ onNavigate }) {
     return publishedDate < sevenDaysAgo;
   }).filter(searchFilter);
 
-  const archivedCount = archivedProjects.length;
 
 
   const isPipeline = view === 'pipeline' && isAdmin;
 
   return (
     <div style={isPipeline ? { ...styles.page, ...styles.pageFullHeight } : styles.page}>
-      <div style={styles.topBar}>
-        <div>
-          <h1 style={styles.pageTitle}>
-            {view === 'ideas' ? 'Ideas' : isPipeline ? 'Pipeline' : 'Projects'}
-          </h1>
-          <p style={styles.pageSubtitle}>
-            {view === 'ideas'
-              ? "One shared list. Tag ideas, and drag the next ones up into Up Next."
-              : isPipeline
-                ? 'Work flows top to bottom, one chain per project. Read-only — the board stays the source of truth.'
-                : `${currentProjects.length + comingUpProjects.length} active${completedProjects.length > 0 ? ` · ${completedProjects.length} completed` : ''}${archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
-          </p>
-        </div>
-      </div>
-
       {/* Filters (list view only — kanban columns are self-filtering) */}
       <div style={styles.filterRow}>
         <div style={styles.filterRowSide}>
@@ -1002,7 +987,13 @@ function ProjectRow({
                 {editingField === 'type' ? (
                   <select
                     value={editType}
-                    onChange={(e) => { setEditType(e.target.value); saveField('type', e.target.value); }}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setEditType(v);
+                      // Leaving short_form makes the platform list meaningless — clear it.
+                      onUpdateProject(project.id, { type: v, ...(v !== 'short_form' ? { short_form_platforms: [] } : {}) });
+                      setEditingField(null);
+                    }}
                     onBlur={() => setEditingField(null)}
                     style={styles.inlineInput}
                     autoFocus
@@ -1015,6 +1006,35 @@ function ProjectRow({
                   </div>
                 )}
               </div>
+              {project.type === 'short_form' && (
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <label style={styles.detailLabel}>Platforms</label>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', paddingTop: '4px' }}>
+                    {SHORT_FORM_PLATFORMS.map(p => {
+                      const current = project.short_form_platforms || [];
+                      const on = current.includes(p.value);
+                      return (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() => onUpdateProject(project.id, {
+                            short_form_platforms: on ? current.filter(x => x !== p.value) : [...current, p.value],
+                          })}
+                          style={{
+                            padding: '3px 10px', borderRadius: 999,
+                            border: `1px solid ${on ? colors.accentBorder : 'rgba(255,255,255,0.12)'}`,
+                            background: on ? colors.accentSoft : 'transparent',
+                            color: on ? colors.accentFg : 'rgba(255,255,255,0.45)',
+                            fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+                          }}
+                        >
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {!isBusiness && (
                 <div style={{ flex: 1, minWidth: '140px' }}>
                   <label style={styles.detailLabel}>Channel</label>
@@ -1190,7 +1210,7 @@ function ProjectRow({
           {/* Pipeline routing — which output this project produces.
               Deliberately not inferred from project type: a short-form project
               can end up a YT Short, a TikTok, an IG Reel or an FB Reel, and
-              only a person knows which. Today it groups the Pipeline view into
+              only a person knows which. Today it groups the Funnel view into
               lanes; it's also the field goal hoppers will read when those land,
               so routing set now carries over. Unrouted projects still render,
               in their own lane. */}
@@ -1207,7 +1227,7 @@ function ProjectRow({
               ))}
             </select>
             <p style={{ fontSize: '11px', color: colors.textPlaceholder, margin: '6px 0 0 0' }}>
-              Groups this project into a lane on the Pipeline view.
+              Groups this project into a lane on the Funnel view.
             </p>
           </div>
 
@@ -1475,19 +1495,6 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
     margin: '0 0 12px',
-  },
-  topBar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: '24px',
-  },
-  pageTitle: {
-    fontSize: '28px', fontWeight: 700, color: '#ffffff',
-    margin: '0 0 4px 0', letterSpacing: '-0.5px',
-  },
-  pageSubtitle: {
-    fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0,
   },
   addBtn: {
     padding: '10px 20px',

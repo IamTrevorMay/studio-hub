@@ -1,8 +1,11 @@
 # TODO
 
+PlatformView-specific crash, content-table, and debug-logging tasks were retired
+on 2026-09-10 with the already-disconnected Platforms screen. Recovery context:
+[disconnected-code audit](docs/audits/2026-09-10-disconnected-code-audit.md).
+
 ## Active Bugs
 
-- [ ] **PlatformView React error #310** — Platform dashboards crash with "Objects are not valid as React child." Debug logging added (console.log in PlatformView). Need to check `sampleRollup` in browser console to identify which field is an object. Content table already ruled out.
 - [ ] **Stale tab issue** — App goes stale when returning from background tab. Multi-layered problem across auth, realtime subscriptions, and missing refreshKey deps. Partial fix deployed (reconnectRealtime + refreshKey on subscription effects) but still happening. See memory file for full diagnosis.
 
 ## Pending Fixes
@@ -15,8 +18,6 @@
 ## Upcoming Work
 
 - [ ] **Stale tab — coordinated fix** — Address all layers together: reconnect logic, useVisibilityRefresh hook (dead code), silent token refresh failures, error boundaries, refreshKey coverage gaps.
-- [ ] **Re-enable content table in PlatformView** — Disabled during #310 debugging. Restore once error is fixed.
-- [ ] **Remove debug logging from PlatformView** — Clean up console.log after identifying #310 source.
 - [ ] **Build "Business Dev" page (admin-only)** — Permanent program tracker for unified Mayday Media + Neptune Performance buildout/ops. Workstream-first hierarchy (Workstream → Initiative → Task) across 7 fixed workstreams. Tags: Mayday/Neptune/Shared. Four views: Main (workstream-grouped), Timeline/Gantt, Calendar, My Stuff. Header shows launch countdown + milestones + overall %. Initiative metadata: target date, async-friendly status (Ideas/Planned/Active/Waiting/Done), owner, budget, description, links, priority. Tasks: title/due date/owner/notes/checkbox + simple recurrence. Filters: tag pills + Hide Done. Done auto-collapses to Completed section after 1 day. In-app notifications via existing bell system. Separate tables from Goals roadmap (`bd_initiatives`, `bd_initiative_links`, `bd_tasks`, `bd_milestones`, `bd_settings`). See CLAUDE.md "Business Dev page" section for full spec. Sidebar position: below Goals.
 
 ## Recently Completed (2026-04-18)
