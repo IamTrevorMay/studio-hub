@@ -17,10 +17,9 @@ const BUCKET_KEYS = BUCKETS.map((b) => b.key);
 
 // Seeded tags still map to Projects types / the legacy `category` column
 // (kept in sync with desktop). Custom tags map to neither.
+// Mayday / Short Form ideas are Film Queue formats now — no project type.
 const TAG_LABEL_TO_PROJECT_TYPE = {
-  'Mayday Videos': 'mayday_video',
   'Trevor May Baseball Videos': 'tm_baseball_video',
-  'Short Form Only': 'short_form',
   'Podcast Only': 'podcast',
 };
 const TAG_LABEL_TO_CATEGORY = {
@@ -30,9 +29,7 @@ const TAG_LABEL_TO_CATEGORY = {
   'Podcast Only': 'podcast_only',
 };
 const PROJECT_TYPE_OPTIONS = [
-  { value: 'mayday_video', label: 'Mayday Video' },
   { value: 'tm_baseball_video', label: 'TM Baseball Video' },
-  { value: 'short_form', label: 'Short Form' },
   { value: 'podcast', label: 'Podcast' },
 ];
 

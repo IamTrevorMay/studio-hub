@@ -15,10 +15,10 @@ const BUCKETS = ['up_next', 'list'];
 // The four seeded tags still map to Projects types / the legacy `category`
 // column (kept in sync for IdeasMobile, which is still sectioned). Custom
 // tags map to neither — sending those to Projects prompts for a type.
+// Mayday / Short Form ideas go to the Film Queue now, not Projects — their
+// tags deliberately map to no project type (the picker prompts instead).
 const TAG_LABEL_TO_PROJECT_TYPE = {
-  'Mayday Videos': 'mayday_video',
   'Trevor May Baseball Videos': 'tm_baseball_video',
-  'Short Form Only': 'short_form',
   'Podcast Only': 'podcast',
 };
 const TAG_LABEL_TO_CATEGORY = {
@@ -28,9 +28,7 @@ const TAG_LABEL_TO_CATEGORY = {
   'Podcast Only': 'podcast_only',
 };
 const PROJECT_TYPE_OPTIONS = [
-  { value: 'mayday_video', label: 'Mayday Video' },
   { value: 'tm_baseball_video', label: 'TM Baseball Video' },
-  { value: 'short_form', label: 'Short Form' },
   { value: 'podcast', label: 'Podcast' },
 ];
 

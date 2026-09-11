@@ -176,11 +176,12 @@ export async function fetchDefaultAssigneeRows(supabase, projectType, projectId)
   return rows;
 }
 
+// Mayday Video and Short Form left this list 2026-09-11 — those formats are
+// handled by the Film Queue now, not Projects. Their entries in TYPE_COLORS /
+// STAGE_LABELS_BY_TYPE remain so archived cards and clips still render.
 export const PROJECT_TYPE_OPTIONS = [
-  { value: 'mayday_video',      label: 'Mayday Video',     channel: 'More Mayday' },
   { value: 'tm_baseball_video', label: 'TM Baseball Video', channel: 'Trevor May Baseball' },
   { value: 'podcast',           label: 'Podcast',           channel: 'Podcast' },
-  { value: 'short_form',        label: 'Short Form',        channel: 'Shorts' },
 ];
 
 // Where a short_form project will live. Stored in projects.short_form_platforms

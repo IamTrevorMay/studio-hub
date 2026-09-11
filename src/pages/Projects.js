@@ -42,11 +42,10 @@ const STATUS_COLORS = {
   queue: '#8b5cf6', write: '#3b82f6', pre_production: '#0ea5e9', film: '#f59e0b',
   review: '#ec4899', edit: '#f97316', post_production: '#a855f7', publish: '#22c55e',
 };
+// Mayday Video and Short Form are Film Queue formats now (removed 2026-09-11).
 const PROJECT_TYPES = [
-  { value: 'mayday_video', label: 'Mayday Video' },
   { value: 'tm_baseball_video', label: 'TM Baseball Video' },
   { value: 'podcast', label: 'Podcast' },
-  { value: 'short_form', label: 'Short Form' },
 ];
 const CHANNELS = ['Trevor May Baseball', 'More Mayday', 'AWA Wiffle'];
 const ASSIGNMENT_ROLES = ['producer', 'writer', 'editor', 'designer', 'reviewer', 'other'];
