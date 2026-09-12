@@ -13,7 +13,7 @@ import { colors } from '../lib/styleTokens';
 // so a sheet edited on mobile still opens cleanly on desktop.
 
 function newBeat() {
-  return { id: crypto.randomUUID(), title: '', context: '', notes: '', graphics: [], videos: [] };
+  return { id: crypto.randomUUID(), title: '', notes: '', graphics: [], videos: [] };
 }
 
 // Fixed Beat Sheet type taxonomy (mirrors desktop Production.js). NULL = Unassigned.
@@ -29,6 +29,33 @@ const SEGMENT_COLORS = [
   '#5b8fc7', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
   '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#a855f7',
 ];
+
+// The beat sheet used to carry a separate `context` field under each title.
+// Notes covers that job now, so old text is folded into notes on load — the
+// same migration the desktop editor runs, kept in step so a sheet opened on
+// either platform ends up identical.
+function mergeContextIntoNotes(items) {
+  let touched = false;
+  const migrate = (beat) => {
+    const context = (beat?.context || '').trim();
+    if (!context) {
+      if (beat && 'context' in beat) {
+        touched = true;
+        const { context: _drop, ...rest } = beat;
+        return rest;
+      }
+      return beat;
+    }
+    touched = true;
+    const notes = (beat.notes || '').trim();
+    const { context: _drop, ...rest } = beat;
+    return { ...rest, notes: notes ? `${notes}\n${context}` : context };
+  };
+  const next = (items || []).map(item => (
+    isSegment(item) ? { ...item, children: (item.children || []).map(migrate) } : migrate(item)
+  ));
+  return touched ? next : items;
+}
 
 function newSegment() {
   return {
@@ -224,7 +251,9 @@ export default function ProductionMobile({ initialSheetId, onSheetOpened }) {
 function SheetEditor({ sheet, onSheetUpdated }) {
   const [title, setTitle] = useState(sheet.title || '');
   const [items, setItems] = useState(() =>
-    Array.isArray(sheet.beats) && sheet.beats.length ? sheet.beats : [newBeat()],
+    Array.isArray(sheet.beats) && sheet.beats.length
+      ? mergeContextIntoNotes(sheet.beats)
+      : [newBeat()],
   );
   const [saveStatus, setSaveStatus] = useState('saved');
   const [lastSavedAt, setLastSavedAt] = useState(sheet.updated_at || null);
@@ -528,10 +557,10 @@ function BeatList({ droppableId, beats, accent, onUpdate, onDelete, onAdd }) {
 // ─── Beat card ────────────────────────────────────────────────
 
 // Field semantics mirror the desktop beat row: `title` is the beat's content
-// ("Beat..."), `context` is opt-in behind a "+ Context" button, graphics and
-// videos are plain text tag lists (no uploads), notes at the end.
+// ("Beat..."), graphics and videos are plain text tag lists (no uploads),
+// notes at the end. The old `context` field is gone on both platforms — notes
+// covers it, and legacy text is folded in on load.
 function BeatCard({ beat, dragHandleProps, accent, onUpdate, onDelete }) {
-  const [showContext, setShowContext] = useState(!!beat.context);
   return (
     <article style={{ ...editStyles.beatCard, borderLeft: accent ? `3px solid ${accent}` : '3px solid transparent' }}>
       <div style={editStyles.beatHeader}>
@@ -547,19 +576,6 @@ function BeatCard({ beat, dragHandleProps, accent, onUpdate, onDelete }) {
         placeholder="Beat..."
         style={editStyles.beatContentInput}
       />
-      {showContext ? (
-        <textarea
-          value={beat.context || ''}
-          onChange={(e) => onUpdate({ context: e.target.value })}
-          rows={3}
-          placeholder="Context..."
-          style={editStyles.beatContextInput}
-        />
-      ) : (
-        <button onClick={() => setShowContext(true)} style={editStyles.addContextBtn}>
-          + Context
-        </button>
-      )}
 
       <TagField
         label="Graphics"
@@ -826,30 +842,6 @@ const editStyles = {
     fontFamily: 'inherit',
     resize: 'vertical',
     minHeight: 72,
-    lineHeight: 1.45,
-  },
-  addContextBtn: {
-    alignSelf: 'flex-start',
-    padding: '4px 8px',
-    background: 'transparent',
-    border: 'none',
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: mobileTokens.font.sm,
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  },
-  beatContextInput: {
-    padding: mobileTokens.space.md,
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: mobileTokens.radius.sm,
-    color: '#e2e8f0',
-    fontSize: mobileTokens.font.md,
-    outline: 'none',
-    fontFamily: 'inherit',
-    resize: 'vertical',
-    minHeight: 96,
     lineHeight: 1.45,
   },
   addBtn: {

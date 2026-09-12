@@ -48,7 +48,7 @@ function readSplitSwapped() {
 // ─── helpers ───────────────────────────────────────────────────────────────────
 
 function newBeat() {
-  return { id: crypto.randomUUID(), title: '', context: '', graphics: [], videos: [], notes: '' };
+  return { id: crypto.randomUUID(), title: '', graphics: [], videos: [], notes: '' };
 }
 
 const SEGMENT_COLORS = [
@@ -95,6 +95,63 @@ function mapBeatsDeep(items, fn) {
     return fn(item);
   });
 }
+
+// The beat sheet used to carry a separate `context` field under each title.
+// Notes now covers that job, so the field is gone from the editor — but old
+// sheets still have text in it. Fold it into notes the first time a sheet is
+// opened; the next autosave persists the merge. Returns the same array
+// reference when there is nothing to migrate, so callers can cheaply tell
+// whether the sheet actually changed.
+function mergeContextIntoNotes(items) {
+  let touched = false;
+  const migrate = (beat) => {
+    const context = (beat?.context || '').trim();
+    if (!context) {
+      if (beat && 'context' in beat) {
+        touched = true;
+        const { context: _drop, ...rest } = beat;
+        return rest;
+      }
+      return beat;
+    }
+    touched = true;
+    const notes = (beat.notes || '').trim();
+    const { context: _drop, ...rest } = beat;
+    return { ...rest, notes: notes ? `${notes}\n${context}` : context };
+  };
+  const next = (items || []).map(item => (
+    isSegment(item) ? { ...item, children: (item.children || []).map(migrate) } : migrate(item)
+  ));
+  return touched ? next : items;
+}
+
+// ─── grid columns ──────────────────────────────────────────────────────────────
+// Beat is fluid and absorbs slack; the three right-hand columns are resizable
+// and persisted per sheet in `beat_sheets.column_widths`.
+const RESIZABLE_COLS = ['graphics', 'videos', 'notes'];
+const DEFAULT_COL_WIDTHS = { graphics: 200, videos: 200, notes: 280 };
+const MIN_COL_WIDTH = 110;
+const MAX_COL_WIDTH = 620;
+const GUTTER_W = 30;   // drag handle / ⊕ insert gutter
+const ACTIONS_W = 34;  // trailing delete button
+
+function normalizeColWidths(raw) {
+  const out = { ...DEFAULT_COL_WIDTHS };
+  if (raw && typeof raw === 'object') {
+    for (const key of RESIZABLE_COLS) {
+      const n = Number(raw[key]);
+      if (Number.isFinite(n)) out[key] = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, Math.round(n)));
+    }
+  }
+  return out;
+}
+
+function gridTemplate(widths) {
+  return `${GUTTER_W}px minmax(160px, 1fr) ${widths.graphics}px ${widths.videos}px ${widths.notes}px ${ACTIONS_W}px`;
+}
+
+// Cell order for Tab / Shift+Tab traversal.
+const CELL_FIELDS = ['title', 'graphics', 'videos', 'notes'];
 
 // Deep-clone a beats array with fresh UUIDs (and fresh media arrays) so the
 // copy can live in a new sheet/template without colliding on ids.
@@ -208,7 +265,9 @@ function SortableTh({ label, k, sort, onSort }) {
 
 // Multi-select tag popover. Mirrors the Ideas board: toggle existing tags,
 // or type a new label to create one on the spot.
-function TagEditor({ tags, selected, onToggle, onCreate, onClose }) {
+// A sheet carries exactly one tag. The picker is a single-select dropdown:
+// choosing a tag replaces whatever was there, and "No tag" clears it.
+function TagEditor({ tags, selected, onSelect, onCreate, onClose }) {
   const [draft, setDraft] = useState('');
   const wrapRef = useRef(null);
 
@@ -226,17 +285,28 @@ function TagEditor({ tags, selected, onToggle, onCreate, onClose }) {
   const known = new Set(tags.map(t => t.label.toLowerCase()));
   const trimmed = draft.trim();
   const canCreate = trimmed.length > 0 && !known.has(trimmed.toLowerCase());
+  const currentId = (selected || [])[0] || null;
 
   return (
     <div ref={wrapRef} style={tagPopoverStyle} onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        style={{ ...buttonReset, ...tagOptionStyle, ...(currentId ? {} : { background: colors.accentA12 }) }}
+        onClick={() => onSelect(null)}
+      >
+        <span style={{ width: 12, flexShrink: 0, color: colors.accentFg }}>{currentId ? '' : '\u2713'}</span>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', border: `1px solid ${colors.borderStrong}`, flexShrink: 0 }} />
+        <span style={{ flex: 1, minWidth: 0, color: colors.textDim }}>No tag</span>
+      </button>
+      <div style={{ height: 1, background: colors.border, margin: `${spacing.xs}px 0` }} />
       {tags.map(t => {
-        const on = (selected || []).includes(t.id);
+        const on = currentId === t.id;
         return (
           <button
             key={t.id}
             type="button"
             style={{ ...buttonReset, ...tagOptionStyle, ...(on ? { background: colors.accentA12 } : {}) }}
-            onClick={() => onToggle(t.id)}
+            onClick={() => onSelect(t.id)}
           >
             <span style={{ width: 12, flexShrink: 0, color: colors.accentFg }}>{on ? '\u2713' : ''}</span>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
@@ -374,8 +444,16 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   // ── tag input state ──
   const [tagInputs, setTagInputs] = useState({});
 
-  // ── context visibility state ──
-  const [expandedContexts, setExpandedContexts] = useState(new Set());
+  // ── grid state ──
+  // activeCell drives the focus ring + row tint; hoverInsert is the row whose
+  // top edge is showing the ⊕ insert affordance.
+  const [activeCell, setActiveCell] = useState(null);   // { beatId, field }
+  const [hoverInsert, setHoverInsert] = useState(null); // beat/segment id
+  const [colWidths, setColWidths] = useState(DEFAULT_COL_WIDTHS);
+  const [headerStuck, setHeaderStuck] = useState(false);
+  const colResizeRef = useRef(null);   // { key, startX, startW }
+  const cellRefs = useRef(new Map());  // `${beatId}:${field}` → input/textarea
+  const mastheadSentinelRef = useRef(null);
 
   // ── beat media upload state ──
   const [uploadingCells, setUploadingCells] = useState({});
@@ -420,8 +498,8 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   const [createBusy, setCreateBusy] = useState(false);
 
   // ── add menu ──
-  const [showAddMenuTop, setShowAddMenuTop] = useState(false);
-  const [showAddMenuBottom, setShowAddMenuBottom] = useState(false);
+  // Beats/segments are added from the ⊕ gutter, the trailing ghost row, or the
+  // keyboard — so the old top/bottom "+ Add" dropdowns are gone.
   const [showColorDropdown, setShowColorDropdown] = useState(null); // segmentId or null
 
   // ── confirm delete ──
@@ -511,6 +589,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           beats,
           drive_folder_id: driveFolderId,
           drive_folder_name: driveFolderName,
+          column_widths: colWidths,
           updated_at: savedAt,
         })
         .eq('id', activeSheet.id);
@@ -523,14 +602,14 @@ export default function Production({ initialSheetId, onSheetOpened }) {
         setSheets(prev => prev.map(s => (s.id === activeSheet.id ? { ...s, updated_at: savedAt } : s)));
       }
     }, 1500);
-  }, [activeSheet, title, beats, driveFolderId, driveFolderName]);
+  }, [activeSheet, title, beats, driveFolderId, driveFolderName, colWidths]);
 
   useEffect(() => {
     // Don't autosave the data openSheet just loaded — only real user edits.
     if (justLoadedSheet.current) { justLoadedSheet.current = false; return; }
     if (activeSheet) scheduleSave();
     return () => clearTimeout(saveTimer.current);
-  }, [title, beats, driveFolderId, driveFolderName]);
+  }, [title, beats, driveFolderId, driveFolderName, colWidths]);
 
   // ─── research document ──────────────────────────────────────────────────────
   // One doc per sheet, created the first time somebody opens Research. The
@@ -864,7 +943,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   // title/beats, so these persist immediately on change. A manual flip to
   // approved stamps approved_at (the line orders on it); leaving approved
   // clears it. Film date is packer-set, never written here. Declared above
-  // the tag handlers because toggleSheetTag stamps default minutes with it.
+  // the tag handlers because setSheetTag stamps default minutes with it.
   const writeSheetFields = useCallback(async (sheet, patch) => {
     setSheets(prev => prev.map(s => (s.id === sheet.id ? { ...s, ...patch } : s)));
     setActiveSheet(prev => (prev && prev.id === sheet.id ? { ...prev, ...patch } : prev));
@@ -930,14 +1009,15 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     return true;
   }, [fetchSheets]);
 
-  const toggleSheetTag = useCallback(async (sheet, tagId) => {
-    const current = sheet.tag_ids || [];
-    const adding = !current.includes(tagId);
-    const next = adding ? [...current, tagId] : current.filter(id => id !== tagId);
-    const ok = await writeTagIds(sheet, next);
-    // Only an ADD fires the workflow, and only the first time — removing and
-    // re-adding is the one case that can legitimately re-fire.
-    if (ok && adding) {
+  // A sheet has one tag. Picking a different one replaces it; passing null
+  // clears it. `tag_ids` stays an array so the column and every reader of it
+  // are untouched — it just never holds more than one id now.
+  const setSheetTag = useCallback(async (sheet, tagId) => {
+    const current = (sheet.tag_ids || [])[0] || null;
+    if (current === tagId) return;
+    const ok = await writeTagIds(sheet, tagId ? [tagId] : []);
+    // Only landing on a tag fires the workflow — clearing it never does.
+    if (ok && tagId) {
       const label = tagById[tagId]?.label;
       if (TAG_DEFAULT_MINUTES[label] != null) {
         writeSheetFields(sheet, { estimated_minutes: TAG_DEFAULT_MINUTES[label] });
@@ -956,7 +1036,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       .single();
     if (error) { console.error('Tag create error:', error); return; }
     setTags(prev => [...prev, data]);
-    const ok = await writeTagIds(sheet, [...(sheet.tag_ids || []), data.id]);
+    const ok = await writeTagIds(sheet, [data.id]);
     if (ok) {
       await fireTagWorkflow(sheet, data.label);
       await routeTagDestination(sheet, data.label);
@@ -980,17 +1060,24 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   };
 
   const openSheet = (sheet) => {
-    justLoadedSheet.current = true;
     setActiveSheet(sheet);
     setTitle(sheet.title);
-    const loadedBeats = sheet.beats || [newBeat()];
+    const rawBeats = sheet.beats || [newBeat()];
+    // Fold any legacy `context` text into notes — the field no longer exists in
+    // the editor. When something actually moved we deliberately let the load
+    // autosave through so the migration persists; otherwise it's suppressed as
+    // usual, since nothing the user did needs saving.
+    const loadedBeats = mergeContextIntoNotes(rawBeats);
+    const migrated = loadedBeats !== rawBeats;
+    justLoadedSheet.current = !migrated;
     setBeats(loadedBeats);
     setDriveFolderId(sheet.drive_folder_id);
     setDriveFolderName(sheet.drive_folder_name);
-    setSaveStatus('saved');
+    setSaveStatus(migrated ? 'unsaved' : 'saved');
     setLastSavedAt(sheet.updated_at || null);
     setTagInputs({});
-    setExpandedContexts(new Set(flattenBeats(loadedBeats).filter(b => b.context).map(b => b.id)));
+    setActiveCell(null);
+    setColWidths(normalizeColWidths(sheet.column_widths));
     window.history.replaceState({}, '', '/production/' + sheet.id);
   };
 
@@ -1076,19 +1163,31 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     return () => clearInterval(snapshotTimer.current);
   }, [activeSheet?.id]);
 
-  // close add menus and color dropdown on outside click
+  // close the segment colour dropdown on outside click
   useEffect(() => {
-    if (!showAddMenuTop && !showAddMenuBottom && !showColorDropdown) return;
+    if (!showColorDropdown) return;
     const handler = (e) => {
-      // Don't close if click is inside a dropdown
-      if (e.target.closest('[data-add-menu]') || e.target.closest('[data-color-dropdown]')) return;
-      setShowAddMenuTop(false);
-      setShowAddMenuBottom(false);
+      if (e.target.closest('[data-color-dropdown]')) return;
       setShowColorDropdown(null);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [showAddMenuTop, showAddMenuBottom, showColorDropdown]);
+  }, [showColorDropdown]);
+
+  // Masthead → sticky bar. Watching a zero-height sentinel above the masthead
+  // means we don't have to know which ancestor is actually the scroll
+  // container — it differs between the beats view (the page) and Split (the
+  // beat pane).
+  useEffect(() => {
+    const node = mastheadSentinelRef.current;
+    if (!node) { setHeaderStuck(false); return undefined; }
+    const io = new IntersectionObserver(
+      ([entry]) => setHeaderStuck(!entry.isIntersecting),
+      { threshold: 0 },
+    );
+    io.observe(node);
+    return () => io.disconnect();
+  }, [activeSheet?.id, viewMode]);
 
   // close the Actions dropdown on outside click
   useEffect(() => {
@@ -1131,8 +1230,8 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     await saveSnapshot(activeSheet.id, title, beats);
     // apply restored version
     setTitle(version.title);
-    setBeats(version.beats || []);
-    setExpandedContexts(new Set(flattenBeats(version.beats || []).filter(b => b.context).map(b => b.id)));
+    // Snapshots predate the context removal, so restore runs the same merge.
+    setBeats(mergeContextIntoNotes(version.beats || []));
     setShowVersionHistory(false);
     setPreviewVersion(null);
     // scheduleSave will auto-fire from the state change
@@ -1146,11 +1245,170 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   };
 
   // ─── beat operations ────────────────────────────────────────────────────────
-  const addBeat = () => setBeats(prev => [...prev, newBeat()]);
+  // Appends and drops the caret in — the ghost row reads as the document's
+  // next line, so clicking it should behave like clicking into one.
+  const addBeat = () => {
+    const beat = newBeat();
+    setBeats(prev => [...prev, beat]);
+    focusCell(beat.id, 'title', 'start');
+  };
 
   const updateBeat = (beatId, field, value) => {
     setBeats(prev => mapBeatsDeep(prev, b => b.id === beatId ? { ...b, [field]: value } : b));
   };
+
+  // ─── grid: cells, insertion, keyboard ───────────────────────────────────────
+
+  const registerCell = useCallback((beatId, field, el) => {
+    const key = `${beatId}:${field}`;
+    if (el) cellRefs.current.set(key, el);
+    else cellRefs.current.delete(key);
+  }, []);
+
+  const isCellActive = (beatId, field) => activeCell?.beatId === beatId && activeCell?.field === field;
+
+  // Focus a cell after the render that creates it. Two frames: one for React to
+  // commit the new row, one for the autoresize pass that sizes its textarea.
+  const focusCell = useCallback((beatId, field, caret = 'end') => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const el = cellRefs.current.get(`${beatId}:${field}`);
+      if (!el) return;
+      el.focus();
+      if (typeof el.setSelectionRange === 'function') {
+        const pos = caret === 'start' ? 0 : el.value.length;
+        el.setSelectionRange(pos, pos);
+      }
+      // A split can hand the new row a whole paragraph, and textareas mount at
+      // rows=1 with overflow hidden — size it before the user sees it.
+      if (el.tagName === 'TEXTAREA') {
+        el.style.height = 'auto';
+        el.style.height = el.scrollHeight + 'px';
+      }
+    }));
+  }, []);
+
+  // Flat, document-order list of every beat currently on screen. Segment
+  // children are inlined, which is exactly the order Tab should walk.
+  const visibleBeats = useMemo(() => {
+    const out = [];
+    for (const item of beats) {
+      if (isSegment(item)) {
+        if (!collapsedSegments.has(item.id)) out.push(...(item.children || []));
+      } else {
+        out.push(item);
+      }
+    }
+    return out;
+  }, [beats, collapsedSegments]);
+
+  // Tab / Shift+Tab: walk cells left-to-right, wrapping across rows.
+  const moveCellFocus = useCallback((beatId, field, dir) => {
+    const rowIdx = visibleBeats.findIndex(b => b.id === beatId);
+    if (rowIdx === -1) return false;
+    const colIdx = CELL_FIELDS.indexOf(field);
+    let nextCol = colIdx + dir;
+    let nextRow = rowIdx;
+    if (nextCol >= CELL_FIELDS.length) { nextCol = 0; nextRow += 1; }
+    if (nextCol < 0) { nextCol = CELL_FIELDS.length - 1; nextRow -= 1; }
+    const target = visibleBeats[nextRow];
+    if (!target) return false;
+    focusCell(target.id, CELL_FIELDS[nextCol], dir > 0 ? 'end' : 'end');
+    return true;
+  }, [visibleBeats, focusCell]);
+
+  // Insert a beat or segment relative to an existing row, at whatever depth
+  // that row lives at — a beat inside a segment gets its sibling inside the
+  // same segment. Returns the new item so callers can focus it.
+  const insertItemRelativeTo = useCallback((anchorId, where, makeItem) => {
+    const item = makeItem();
+    setBeats(prev => {
+      const offset = where === 'above' ? 0 : 1;
+      // Top level first.
+      const topIdx = prev.findIndex(b => b.id === anchorId);
+      if (topIdx !== -1) {
+        const next = [...prev];
+        next.splice(topIdx + offset, 0, item);
+        return next;
+      }
+      // Otherwise it's a beat inside a segment. Segments can't nest, so a
+      // segment insert has to break out to the top level, positioned around
+      // the parent segment.
+      return prev.reduce((acc, node) => {
+        if (!isSegment(node)) { acc.push(node); return acc; }
+        const childIdx = (node.children || []).findIndex(b => b.id === anchorId);
+        if (childIdx === -1) { acc.push(node); return acc; }
+        if (isSegment(item)) {
+          if (where === 'above') { acc.push(item, node); } else { acc.push(node, item); }
+          return acc;
+        }
+        const children = [...node.children];
+        children.splice(childIdx + offset, 0, item);
+        acc.push({ ...node, children });
+        return acc;
+      }, []);
+    });
+    return item;
+  }, []);
+
+  const insertBeatRelativeTo = useCallback((anchorId, where) => {
+    const beat = insertItemRelativeTo(anchorId, where, newBeat);
+    focusCell(beat.id, 'title', 'start');
+  }, [insertItemRelativeTo, focusCell]);
+
+  // Enter inside a beat title splits the beat at the caret. That one rule
+  // covers all three cases: caret at the end leaves an empty row below, caret
+  // before the first character leaves an empty row above with the text pushed
+  // down, and a caret mid-title genuinely splits the beat in two.
+  const splitBeatAtCaret = useCallback((beatId, el) => {
+    const value = el.value;
+    const caret = el.selectionStart ?? value.length;
+    const left = value.slice(0, caret);
+    const right = value.slice(caret);
+    const created = insertItemRelativeTo(beatId, 'below', () => ({ ...newBeat(), title: right }));
+    setBeats(prev => mapBeatsDeep(prev, b => (b.id === beatId ? { ...b, title: left } : b)));
+    // The caret follows the text it was sitting in front of.
+    focusCell(created.id, 'title', 'start');
+  }, [insertItemRelativeTo, focusCell]);
+
+  // Backspace at the very start of an otherwise-empty beat removes the row and
+  // puts the caret at the end of the previous one, the way a list behaves.
+  const backspaceEmptyBeat = useCallback((beat) => {
+    const empty = !(beat.title || '').length
+      && !(beat.notes || '').length
+      && !(beat.graphics || []).length
+      && !(beat.videos || []).length;
+    if (!empty || visibleBeats.length <= 1) return false;
+    const idx = visibleBeats.findIndex(b => b.id === beat.id);
+    const prevBeat = idx > 0 ? visibleBeats[idx - 1] : null;
+    deleteBeat(beat.id);
+    if (prevBeat) focusCell(prevBeat.id, 'title', 'end');
+    return true;
+  }, [visibleBeats, focusCell]); // eslint-disable-line
+
+  // ─── grid: column resizing ──────────────────────────────────────────────────
+
+  const startColResize = useCallback((key, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    colResizeRef.current = { key, startX: e.clientX, startW: colWidths[key] };
+    const onMove = (ev) => {
+      const drag = colResizeRef.current;
+      if (!drag) return;
+      const next = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, drag.startW + (ev.clientX - drag.startX)));
+      setColWidths(prev => (prev[drag.key] === next ? prev : { ...prev, [drag.key]: next }));
+    };
+    const onUp = () => {
+      colResizeRef.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [colWidths]);
 
   const deleteBeat = (beatId) => {
     setBeats(prev => prev.reduce((acc, item) => {
@@ -1306,18 +1564,55 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     }
   };
 
-  const addBeatToTop = () => setBeats(prev => [newBeat(), ...prev]);
-  const addSegmentToTop = () => setBeats(prev => [newSegment(), ...prev]);
+  // Keys handled inside a beat title. Notes keeps its own prose behaviour
+  // (plain newlines + bullet continuation) — only the title drives row shape.
+  const handleBeatTitleKeyDown = (e, beat) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      moveCellFocus(beat.id, 'title', e.shiftKey ? -1 : 1);
+      return;
+    }
+    if (e.key === 'Enter') {
+      if (e.altKey) return;                     // ⌥⏎ — literal newline in the title
+      e.preventDefault();
+      if (e.shiftKey) {                         // ⇧⏎ — start a new segment
+        const seg = insertItemRelativeTo(beat.id, 'below', newSegment);
+        focusCell(seg.children[0].id, 'title', 'start');
+        return;
+      }
+      splitBeatAtCaret(beat.id, e.target);      // ⏎ — split the beat at the caret
+      return;
+    }
+    if (e.key === 'Backspace' && e.target.selectionStart === 0 && e.target.selectionEnd === 0) {
+      if (backspaceEmptyBeat(beat)) e.preventDefault();
+    }
+  };
+
+  // Tab out of the Graphics / Videos / Notes cells.
+  const handleCellTabKeyDown = (e, beatId, field) => {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    moveCellFocus(beatId, field, e.shiftKey ? -1 : 1);
+  };
+
+  // Inserting above the first row is the ⊕ gutter's job now, so the old
+  // addBeatToTop / addSegmentToTop helpers are gone.
 
   // ─── segment operations ──────────────────────────────────────────────────────
-  const addSegment = () => setBeats(prev => [...prev, newSegment()]);
+  const addSegment = () => {
+    const seg = newSegment();
+    setBeats(prev => [...prev, seg]);
+    focusCell(seg.children[0].id, 'title', 'start');
+  };
 
   const addBeatToSegment = (segmentId) => {
+    const beat = newBeat();
     setBeats(prev => prev.map(item =>
       isSegment(item) && item.id === segmentId
-        ? { ...item, children: [...item.children, newBeat()] }
+        ? { ...item, children: [...item.children, beat] }
         : item
     ));
+    focusCell(beat.id, 'title', 'start');
   };
 
   const updateSegment = (segmentId, field, value) => {
@@ -1730,11 +2025,155 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   };
 
   // ─── renderBeatRow (reused for top-level + segment-internal) ────────────────
+  // A Graphics / Videos cell. The two are identical apart from the field name,
+  // so they share one renderer: media thumbs, draggable text tags, an inline
+  // rename editor, file-drop upload, and the "+ add" input.
+  const renderTagCell = (beat, field, parentSegmentId) => {
+    const key = `${beat.id}-${field}`;
+    const noun = field === 'graphics' ? 'graphic' : 'video';
+    const items = beat[field] || [];
+
+    return (
+      <div
+        style={{
+          ...styles.gridCell,
+          ...styles.beatTagCell,
+          ...styles.gridCellDivider,
+          ...(isCellActive(beat.id, field) ? styles.gridCellActive : null),
+          ...(dropHighlight === key ? styles.tagCellDrop : null),
+        }}
+        onDragOver={e => {
+          if (e.dataTransfer.types.includes('Files')) {
+            e.preventDefault();
+            setDropHighlight(key);
+          } else if (tagDragRef.current?.field === field && tagDragRef.current?.beatId !== beat.id) {
+            e.preventDefault();
+            setDropHighlight(key);
+          }
+        }}
+        onDragLeave={e => {
+          if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
+        }}
+        onDrop={e => {
+          setDropHighlight(null);
+          if (e.dataTransfer.files.length > 0) {
+            e.preventDefault();
+            Array.from(e.dataTransfer.files).forEach(f => {
+              if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
+                uploadBeatMedia(beat.id, field, f);
+              }
+            });
+          } else {
+            const d = tagDragRef.current;
+            if (d && d.field === field && d.beatId !== beat.id) {
+              e.preventDefault();
+              moveTagAcrossBeats(d.beatId, d.field, d.fromIndex, beat.id);
+              tagDragRef.current = null;
+            }
+          }
+        }}
+      >
+        {items.map((entry, i) => {
+          const isMediaItem = typeof entry === 'object' && entry.url;
+          if (isMediaItem) {
+            return (
+              <div key={entry.id || entry.url || `${field}${i}`} style={styles.mediaThumb}>
+                {entry.type === 'image'
+                  ? <img src={entry.url} alt={entry.name} style={styles.mediaImg} />
+                  : (
+                    <div style={styles.mediaVideoIcon}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(165,180,252,0.7)" strokeWidth="1.5">
+                        <rect x="1" y="3" width="10" height="10" rx="1.5" />
+                        <path d="M11 6l4-2v8l-4-2V6z" />
+                      </svg>
+                    </div>
+                  )}
+                <span style={styles.mediaName}>{entry.name}</span>
+                <button onClick={() => removeTag(beat.id, field, i)} style={styles.tagRemove}>&times;</button>
+              </div>
+            );
+          }
+
+          if (editingTag && editingTag.beatId === beat.id && editingTag.field === field && editingTag.index === i) {
+            return (
+              <input
+                key={`edit-${field}${i}`}
+                autoFocus
+                value={editingTag.value}
+                onChange={e => setEditingTag(prev => ({ ...prev, value: e.target.value }))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { renameTag(beat.id, field, i, editingTag.value); setEditingTag(null); }
+                  if (e.key === 'Escape') setEditingTag(null);
+                }}
+                onBlur={() => setEditingTag(null)}
+                style={styles.tagEditInput}
+              />
+            );
+          }
+
+          return (
+            <span
+              key={`${entry}-${i}`}
+              style={{ ...styles.tag, cursor: 'grab', ...(tagDone(beat.id, field, entry) ? styles.tagDone : {}) }}
+              draggable
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setContextMenu({
+                  x: e.clientX, y: e.clientY, beatId: beat.id, segmentId: parentSegmentId,
+                  tag: { key: `${beat.id}::${field}::${entry}`, done: tagDone(beat.id, field, entry), field, index: i, value: entry },
+                });
+              }}
+              onDragStart={() => { tagDragRef.current = { beatId: beat.id, field, fromIndex: i }; }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const d = tagDragRef.current;
+                if (!d || d.beatId !== beat.id || d.field !== field || d.fromIndex === i) return;
+                reorderTag(d.beatId, d.field, d.fromIndex, i);
+                tagDragRef.current = null;
+              }}
+            >
+              <span style={styles.tagText}>{entry}</span>
+              <button onClick={() => removeTag(beat.id, field, i)} style={styles.tagRemove}>&times;</button>
+            </span>
+          );
+        })}
+
+        {uploadingCells[key] && <div style={styles.uploadingIndicator}>Uploading...</div>}
+
+        <input
+          ref={el => registerCell(beat.id, field, el)}
+          value={tagInputs[key] || ''}
+          onChange={e => setTagInputs(prev => ({ ...prev, [key]: e.target.value }))}
+          onFocus={() => setActiveCell({ beatId: beat.id, field })}
+          onBlur={() => setActiveCell(prev => (prev?.beatId === beat.id && prev?.field === field ? null : prev))}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              addTag(beat.id, field, e.target.value);
+              setTagInputs(prev => ({ ...prev, [key]: '' }));
+              return;
+            }
+            handleCellTabKeyDown(e, beat.id, field);
+          }}
+          placeholder={`+ add ${noun}`}
+          style={styles.tagInput}
+        />
+      </div>
+    );
+  };
+
   const renderBeatRow = (beat, provided, snapshot, parentSegmentId) => {
+    const rowActive = activeCell?.beatId === beat.id;
+    // Chrome (drag handle, delete) stays out of the way until the row is in
+    // play — a document shows its text, not its controls.
+    const rowHot = rowActive || hoverInsert === beat.id;
     const row = (
     <div
       ref={provided.innerRef}
       {...provided.draggableProps}
+      onMouseEnter={() => setHoverInsert(beat.id)}
+      onMouseLeave={() => setHoverInsert(prev => (prev === beat.id ? null : prev))}
       onContextMenu={e => {
         const tag = e.target.tagName;
         if (tag === 'TEXTAREA' || tag === 'INPUT') return; // let browser show native menu (copy/paste/undo/spelling)
@@ -1743,305 +2182,101 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       }}
       style={{
         ...styles.beatRow,
-        ...(snapshot.isDragging ? { boxShadow: '0 8px 32px rgba(91, 143, 199,0.25)', border: '1px solid rgba(91, 143, 199,0.3)' } : {}),
+        gridTemplateColumns: gridTemplate(colWidths),
+        ...(rowActive ? styles.beatRowActive : null),
+        ...(snapshot.isDragging ? styles.beatRowDragging : null),
         ...provided.draggableProps.style,
       }}
     >
-      {/* Drag handle */}
-      <div {...provided.dragHandleProps} style={styles.dragHandle} title="Drag to reorder">
-        <svg width="12" height="16" viewBox="0 0 12 16" fill="rgba(255,255,255,0.25)">
-          <circle cx="3" cy="2" r="1.5" /><circle cx="9" cy="2" r="1.5" />
-          <circle cx="3" cy="6" r="1.5" /><circle cx="9" cy="6" r="1.5" />
-          <circle cx="3" cy="10" r="1.5" /><circle cx="9" cy="10" r="1.5" />
-          <circle cx="3" cy="14" r="1.5" /><circle cx="9" cy="14" r="1.5" />
-        </svg>
+      {/* Gutter: ⊕ insert-above on the row's top edge, drag handle below it */}
+      <div style={{ ...styles.gridCell, ...styles.gutterCell }}>
+        {hoverInsert === beat.id && !snapshot.isDragging && (
+          <button
+            onClick={() => insertBeatRelativeTo(beat.id, 'above')}
+            style={styles.insertAboveBtn}
+            title="Insert a beat above"
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <circle cx="6.5" cy="6.5" r="5.2" />
+              <path d="M6.5 4.2v4.6M4.2 6.5h4.6" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
+        <div
+          {...provided.dragHandleProps}
+          style={{ ...styles.beatDragHandle, opacity: rowHot ? 1 : 0 }}
+          title="Drag to reorder"
+        >
+          <svg width="10" height="16" viewBox="0 0 10 16" fill="rgba(255,255,255,0.22)">
+            <circle cx="2" cy="3" r="1.3" /><circle cx="8" cy="3" r="1.3" />
+            <circle cx="2" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" />
+            <circle cx="2" cy="13" r="1.3" /><circle cx="8" cy="13" r="1.3" />
+          </svg>
+        </div>
       </div>
 
-      {/* Col 1: Beat + Context */}
-      <div style={styles.beatCol}>
+      {/* Beat */}
+      <div
+        style={{
+          ...styles.gridCell,
+          ...styles.gridCellDivider,
+          ...(isCellActive(beat.id, 'title') ? styles.gridCellActive : null),
+        }}
+      >
         <textarea
+          ref={el => registerCell(beat.id, 'title', el)}
           value={beat.title}
           onChange={e => { updateBeat(beat.id, 'title', e.target.value); autoResize(e.target); }}
-          onKeyDown={e => handleBulletKeyDown(e, beat.id, 'title')}
+          onFocus={() => setActiveCell({ beatId: beat.id, field: 'title' })}
+          onBlur={() => setActiveCell(prev => (prev?.beatId === beat.id && prev?.field === 'title' ? null : prev))}
+          onKeyDown={e => handleBeatTitleKeyDown(e, beat)}
           data-autoresize="true"
           placeholder="Beat..."
           rows={1}
           style={styles.beatInput}
         />
-        {expandedContexts.has(beat.id) ? (
-          <textarea
-            value={beat.context}
-            onChange={e => { updateBeat(beat.id, 'context', e.target.value); autoResize(e.target); }}
-            onKeyDown={e => handleBulletKeyDown(e, beat.id, 'context')}
-            data-autoresize="true"
-            placeholder="Context... (type • or - for bullets)"
-            rows={1}
-            style={styles.contextInput}
-          />
-        ) : (
-          <button
-            onClick={() => setExpandedContexts(prev => new Set([...prev, beat.id]))}
-            style={styles.addContextBtn}
-          >
-            + Context
-          </button>
-        )}
       </div>
 
-      {/* Col 2: Graphics */}
+      {renderTagCell(beat, 'graphics', parentSegmentId)}
+      {renderTagCell(beat, 'videos', parentSegmentId)}
+
+      {/* Notes */}
       <div
         style={{
-          ...styles.tagCol,
-          ...(dropHighlight === `${beat.id}-graphics` ? styles.tagColDrop : {}),
-        }}
-        onDragOver={e => {
-          if (e.dataTransfer.types.includes('Files')) {
-            e.preventDefault();
-            setDropHighlight(`${beat.id}-graphics`);
-          } else if (tagDragRef.current?.field === 'graphics' && tagDragRef.current?.beatId !== beat.id) {
-            e.preventDefault();
-            setDropHighlight(`${beat.id}-graphics`);
-          }
-        }}
-        onDragLeave={e => {
-          if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
-        }}
-        onDrop={e => {
-          setDropHighlight(null);
-          if (e.dataTransfer.files.length > 0) {
-            e.preventDefault();
-            Array.from(e.dataTransfer.files).forEach(f => {
-              if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
-                uploadBeatMedia(beat.id, 'graphics', f);
-              }
-            });
-          } else {
-            const d = tagDragRef.current;
-            if (d && d.field === 'graphics' && d.beatId !== beat.id) {
-              e.preventDefault();
-              moveTagAcrossBeats(d.beatId, d.field, d.fromIndex, beat.id);
-              tagDragRef.current = null;
-            }
-          }
+          ...styles.gridCell,
+          ...styles.gridCellDivider,
+          ...(isCellActive(beat.id, 'notes') ? styles.gridCellActive : null),
         }}
       >
-        {beat.graphics.map((g, i) => {
-          const isMediaItem = typeof g === 'object' && g.url;
-          if (isMediaItem) {
-            return (
-              <div key={g.id || g.url || `g${i}`} style={styles.mediaThumb}>
-                {g.type === 'image'
-                  ? <img src={g.url} alt={g.name} style={styles.mediaImg} />
-                  : (
-                    <div style={styles.mediaVideoIcon}>
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(165,180,252,0.7)" strokeWidth="1.5">
-                        <rect x="1" y="3" width="10" height="10" rx="1.5" />
-                        <path d="M11 6l4-2v8l-4-2V6z" />
-                      </svg>
-                    </div>
-                  )}
-                <span style={styles.mediaName}>{g.name}</span>
-                <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
-              </div>
-            );
-          }
-          if (editingTag && editingTag.beatId === beat.id && editingTag.field === 'graphics' && editingTag.index === i) {
-            return (
-              <input
-                key={`edit-g${i}`}
-                autoFocus
-                value={editingTag.value}
-                onChange={e => setEditingTag(prev => ({ ...prev, value: e.target.value }))}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') { renameTag(beat.id, 'graphics', i, editingTag.value); setEditingTag(null); }
-                  if (e.key === 'Escape') setEditingTag(null);
-                }}
-                onBlur={() => setEditingTag(null)}
-                style={styles.tagEditInput}
-              />
-            );
-          }
-          return (
-            <span
-              key={`${g}-${i}`}
-              style={{ ...styles.tag, cursor: 'grab', ...(tagDone(beat.id, 'graphics', g) ? styles.tagDone : {}) }}
-              draggable
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setContextMenu({
-                  x: e.clientX, y: e.clientY, beatId: beat.id, segmentId: parentSegmentId,
-                  tag: { key: `${beat.id}::graphics::${g}`, done: tagDone(beat.id, 'graphics', g), field: 'graphics', index: i, value: g },
-                });
-              }}
-              onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'graphics', fromIndex: i }; }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const d = tagDragRef.current;
-                if (!d || d.beatId !== beat.id || d.field !== 'graphics' || d.fromIndex === i) return;
-                reorderTag(d.beatId, d.field, d.fromIndex, i);
-                tagDragRef.current = null;
-              }}
-            >
-              <span style={styles.tagText}>{g}</span>
-              <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
-            </span>
-          );
-        })}
-        {uploadingCells[`${beat.id}-graphics`] && (
-          <div style={styles.uploadingIndicator}>Uploading...</div>
-        )}
-        <input
-          value={tagInputs[`${beat.id}-graphics`] || ''}
-          onChange={e => setTagInputs(prev => ({ ...prev, [`${beat.id}-graphics`]: e.target.value }))}
-          onKeyDown={e => {
-            if (e.key === 'Enter') {
-              addTag(beat.id, 'graphics', e.target.value);
-              setTagInputs(prev => ({ ...prev, [`${beat.id}-graphics`]: '' }));
-            }
-          }}
-          placeholder="+ add graphic"
-          style={styles.tagInput}
-        />
-      </div>
-
-      {/* Col 3: Videos */}
-      <div
-        style={{
-          ...styles.tagCol,
-          ...(dropHighlight === `${beat.id}-videos` ? styles.tagColDrop : {}),
-        }}
-        onDragOver={e => {
-          if (e.dataTransfer.types.includes('Files')) {
-            e.preventDefault();
-            setDropHighlight(`${beat.id}-videos`);
-          } else if (tagDragRef.current?.field === 'videos' && tagDragRef.current?.beatId !== beat.id) {
-            e.preventDefault();
-            setDropHighlight(`${beat.id}-videos`);
-          }
-        }}
-        onDragLeave={e => {
-          if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
-        }}
-        onDrop={e => {
-          setDropHighlight(null);
-          if (e.dataTransfer.files.length > 0) {
-            e.preventDefault();
-            Array.from(e.dataTransfer.files).forEach(f => {
-              if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
-                uploadBeatMedia(beat.id, 'videos', f);
-              }
-            });
-          } else {
-            const d = tagDragRef.current;
-            if (d && d.field === 'videos' && d.beatId !== beat.id) {
-              e.preventDefault();
-              moveTagAcrossBeats(d.beatId, d.field, d.fromIndex, beat.id);
-              tagDragRef.current = null;
-            }
-          }
-        }}
-      >
-        {beat.videos.map((v, i) => {
-          const isMediaItem = typeof v === 'object' && v.url;
-          if (isMediaItem) {
-            return (
-              <div key={v.id || v.url || `v${i}`} style={styles.mediaThumb}>
-                {v.type === 'image'
-                  ? <img src={v.url} alt={v.name} style={styles.mediaImg} />
-                  : (
-                    <div style={styles.mediaVideoIcon}>
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(165,180,252,0.7)" strokeWidth="1.5">
-                        <rect x="1" y="3" width="10" height="10" rx="1.5" />
-                        <path d="M11 6l4-2v8l-4-2V6z" />
-                      </svg>
-                    </div>
-                  )}
-                <span style={styles.mediaName}>{v.name}</span>
-                <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
-              </div>
-            );
-          }
-          if (editingTag && editingTag.beatId === beat.id && editingTag.field === 'videos' && editingTag.index === i) {
-            return (
-              <input
-                key={`edit-v${i}`}
-                autoFocus
-                value={editingTag.value}
-                onChange={e => setEditingTag(prev => ({ ...prev, value: e.target.value }))}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') { renameTag(beat.id, 'videos', i, editingTag.value); setEditingTag(null); }
-                  if (e.key === 'Escape') setEditingTag(null);
-                }}
-                onBlur={() => setEditingTag(null)}
-                style={styles.tagEditInput}
-              />
-            );
-          }
-          return (
-            <span
-              key={`${v}-${i}`}
-              style={{ ...styles.tag, cursor: 'grab', ...(tagDone(beat.id, 'videos', v) ? styles.tagDone : {}) }}
-              draggable
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setContextMenu({
-                  x: e.clientX, y: e.clientY, beatId: beat.id, segmentId: parentSegmentId,
-                  tag: { key: `${beat.id}::videos::${v}`, done: tagDone(beat.id, 'videos', v), field: 'videos', index: i, value: v },
-                });
-              }}
-              onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'videos', fromIndex: i }; }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const d = tagDragRef.current;
-                if (!d || d.beatId !== beat.id || d.field !== 'videos' || d.fromIndex === i) return;
-                reorderTag(d.beatId, d.field, d.fromIndex, i);
-                tagDragRef.current = null;
-              }}
-            >
-              <span style={styles.tagText}>{v}</span>
-              <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
-            </span>
-          );
-        })}
-        {uploadingCells[`${beat.id}-videos`] && (
-          <div style={styles.uploadingIndicator}>Uploading...</div>
-        )}
-        <input
-          value={tagInputs[`${beat.id}-videos`] || ''}
-          onChange={e => setTagInputs(prev => ({ ...prev, [`${beat.id}-videos`]: e.target.value }))}
-          onKeyDown={e => {
-            if (e.key === 'Enter') {
-              addTag(beat.id, 'videos', e.target.value);
-              setTagInputs(prev => ({ ...prev, [`${beat.id}-videos`]: '' }));
-            }
-          }}
-          placeholder="+ add video"
-          style={styles.tagInput}
-        />
-      </div>
-
-      {/* Col 4: Notes */}
-      <div style={styles.notesCol}>
         <textarea
+          ref={el => registerCell(beat.id, 'notes', el)}
           value={beat.notes || ''}
           onChange={e => { updateBeat(beat.id, 'notes', e.target.value); autoResize(e.target); }}
+          onFocus={() => setActiveCell({ beatId: beat.id, field: 'notes' })}
+          onBlur={() => setActiveCell(prev => (prev?.beatId === beat.id && prev?.field === 'notes' ? null : prev))}
+          onKeyDown={e => {
+            if (e.key === 'Tab') { handleCellTabKeyDown(e, beat.id, 'notes'); return; }
+            handleBulletKeyDown(e, beat.id, 'notes');
+          }}
           data-autoresize="true"
-          placeholder="Notes..."
+          placeholder="Notes... (type • or - for bullets)"
           rows={1}
           style={styles.notesInput}
         />
       </div>
 
       {/* Delete beat */}
-      <button onClick={() => deleteBeat(beat.id)} style={styles.deleteBeatBtn} title="Delete beat">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
-        </svg>
-      </button>
+      <div style={{ ...styles.gridCell, ...styles.actionsCell }}>
+        <button
+          onClick={() => deleteBeat(beat.id)}
+          style={{ ...styles.deleteBeatBtn, opacity: rowHot ? 1 : 0 }}
+          title="Delete beat"
+        >
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
+          </svg>
+        </button>
+      </div>
     </div>
     );
     return snapshot.isDragging ? ReactDOM.createPortal(row, document.body) : row;
@@ -2342,28 +2577,26 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     const bySection = groupedSheets;
 
     const renderTagCell = (sheet) => {
-      const mine = tagsForSheet(sheet);
+      const current = tagsForSheet(sheet)[0] || null;
       return (
         <div style={styles.tagCell}>
-          {mine.map(t => (
-            <span key={t.id} style={{ ...styles.tagChip, background: `${t.color}22`, color: t.color, borderColor: `${t.color}55` }}>
-              {t.label}
-            </span>
-          ))}
           <button
             type="button"
-            style={styles.tagAddBtn}
-            title="Edit tags"
+            style={current
+              ? { ...styles.tagPillBtn, color: current.color, borderColor: `${current.color}55`, background: `${current.color}18` }
+              : { ...styles.tagPillBtn, ...styles.tagPillBtnEmpty }}
+            title="Change tag"
             onClick={(e) => { e.stopPropagation(); setTagEditorId(prev => (prev === sheet.id ? null : sheet.id)); }}
           >
-            {mine.length ? '+' : 'Add tag'}
+            {current ? current.label : 'No tag'}
+            <span style={styles.tagSelectCaret}>▾</span>
           </button>
           {tagEditorId === sheet.id && (
             <TagEditor
               tags={tags}
               selected={sheet.tag_ids || []}
-              onToggle={(tagId) => toggleSheetTag(sheet, tagId)}
-              onCreate={(label) => createTagFor(sheet, label)}
+              onSelect={(tagId) => { setSheetTag(sheet, tagId); setTagEditorId(null); }}
+              onCreate={(label) => { createTagFor(sheet, label); setTagEditorId(null); }}
               onClose={() => setTagEditorId(null)}
             />
           )}
@@ -2554,194 +2787,190 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   const isSplitLayout = viewMode !== VIEW_BEATS;
 
   const beatSheetBody = (
-    <>
-    {/* Column headers */}
-    <div style={styles.columnHeaders}>
-      <div style={styles.colHeaderLeft}>Beat / Context</div>
-      <div style={styles.colHeader}>Graphics</div>
-      <div style={styles.colHeader}>Videos</div>
-      <div style={styles.colHeader}>Notes</div>
-      <div style={{ width: 36 }} />
-    </div>
-
-    {/* Add beat / segment (top) */}
-    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8, position: 'relative' }}>
-      <div style={{ width: '20%', minWidth: 120, position: 'relative' }}>
-        <button onClick={() => setShowAddMenuTop(prev => !prev)} style={{ ...styles.addBeatBtn, width: '100%' }}>+ Add</button>
-        {showAddMenuTop && (
-          <div data-add-menu style={styles.addMenuDropdown}>
-            <button style={styles.addMenuItem} onClick={() => { addBeatToTop(); setShowAddMenuTop(false); }}>Beat</button>
-            <button style={styles.addMenuItem} onClick={() => { addSegmentToTop(); setShowAddMenuTop(false); }}>Segment</button>
-          </div>
-        )}
-      </div>
-    </div>
-
-    {/* Beat rows */}
-    <DragDropContext onDragEnd={handleDragEnd}>
-      <Droppable droppableId="beat-list" type="ITEMS">
-        {(provided) => {
-          // Single flat droppable: segment headers and beats share one
-          // contiguous index space so beats drag freely in/out of segments.
-          let idx = 0;
-          return (
-          <div ref={provided.innerRef} {...provided.droppableProps}>
-            {beats.map((item) => {
-              if (isSegment(item)) {
-                const collapsed = collapsedSegments.has(item.id);
-                const headerIndex = idx++;
-                return (
-                  <div
-                    key={item.id}
-                    style={{
-                      ...styles.segmentContainer,
-                      background: `${item.color || '#5b8fc7'}12`,
-                      border: `1px solid ${item.color || '#5b8fc7'}30`,
-                      borderLeft: `4px solid ${item.color || '#5b8fc7'}`,
-                    }}
-                  >
-                    {/* Segment header (draggable = moves the whole segment) */}
-                    <Draggable draggableId={item.id} index={headerIndex}>
-                      {(hProvided, hSnapshot) => (
-                        <div
-                          ref={hProvided.innerRef}
-                          {...hProvided.draggableProps}
-                          style={{
-                            ...styles.segmentHeader,
-                            ...(hSnapshot.isDragging ? { boxShadow: `0 8px 32px ${item.color || '#5b8fc7'}40`, borderRadius: 8, background: `${item.color || '#5b8fc7'}20` } : {}),
-                            ...hProvided.draggableProps.style,
-                          }}
-                          onContextMenu={e => {
-                            const tag = e.target.tagName;
-                            if (tag === 'TEXTAREA' || tag === 'INPUT') return;
-                            e.preventDefault();
-                            setContextMenu({ x: e.clientX, y: e.clientY, segmentId: item.id, isSegmentHeader: true });
-                          }}
-                        >
-                          <div {...hProvided.dragHandleProps} style={styles.dragHandle} title="Drag to reorder segment">
-                            <svg width="12" height="16" viewBox="0 0 12 16" fill="rgba(255,255,255,0.25)">
-                              <circle cx="3" cy="2" r="1.5" /><circle cx="9" cy="2" r="1.5" />
-                              <circle cx="3" cy="6" r="1.5" /><circle cx="9" cy="6" r="1.5" />
-                              <circle cx="3" cy="10" r="1.5" /><circle cx="9" cy="10" r="1.5" />
-                              <circle cx="3" cy="14" r="1.5" /><circle cx="9" cy="14" r="1.5" />
-                            </svg>
-                          </div>
-                          <button
-                            onClick={() => setCollapsedSegments(prev => {
-                              const next = new Set(prev);
-                              const wasCollapsed = next.has(item.id);
-                              wasCollapsed ? next.delete(item.id) : next.add(item.id);
-                              if (wasCollapsed) requestAnimationFrame(() => document.querySelectorAll('[data-autoresize]').forEach(autoResize));
-                              return next;
-                            })}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                            title={collapsed ? 'Expand segment' : 'Collapse segment'}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke={item.color || '#5b8fc7'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                              style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
-                              <path d="M4 5l3 3 3-3" />
-                            </svg>
-                          </button>
-                          <input
-                            value={item.title}
-                            onChange={e => updateSegment(item.id, 'title', e.target.value)}
-                            placeholder="Segment title..."
-                            style={{ ...styles.segmentTitleInput, color: item.color || '#5b8fc7' }}
-                          />
-                          <div style={{ position: 'relative' }}>
-                            <button
-                              onClick={() => setShowColorDropdown(prev => prev === item.id ? null : item.id)}
-                              style={{ ...styles.colorDot, background: item.color || '#5b8fc7', width: 20, height: 20, flexShrink: 0 }}
-                              title="Change color"
-                            />
-                            {showColorDropdown === item.id && (
-                              <div data-color-dropdown style={styles.colorDropdown}>
-                                {SEGMENT_COLORS.map(c => (
-                                  <button
-                                    key={c}
-                                    onClick={() => { updateSegment(item.id, 'color', c); setShowColorDropdown(null); }}
-                                    style={{
-                                      ...styles.colorDot,
-                                      background: c,
-                                      width: 22,
-                                      height: 22,
-                                      outline: item.color === c ? '2px solid rgba(255,255,255,0.6)' : 'none',
-                                      outlineOffset: 2,
-                                    }}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          {collapsed && (
-                            <span style={{ fontSize: fontSizes.sm, color: colors.textDim, marginLeft: 'auto', paddingRight: spacing.sm, flexShrink: 0 }}>
-                              {item.children.length} beat{item.children.length !== 1 ? 's' : ''}
-                            </span>
-                          )}
-                          <button onClick={() => deleteSegment(item.id)} style={styles.deleteBeatBtn} title="Delete segment">
-                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
-                            </svg>
-                          </button>
-                        </div>
-                      )}
-                    </Draggable>
-
-                    {/* Segment beats — draggables sharing the flat index space */}
-                    {!collapsed && item.children.map((beat) => {
-                      const beatIndex = idx++;
-                      return (
-                        <Draggable key={beat.id} draggableId={beat.id} index={beatIndex}>
-                          {(bProvided, bSnapshot) => renderBeatRow(beat, bProvided, bSnapshot, item.id)}
-                        </Draggable>
-                      );
-                    })}
-
-                    {!collapsed && (
-                      <button onClick={() => addBeatToSegment(item.id)} style={styles.addBeatInSegmentBtn}>+ Beat</button>
-                    )}
-                  </div>
-                );
-              }
-
-              // Top-level beat
-              const beat = item;
-              const beatIndex = idx++;
-              return (
-                <Draggable key={beat.id} draggableId={beat.id} index={beatIndex}>
-                  {(provided, snapshot) => renderBeatRow(beat, provided, snapshot, null)}
-                </Draggable>
-              );
-            })}
-            {provided.placeholder}
-          </div>
-          );
+    <div style={styles.gridShell}>
+      {/* Sticky column header. Each divider is a drag target that resizes the
+          column it sits on; Beat is fluid and absorbs whatever is left. */}
+      <div
+        style={{
+          ...styles.gridHeader,
+          gridTemplateColumns: gridTemplate(colWidths),
+          // In Split the masthead lives outside the scrolling pane, so the
+          // header can pin to the very top; in the beats view it has to clear
+          // the collapsed masthead.
+          top: isSplitLayout ? 0 : MASTHEAD_H,
         }}
-      </Droppable>
-    </DragDropContext>
-
-    {/* Add beat / segment (bottom) */}
-    <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4, position: 'relative' }}>
-      <div style={{ width: '20%', minWidth: 120, position: 'relative' }}>
-        <button onClick={() => setShowAddMenuBottom(prev => !prev)} style={{ ...styles.addBeatBtn, width: '100%' }}>+ Add</button>
-        {showAddMenuBottom && (
-          <div
-            data-add-menu
-            style={{
-              ...styles.addMenuDropdown,
-              bottom: '100%',
-              top: 'auto',
-              marginBottom: 6, // style-lint-ignore — mirrors addMenuDropdown's own 6px offset
-              marginTop: 0,
-            }}
-          >
-            <button style={styles.addMenuItem} onClick={() => { addBeat(); setShowAddMenuBottom(false); }}>Beat</button>
-            <button style={styles.addMenuItem} onClick={() => { addSegment(); setShowAddMenuBottom(false); }}>Segment</button>
+      >
+        <div style={{ ...styles.gridHeaderCell, ...styles.gutterCell }} />
+        <div style={{ ...styles.gridHeaderCell, ...styles.gridCellDivider }}>Beat</div>
+        {RESIZABLE_COLS.map(key => (
+          <div key={key} style={{ ...styles.gridHeaderCell, ...styles.gridCellDivider }}>
+            {key === 'graphics' ? 'Graphics' : key === 'videos' ? 'Videos' : 'Notes'}
+            <span
+              role="separator"
+              aria-orientation="vertical"
+              onMouseDown={e => startColResize(key, e)}
+              onDoubleClick={() => setColWidths(prev => ({ ...prev, [key]: DEFAULT_COL_WIDTHS[key] }))}
+              style={styles.colResizeHandle}
+              title="Drag to resize — double-click to reset"
+              className="no-print"
+            />
           </div>
-        )}
+        ))}
+        <div style={{ ...styles.gridHeaderCell, ...styles.actionsCell }} />
+      </div>
+
+      {/* Beat rows */}
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <Droppable droppableId="beat-list" type="ITEMS">
+          {(provided) => {
+            // Single flat droppable: segment headers and beats share one
+            // contiguous index space so beats drag freely in/out of segments.
+            let idx = 0;
+            return (
+            <div ref={provided.innerRef} {...provided.droppableProps}>
+              {beats.map((item) => {
+                if (isSegment(item)) {
+                  const collapsed = collapsedSegments.has(item.id);
+                  const headerIndex = idx++;
+                  const color = item.color || '#5b8fc7';
+                  return (
+                    <div key={item.id} style={{ ...styles.segmentContainer, boxShadow: `inset 3px 0 0 0 ${color}` }}>
+                      {/* Segment header — a full-width band inside the grid */}
+                      <Draggable draggableId={item.id} index={headerIndex}>
+                        {(hProvided, hSnapshot) => (
+                          <div
+                            ref={hProvided.innerRef}
+                            {...hProvided.draggableProps}
+                            style={{
+                              ...styles.segmentHeader,
+                              background: `${color}14`,
+                              ...(hSnapshot.isDragging ? { boxShadow: `0 8px 32px ${color}40`, background: `${color}22` } : {}),
+                              ...hProvided.draggableProps.style,
+                            }}
+                            onContextMenu={e => {
+                              const tag = e.target.tagName;
+                              if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+                              e.preventDefault();
+                              setContextMenu({ x: e.clientX, y: e.clientY, segmentId: item.id, isSegmentHeader: true });
+                            }}
+                          >
+                            <div {...hProvided.dragHandleProps} style={styles.segmentDragHandle} title="Drag to reorder segment">
+                              <svg width="10" height="16" viewBox="0 0 10 16" fill="rgba(255,255,255,0.22)">
+                                <circle cx="2" cy="3" r="1.3" /><circle cx="8" cy="3" r="1.3" />
+                                <circle cx="2" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" />
+                                <circle cx="2" cy="13" r="1.3" /><circle cx="8" cy="13" r="1.3" />
+                              </svg>
+                            </div>
+                            <button
+                              onClick={() => setCollapsedSegments(prev => {
+                                const next = new Set(prev);
+                                const wasCollapsed = next.has(item.id);
+                                wasCollapsed ? next.delete(item.id) : next.add(item.id);
+                                if (wasCollapsed) requestAnimationFrame(() => document.querySelectorAll('[data-autoresize]').forEach(autoResize));
+                                return next;
+                              })}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                              title={collapsed ? 'Expand segment' : 'Collapse segment'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                                style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
+                                <path d="M4 5l3 3 3-3" />
+                              </svg>
+                            </button>
+                            <input
+                              value={item.title}
+                              onChange={e => updateSegment(item.id, 'title', e.target.value)}
+                              placeholder="Segment title..."
+                              style={{ ...styles.segmentTitleInput, color }}
+                            />
+                            <div style={{ position: 'relative' }}>
+                              <button
+                                onClick={() => setShowColorDropdown(prev => prev === item.id ? null : item.id)}
+                                style={{ ...styles.colorDot, background: color, width: 18, height: 18, flexShrink: 0 }}
+                                title="Change color"
+                              />
+                              {showColorDropdown === item.id && (
+                                <div data-color-dropdown style={styles.colorDropdown}>
+                                  {SEGMENT_COLORS.map(c => (
+                                    <button
+                                      key={c}
+                                      onClick={() => { updateSegment(item.id, 'color', c); setShowColorDropdown(null); }}
+                                      style={{
+                                        ...styles.colorDot,
+                                        background: c,
+                                        width: 22,
+                                        height: 22,
+                                        outline: item.color === c ? '2px solid rgba(255,255,255,0.6)' : 'none',
+                                        outlineOffset: 2,
+                                      }}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            {collapsed && (
+                              <span style={{ fontSize: fontSizes.sm, color: colors.textDim, marginLeft: 'auto', paddingRight: spacing.sm, flexShrink: 0 }}>
+                                {item.children.length} beat{item.children.length !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                            <button onClick={() => deleteSegment(item.id)} style={styles.deleteBeatBtn} title="Delete segment">
+                              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
+                              </svg>
+                            </button>
+                          </div>
+                        )}
+                      </Draggable>
+
+                      {/* Segment beats — draggables sharing the flat index space */}
+                      {!collapsed && item.children.map((beat) => {
+                        const beatIndex = idx++;
+                        return (
+                          <Draggable key={beat.id} draggableId={beat.id} index={beatIndex}>
+                            {(bProvided, bSnapshot) => renderBeatRow(beat, bProvided, bSnapshot, item.id)}
+                          </Draggable>
+                        );
+                      })}
+
+                      {!collapsed && (
+                        <button
+                          onClick={() => addBeatToSegment(item.id)}
+                          style={{ ...styles.ghostRow, ...styles.ghostRowInSegment }}
+                          className="no-print"
+                        >
+                          <span style={styles.ghostRowPlus}>+</span> New beat
+                        </button>
+                      )}
+                    </div>
+                  );
+                }
+
+                // Top-level beat
+                const beat = item;
+                const beatIndex = idx++;
+                return (
+                  <Draggable key={beat.id} draggableId={beat.id} index={beatIndex}>
+                    {(provided, snapshot) => renderBeatRow(beat, provided, snapshot, null)}
+                  </Draggable>
+                );
+              })}
+              {provided.placeholder}
+            </div>
+            );
+          }}
+        </Droppable>
+      </DragDropContext>
+
+      {/* Ghost last row — reads as the next empty line of the document */}
+      <div style={styles.ghostRowWrap} className="no-print">
+        <button onClick={addBeat} style={styles.ghostRow}>
+          <span style={styles.ghostRowPlus}>+</span> New beat
+        </button>
+        <button onClick={addSegment} style={styles.ghostSegmentBtn} title="Add a segment (⇧⏎ in a beat)">
+          + Segment
+        </button>
       </div>
     </div>
-    </>
   );
 
   const researchPane = researchError ? (
@@ -2818,17 +3047,136 @@ export default function Production({ initialSheetId, onSheetOpened }) {
         </div>
       </div>
 
-      {/* Beat sheet toolbar — only when the beat sheet itself is on screen */}
-      {viewMode !== VIEW_RESEARCH && (
-      <div style={styles.configBar} className="no-print">
-        <input
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="Beat sheet title..."
-          style={styles.titleInput}
-        />
+      {/* Sentinel sits directly above the masthead: it leaves the viewport at
+          exactly the moment the sticky masthead pins, which is our cue to
+          collapse it. */}
+      {viewMode === VIEW_BEATS && <div ref={mastheadSentinelRef} style={styles.mastheadSentinel} aria-hidden="true" />}
 
-        {viewMode === VIEW_SPLIT && (
+      {/* Masthead — only when the beat sheet itself is on screen. In the beats
+          view it scrolls away and a slim sticky bar takes over (see the
+          sentinel below); in Split it sits above both panes, where the
+          compact form is the only one that fits. */}
+      {viewMode !== VIEW_RESEARCH && (() => {
+        const compact = isSplitLayout || headerStuck;
+        const statusMeta = STATUS_BY_VALUE[activeSheet.status] || STATUS_BY_VALUE.drafting;
+
+        const currentTag = tagsForSheet(activeSheet)[0] || null;
+        const tagCluster = (
+          <div style={styles.configTagWrap}>
+            <button
+              type="button"
+              style={{ ...styles.tagSelectBtn, color: currentTag ? currentTag.color : colors.textDim }}
+              title="Change tag"
+              onClick={() => setTagEditorId(prev => (prev === activeSheet.id ? null : activeSheet.id))}
+            >
+              {currentTag ? currentTag.label : 'No tag'}
+              <span style={styles.tagSelectCaret}>▾</span>
+            </button>
+            {tagEditorId === activeSheet.id && (
+              <TagEditor
+                tags={tags}
+                selected={activeSheet.tag_ids || []}
+                onSelect={(tagId) => { setSheetTag(activeSheet, tagId); setTagEditorId(null); }}
+                onCreate={(label) => { createTagFor(activeSheet, label); setTagEditorId(null); }}
+                onClose={() => setTagEditorId(null)}
+              />
+            )}
+          </div>
+        );
+
+        // Film-queue status + estimated minutes. Assignments deliberately
+        // don't live here — they're edited in the Film Queue view.
+        const statusControl = (
+          <select
+            value={activeSheet.status || 'drafting'}
+            onChange={e => setSheetStatus(activeSheet, e.target.value)}
+            title="Beat sheet status"
+            style={{ ...styles.statusSelect, color: statusMeta.color }}
+          >
+            {BEAT_SHEET_STATUSES.map(s => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        );
+
+        const minutesControl = (
+          <label style={styles.minutesWrap} title="Estimated film minutes">
+            <input
+              type="number"
+              min={1}
+              max={120}
+              value={activeSheet.estimated_minutes ?? ''}
+              placeholder="min"
+              onChange={e => {
+                const v = e.target.value;
+                writeSheetFields(activeSheet, { estimated_minutes: v === '' ? null : Math.max(1, Math.round(Number(v) || 0)) });
+              }}
+              style={styles.minutesInput}
+            />
+          </label>
+        );
+
+        const actionsCluster = (
+          <div style={{ position: 'relative' }}>
+            <button
+              ref={templateBtnRef}
+              onClick={() => setActionsMenu(prev => (prev ? null : 'menu'))}
+              style={styles.btnPrimary}
+            >
+              {pushingSheet || pushingScript ? 'Pushing…' : 'Actions ▾'}
+            </button>
+            {actionsMenu === 'menu' && (
+              <div style={styles.templatesDropdown}>
+                <button style={styles.actionsItem} onClick={() => { setActionsMenu(null); saveAsTemplate(); }}>
+                  Save as Template
+                </button>
+                <button style={styles.actionsItem} onClick={() => { fetchTemplates(); setActionsMenu('templates'); }}>
+                  Load a Template
+                </button>
+                <button style={styles.actionsItem} onClick={() => { setActionsMenu(null); setFindAssetsOpen(true); }}>
+                  Find Assets
+                </button>
+                <button style={styles.actionsItem} disabled={pushingScript} onClick={() => { setActionsMenu(null); pushScript(); }}>
+                  Push Script to Teleprompter
+                </button>
+                <button style={styles.actionsItem} disabled={pushingSheet} onClick={handlePushBeatSheetAction}>
+                  Push Beat Sheet
+                </button>
+                <button style={styles.actionsItem} onClick={() => { setActionsMenu(null); openVersionHistory(); }}>
+                  History
+                </button>
+                <div style={{ borderTop: `1px solid ${colors.border}`, margin: '4px 0' }} />
+                <button style={{ ...styles.actionsItem, color: colors.textSubtle, fontSize: fontSizes.sm }} onClick={() => { setActionsMenu(null); openFolderBrowser(); }}>
+                  Drive folder: {driveFolderName || 'not set'} — change…
+                </button>
+              </div>
+            )}
+            {actionsMenu === 'templates' && (
+              <div style={styles.templatesDropdown}>
+                <button onClick={() => setActionsMenu('menu')} style={styles.actionsItem}>← Back</button>
+                <div style={{ borderTop: `1px solid ${colors.border}`, margin: '4px 0' }} />
+                {templatesLoading ? (
+                  <div style={styles.templatesEmpty}>Loading...</div>
+                ) : templates.length === 0 ? (
+                  <div style={styles.templatesEmpty}>No templates yet</div>
+                ) : (
+                  templates.map(t => (
+                    <div key={t.id} style={styles.templateRow}>
+                      <button onClick={() => { setActionsMenu(null); loadTemplate(t); }} style={styles.templateName}>
+                        <span>{t.name}</span>
+                        <span style={{ fontSize: fontSizes.xs, color: colors.textPlaceholder }}>{countBeats(t.beats || [])} beats</span>
+                      </button>
+                      <button onClick={() => renameTemplate(t.id, t.name)} style={styles.templateDelete} title="Rename template">&#9998;</button>
+                      <button onClick={() => deleteTemplate(t.id, t.name)} style={styles.templateDelete} title="Delete template">&times;</button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        );
+
+        const swapBtn = viewMode === VIEW_SPLIT && (
           <button onClick={toggleSplitSwap} style={styles.btnSecondary} title="Swap the two panes">
             <svg
               width="14"
@@ -2843,130 +3191,45 @@ export default function Production({ initialSheetId, onSheetOpened }) {
             </svg>
             Swap
           </button>
-        )}
+        );
 
-        {/* Tags replaced the single `type` select. Same place in the bar, but
-            multi-select and shared with the landing table's vocabulary. */}
-        <div style={styles.configTagWrap}>
-          {tagsForSheet(activeSheet).map(t => (
-            <span key={t.id} style={{ ...styles.tagChip, background: `${t.color}22`, color: t.color, borderColor: `${t.color}55` }}>
-              {t.label}
-            </span>
-          ))}
-          <button
-            type="button"
-            style={styles.tagAddBtn}
-            title="Edit tags"
-            onClick={() => setTagEditorId(prev => (prev === activeSheet.id ? null : activeSheet.id))}
-          >
-            {tagsForSheet(activeSheet).length ? '+' : 'Add tag'}
-          </button>
-          {tagEditorId === activeSheet.id && (
-            <TagEditor
-              tags={tags}
-              selected={activeSheet.tag_ids || []}
-              onToggle={(tagId) => toggleSheetTag(activeSheet, tagId)}
-              onCreate={(label) => createTagFor(activeSheet, label)}
-              onClose={() => setTagEditorId(null)}
+        // One row, three zones: title left, the tag/status/time cluster
+        // centred, controls right. The outer columns are equal fractions so
+        // the centre zone is centred against the bar, not against whatever
+        // happens to be beside it.
+        return (
+          <div style={styles.masthead} className="no-print">
+            <input
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Beat sheet title..."
+              style={{ ...styles.mastheadTitle, ...(compact ? styles.mastheadTitleCompact : null) }}
             />
-          )}
-        </div>
 
-        {/* Film-queue status + estimated minutes. Assignments deliberately
-            don't live here — they're edited in the Film Queue view. */}
-        <select
-          value={activeSheet.status || 'drafting'}
-          onChange={e => setSheetStatus(activeSheet, e.target.value)}
-          title="Beat sheet status"
-          style={{
-            ...styles.statusSelect,
-            color: (STATUS_BY_VALUE[activeSheet.status] || STATUS_BY_VALUE.drafting).color,
-          }}
-        >
-          {BEAT_SHEET_STATUSES.map(s => (
-            <option key={s.value} value={s.value}>{s.label}</option>
-          ))}
-        </select>
-        <label style={styles.minutesWrap} title="Estimated film minutes">
-          <input
-            type="number"
-            min={1}
-            max={120}
-            value={activeSheet.estimated_minutes ?? ''}
-            placeholder="min"
-            onChange={e => {
-              const v = e.target.value;
-              writeSheetFields(activeSheet, { estimated_minutes: v === '' ? null : Math.max(1, Math.round(Number(v) || 0)) });
-            }}
-            style={styles.minutesInput}
-          />
-        </label>
-        {activeSheet.film_date && (
-          <span style={styles.filmDateChip} title="Set by the session packer">
-            Films {new Date(activeSheet.film_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </span>
-        )}
-
-        {/* Actions — every toolbar tool lives in this one dropdown now */}
-        <div style={{ position: 'relative', marginLeft: 'auto' }}>
-          <button
-            ref={templateBtnRef}
-            onClick={() => setActionsMenu(prev => (prev ? null : 'menu'))}
-            style={styles.btnPrimary}
-          >
-            {pushingSheet || pushingScript ? 'Pushing…' : 'Actions ▾'}
-          </button>
-          {actionsMenu === 'menu' && (
-            <div style={styles.templatesDropdown}>
-              <button style={styles.actionsItem} onClick={() => { setActionsMenu(null); saveAsTemplate(); }}>
-                Save as Template
-              </button>
-              <button style={styles.actionsItem} onClick={() => { fetchTemplates(); setActionsMenu('templates'); }}>
-                Load a Template
-              </button>
-              <button style={styles.actionsItem} onClick={() => { setActionsMenu(null); setFindAssetsOpen(true); }}>
-                Find Assets
-              </button>
-              <button style={styles.actionsItem} disabled={pushingScript} onClick={() => { setActionsMenu(null); pushScript(); }}>
-                Push Script to Teleprompter
-              </button>
-              <button style={styles.actionsItem} disabled={pushingSheet} onClick={handlePushBeatSheetAction}>
-                Push Beat Sheet
-              </button>
-              <button style={styles.actionsItem} onClick={() => { setActionsMenu(null); openVersionHistory(); }}>
-                History
-              </button>
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
-              <button style={{ ...styles.actionsItem, color: 'rgba(255,255,255,0.45)', fontSize: 12 }} onClick={() => { setActionsMenu(null); openFolderBrowser(); }}>
-                Drive folder: {driveFolderName || 'not set'} — change…
-              </button>
-            </div>
-          )}
-          {actionsMenu === 'templates' && (
-            <div style={styles.templatesDropdown}>
-              <button onClick={() => setActionsMenu('menu')} style={styles.actionsItem}>← Back</button>
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
-              {templatesLoading ? (
-                <div style={{ padding: '12px 16px', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Loading...</div>
-              ) : templates.length === 0 ? (
-                <div style={{ padding: '12px 16px', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>No templates yet</div>
-              ) : (
-                templates.map(t => (
-                  <div key={t.id} style={styles.templateRow}>
-                    <button onClick={() => { setActionsMenu(null); loadTemplate(t); }} style={styles.templateName}>
-                      <span>{t.name}</span>
-                      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>{countBeats(t.beats || [])} beats</span>
-                    </button>
-                    <button onClick={() => renameTemplate(t.id, t.name)} style={styles.templateDelete} title="Rename template">&#9998;</button>
-                    <button onClick={() => deleteTemplate(t.id, t.name)} style={styles.templateDelete} title="Delete template">&times;</button>
-                  </div>
-                ))
+            <div style={styles.mastheadMetaRow}>
+              {tagCluster}
+              <span style={styles.mastheadMetaDot}>·</span>
+              {statusControl}
+              <span style={styles.mastheadMetaDot}>·</span>
+              {minutesControl}
+              {activeSheet.film_date && (
+                <>
+                  <span style={styles.mastheadMetaDot}>·</span>
+                  <span style={styles.filmDateChip} title="Set by the session packer">
+                    Films {new Date(activeSheet.film_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+                </>
               )}
             </div>
-          )}
-        </div>
-      </div>
-      )}
+
+            <div style={styles.mastheadActions}>
+              {swapBtn}
+              {actionsCluster}
+            </div>
+          </div>
+        );
+      })()}
+
 
       {viewMode === VIEW_BEATS ? beatSheetBody : (
         <div ref={splitWrapRef} style={styles.splitWrap}>
@@ -3112,6 +3375,15 @@ export default function Production({ initialSheetId, onSheetOpened }) {
 }
 
 // ─── styles ────────────────────────────────────────────────────────────────────
+
+// Cell boundaries. Both directions share the same weight so the sheet reads as
+// one grid rather than a stack of rows.
+const GRID_LINE = 'rgba(255,255,255,0.12)';
+const GRID_LINE_STRONG = 'rgba(255,255,255,0.18)';
+// The masthead is one row at a fixed height in both states — collapsing only
+// changes the title's size, so nothing reflows when it pins and the grid
+// header can park at a constant offset.
+const MASTHEAD_H = 56;
 
 const styles = {
   page: {
@@ -3447,25 +3719,49 @@ const styles = {
     flexWrap: 'wrap',
     minWidth: 0,
   },
-  tagChip: {
-    display: 'inline-block',
-    padding: `1px ${spacing.sm}px`,
-    border: '1px solid',
-    borderRadius: radii.pill,
-    fontSize: fontSizes.xxs,
-    fontWeight: fontWeights.semibold,
-    whiteSpace: 'nowrap',
-  },
-  tagAddBtn: {
-    padding: `1px ${spacing.sm}px`,
-    background: 'transparent',
-    border: `1px dashed ${colors.borderStrong}`,
-    borderRadius: radii.pill,
-    color: colors.textDim,
-    fontSize: fontSizes.xxs,
-    fontFamily: 'inherit',
+  // Single-select tag control: reads as the chosen tag, opens the picker.
+  // Masthead tag control — deliberately identical to statusSelect beside it:
+  // neutral chrome, and only the label takes the tag's colour.
+  tagSelectBtn: {
+    ...buttonReset,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 8px',
+    background: colors.whiteA06,
+    border: `1px solid ${colors.borderStrong}`,
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 600,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
     cursor: 'pointer',
     flexShrink: 0,
+  },
+  tagSelectCaret: {
+    fontSize: 8,
+    opacity: 0.7,
+  },
+  // Landing-table tag — matches statusPill in the neighbouring column.
+  tagPillBtn: {
+    ...buttonReset,
+    display: 'inline-block',
+    padding: '3px 10px',
+    borderRadius: 999,
+    border: '1px solid',
+    fontSize: 11,
+    fontWeight: 600,
+    fontFamily: "'DM Sans', sans-serif",
+    whiteSpace: 'nowrap',
+    justifySelf: 'start',
+    cursor: 'pointer',
+  },
+  tagPillBtnEmpty: {
+    background: 'transparent',
+    borderColor: colors.borderStrong,
+    borderStyle: 'dashed',
+    color: colors.textDim,
+    fontWeight: 500,
   },
   configTagWrap: {
     position: 'relative',
@@ -3517,14 +3813,65 @@ const styles = {
     top: '50%',
     transform: 'translateY(-50%)',
   },
-  configBar: {
+  // ── masthead ──
+  // Sticky at the top of the scroll container; collapses to a slim bar once
+  // the sentinel above it leaves the viewport.
+  mastheadSentinel: {
+    height: 1,
+    marginBottom: -1,
+  },
+  masthead: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 8,
+    // Equal outer fractions keep the centre zone centred on the bar itself,
+    // regardless of how wide the title or the controls run.
+    display: 'grid',
+    gridTemplateColumns: '1fr auto 1fr',
+    alignItems: 'center',
+    gap: 12,
+    height: MASTHEAD_H,
+    boxSizing: 'border-box',
+    paddingBottom: 8,
+    // No bottom margin: any gap here would let scrolled content show between
+    // the pinned masthead and the pinned grid header.
+    marginBottom: 0,
+    background: colors.bg,
+    borderBottom: `1px solid ${colors.border}`,
+  },
+  mastheadMetaRow: {
     display: 'flex',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 20,
-    paddingBottom: 14,
-    borderBottom: '1px solid rgba(255,255,255,0.08)',
-    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    minWidth: 0,
+  },
+  mastheadActions: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    minWidth: 0,
+  },
+  mastheadMetaDot: {
+    color: colors.textPlaceholder,
+    fontSize: fontSizes.sm,
+  },
+  mastheadTitle: {
+    minWidth: 0,
+    width: '100%',
+    background: 'none',
+    border: 'none',
+    outline: 'none',
+    padding: 0,
+    color: colors.text,
+    fontFamily,
+    fontSize: 24,
+    fontWeight: fontWeights.semibold,
+    letterSpacing: '-0.01em',
+  },
+  mastheadTitleCompact: {
+    fontSize: fontSizes.lg,
   },
 
   // ── view modes: Beat Sheet / Research / Split ──
@@ -3618,19 +3965,6 @@ const styles = {
     color: colors.whiteA45,
     fontFamily,
   },
-  titleInput: {
-    flex: 1,
-    minWidth: 180,
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 8,
-    padding: '8px 14px',
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 15,
-    fontWeight: 600,
-    fontFamily: "'DM Sans', sans-serif",
-    outline: 'none',
-  },
   folderBtn: {
     display: 'flex',
     alignItems: 'center',
@@ -3657,128 +3991,158 @@ const styles = {
     whiteSpace: 'nowrap',
   },
 
-  // ── column headers ──
-  columnHeaders: {
+  // ── grid ──
+  // The whole sheet is one surface: a single outer border, and every cell
+  // boundary drawn by shared 1px rules. Inputs carry no chrome of their own —
+  // the cell they sit in is the box.
+  gridShell: {
+    border: `1px solid ${GRID_LINE}`,
+    borderRadius: radii.md,
+    overflow: 'visible',
+    background: 'rgba(255,255,255,0.012)',
+    marginBottom: spacing.lg,
+  },
+  gridHeader: {
+    position: 'sticky',
+    zIndex: 6,
+    display: 'grid',
+    alignItems: 'stretch',
+    background: '#151b27',
+    borderBottom: `1px solid ${GRID_LINE_STRONG}`,
+    borderTopLeftRadius: radii.md,
+    borderTopRightRadius: radii.md,
+  },
+  gridHeaderCell: {
+    position: 'relative',
     display: 'flex',
-    gap: 0,
-    marginBottom: 8,
-    paddingLeft: 36,
-  },
-  colHeaderLeft: {
-    flex: 2,
-    fontSize: 11,
-    fontWeight: 600,
+    alignItems: 'center',
+    padding: '9px 10px',
+    fontSize: fontSizes.xs,
+    fontWeight: fontWeights.semibold,
     textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    color: 'rgba(255,255,255,0.3)',
-    padding: '0 8px',
+    letterSpacing: '0.06em',
+    color: colors.textPlaceholder,
+    minWidth: 0,
   },
-  colHeader: {
-    flex: 1,
-    fontSize: 11,
-    fontWeight: 600,
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    color: 'rgba(255,255,255,0.3)',
-    padding: '0 8px',
+  // Sits on the cell's own right-hand rule, widened into a comfortable target.
+  colResizeHandle: {
+    position: 'absolute',
+    top: 0,
+    right: -4,
+    width: 9,
+    height: '100%',
+    cursor: 'col-resize',
+    zIndex: 2,
   },
 
   // ── beat row ──
   beatRow: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: 0,
-    padding: '12px 0',
-    background: 'rgba(255,255,255,0.02)',
-    borderRadius: 10,
-    border: '1px solid rgba(255,255,255,0.05)',
-    marginBottom: 6,
+    display: 'grid',
+    alignItems: 'stretch',
+    position: 'relative',
+    borderBottom: `1px solid ${GRID_LINE}`,
+    background: 'transparent',
   },
-  dragHandle: {
-    width: 28,
-    minWidth: 28,
+  beatRowActive: {
+    background: colors.accentA06,
+  },
+  beatRowDragging: {
+    background: '#171e2b',
+    border: `1px solid ${colors.accentA30}`,
+    borderRadius: radii.sm,
+    boxShadow: '0 8px 32px rgba(91,143,199,0.25)',
+  },
+  gridCell: {
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    padding: '8px 10px',
+    minWidth: 0,
+  },
+  gridCellDivider: {
+    borderRight: `1px solid ${GRID_LINE}`,
+  },
+  // The focus ring is drawn inside the cell so it lands exactly on the grid
+  // rules rather than floating a second border alongside them.
+  gridCellActive: {
+    boxShadow: `inset 0 0 0 1px ${colors.accent}`,
+    background: colors.accentA08,
+  },
+  gutterCell: {
+    padding: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRight: `1px solid ${GRID_LINE}`,
+  },
+  actionsCell: {
+    padding: 0,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 7,
+  },
+  beatDragHandle: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 10,
+    width: '100%',
+    padding: '8px 0',
     cursor: 'grab',
-    flexShrink: 0,
+    transition: transitions.fast,
   },
-  beatCol: {
-    flex: 2,
+  // ⊕ straddles the row's top rule, in the gutter.
+  insertAboveBtn: {
+    ...buttonReset,
+    position: 'absolute',
+    top: -7,
+    left: '50%',
+    transform: 'translateX(-50%)',
     display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-    padding: '0 8px',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 15,
+    height: 15,
+    borderRadius: '50%',
+    background: '#1b2331',
+    color: colors.accentFg,
+    cursor: 'pointer',
+    zIndex: 7, // must clear the sticky header (6) — the first row's ⊕ overlaps it
   },
   beatInput: {
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 6,
-    padding: '8px 12px',
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 14,
-    fontWeight: 600,
-    fontFamily: "'DM Sans', sans-serif",
-    outline: 'none',
-    resize: 'none',
-    overflow: 'hidden',
-    lineHeight: 1.5,
-  },
-  contextInput: {
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: 6,
-    padding: '8px 12px',
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 13,
-    fontFamily: "'DM Sans', sans-serif",
-    outline: 'none',
-    resize: 'none',
-    overflow: 'hidden',
-    lineHeight: 1.5,
-  },
-  addContextBtn: {
-    background: 'none',
+    background: 'transparent',
     border: 'none',
-    color: 'rgba(255,255,255,0.3)',
-    fontSize: 12,
-    fontFamily: "'DM Sans', sans-serif",
-    cursor: 'pointer',
-    padding: '2px 0',
-    alignSelf: 'flex-start',
+    padding: 0,
+    color: colors.text,
+    fontSize: fontSizes.base,
+    fontWeight: fontWeights.medium,
+    fontFamily,
+    outline: 'none',
+    resize: 'none',
+    overflow: 'hidden',
+    lineHeight: 1.45,
+    width: '100%',
+    boxSizing: 'border-box',
   },
 
   // ── notes column ──
-  notesCol: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    padding: '0 8px',
-  },
   notesInput: {
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: 6,
-    padding: '8px 12px',
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 13,
-    fontFamily: "'DM Sans', sans-serif",
+    background: 'transparent',
+    border: 'none',
+    padding: 0,
+    color: colors.textMuted,
+    fontSize: fontSizes.sm,
+    fontFamily,
     outline: 'none',
     resize: 'none',
     overflow: 'hidden',
-    lineHeight: 1.5,
+    lineHeight: 1.45,
     width: '100%',
     boxSizing: 'border-box',
   },
 
   // ── tag columns ──
-  tagCol: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
+  beatTagCell: {
     gap: 4,
-    padding: '0 8px',
   },
   tag: {
     display: 'inline-flex',
@@ -3836,11 +4200,9 @@ const styles = {
     width: '100%',
     maxWidth: '100%',
   },
-  tagColDrop: {
-    background: colors.accentA08,
-    borderRadius: 8,
-    outline: '2px dashed rgba(91, 143, 199,0.4)',
-    outlineOffset: 2,
+  tagCellDrop: {
+    background: colors.accentA12,
+    boxShadow: `inset 0 0 0 2px ${colors.accentA40}`,
   },
   mediaThumb: {
     display: 'flex',
@@ -3889,25 +4251,54 @@ const styles = {
   deleteBeatBtn: {
     background: 'none',
     border: 'none',
-    color: 'rgba(255,255,255,0.2)',
+    color: colors.textDim,
     cursor: 'pointer',
-    padding: '10px 8px',
+    padding: '8px',
     display: 'flex',
     flexShrink: 0,
+    transition: transitions.fast,
   },
 
-  // ── add beat ──
-  addBeatBtn: {
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px dashed rgba(255,255,255,0.1)',
-    borderRadius: 10,
-    padding: '12px 0',
+  // ── ghost add row ──
+  // Reads as the next, still-empty line of the document rather than a button
+  // parked underneath it.
+  ghostRowWrap: {
+    display: 'flex',
+    alignItems: 'stretch',
+  },
+  ghostRow: {
+    ...buttonReset,
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+    padding: '9px 10px',
+    paddingLeft: GUTTER_W + 10,
+    color: colors.textPlaceholder,
+    fontSize: fontSizes.sm,
+    fontFamily,
+    cursor: 'text',
+    textAlign: 'left',
+  },
+  ghostRowInSegment: {
     width: '100%',
-    color: 'rgba(255,255,255,0.3)',
-    fontSize: 14,
+    borderTop: `1px solid ${GRID_LINE}`,
+  },
+  ghostRowPlus: {
+    fontSize: fontSizes.base,
+    lineHeight: 1,
+    color: colors.textDim,
+  },
+  ghostSegmentBtn: {
+    ...buttonReset,
+    display: 'flex',
+    alignItems: 'center',
+    padding: '9px 12px',
+    color: colors.textPlaceholder,
+    fontSize: fontSizes.sm,
+    fontFamily,
     cursor: 'pointer',
-    fontFamily: "'DM Sans', sans-serif",
-    marginTop: 4,
+    borderLeft: `1px solid ${GRID_LINE}`,
   },
 
   // ── buttons ──
@@ -4005,44 +4396,32 @@ const styles = {
   },
 
   // ── add menu ──
-  addMenuDropdown: {
-    position: 'absolute',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    top: '100%',
-    marginTop: 6,
-    background: colors.bgHover,
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: 8,
-    padding: '4px 0',
-    minWidth: 120,
-    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-    zIndex: 100,
-  },
-  addMenuItem: {
-    display: 'block',
-    width: '100%',
-    background: 'none',
-    border: 'none',
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 13,
-    fontFamily: "'DM Sans', sans-serif",
-    padding: '8px 16px',
-    textAlign: 'left',
-    cursor: 'pointer',
-  },
 
   // ── segments ──
+  // A segment is a band inside the grid, not a floating card: a tinted header
+  // row, a coloured rail down its left edge, and its beats continuing the
+  // same rules.
   segmentContainer: {
-    borderRadius: 10,
-    marginBottom: 6,
-    padding: '8px 0 4px',
+    // The colour rail is an inset shadow, not a border: a border would shrink
+    // the segment's rows by 3px and make the grid's vertical rules jog where a
+    // segment starts.
+    borderBottom: `1px solid ${GRID_LINE}`,
+    position: 'relative',
   },
   segmentHeader: {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    padding: '0 8px 8px',
+    padding: '5px 10px 5px 0',
+    borderBottom: `1px solid ${GRID_LINE}`,
+  },
+  segmentDragHandle: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: GUTTER_W - 3,
+    cursor: 'grab',
+    flexShrink: 0,
   },
   segmentTitleInput: {
     flex: 1,
@@ -4080,16 +4459,6 @@ const styles = {
     padding: 0,
     flexShrink: 0,
   },
-  addBeatInSegmentBtn: {
-    background: 'none',
-    border: 'none',
-    color: 'rgba(255,255,255,0.25)',
-    fontSize: 12,
-    cursor: 'pointer',
-    fontFamily: "'DM Sans', sans-serif",
-    padding: '6px 36px',
-    textAlign: 'left',
-  },
 
   // ── templates ──
   actionsItem: {
@@ -4104,6 +4473,11 @@ const styles = {
     fontWeight: 500,
     cursor: 'pointer',
     fontFamily: "'DM Sans', sans-serif",
+  },
+  templatesEmpty: {
+    padding: '12px 16px',
+    fontSize: fontSizes.sm,
+    color: colors.textDim,
   },
   templatesDropdown: {
     position: 'absolute',

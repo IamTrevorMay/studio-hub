@@ -81,14 +81,17 @@ Deno.serve(async (req: Request) => {
     const accessToken = await getDriveAccessToken();
 
     // Build sheet data: header + one row per beat
-    const headerRow = ["Beat + Context", "Graphics", "Videos", "Notes"];
+    const headerRow = ["Beat", "Graphics", "Videos", "Notes"];
     const formatMediaList = (items: any[]) =>
       (items || []).map((item: any) => typeof item === 'string' ? item : (item.name || '')).join("\n");
+    // `context` was folded into `notes` when the editor dropped the field, but
+    // an old sheet pushed before it was opened (and therefore migrated) can
+    // still carry one — keep reading it so nothing is lost in the export.
     const dataRows = (beats || []).map((b: any) => [
-      [b.title || "", b.context || ""].filter(Boolean).join("\n"),
+      b.title || "",
       formatMediaList(b.graphics),
       formatMediaList(b.videos),
-      b.notes || "",
+      [b.notes || "", b.context || ""].filter(Boolean).join("\n"),
     ]);
 
     const rows = [headerRow, ...dataRows];
