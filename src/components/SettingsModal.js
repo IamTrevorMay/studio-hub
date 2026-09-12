@@ -1,6 +1,9 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import NotificationSettings from './NotificationSettings';
+import {
+  resolveLayout, normalizeLayout, availableWidgets, WIDGET_BY_KEY, SIZES, LAYOUT_VERSION,
+} from '../lib/dashboardWidgets';
 import { colors, spacing, fontSizes, fontWeights } from '../lib/styleTokens';
 import { modalOverlay, modal as modalShell, button as buttonRecipe } from '../lib/styleRecipes';
 
@@ -42,30 +45,35 @@ export function ToggleSwitch({ on, onClick, disabled }) {
   );
 }
 
-// The toggleable Dashboard sections, in the order they appear on the page.
-export const DASHBOARD_SECTIONS = [
-  { key: 'schedule', label: "Today's Schedule", caption: "Today's calendar events" },
-  { key: 'sprint', label: 'Sprint Board', caption: 'Sprint planning and board' },
-  { key: 'checkin', label: 'Check In', caption: 'Daily check-in card' },
-  { key: 'todo', label: 'To Do', caption: 'Personal to-do list' },
-];
+// The Dashboard's widget catalog is the single list of toggleable sections
+// now — this modal and the Dashboard's own Edit mode read and write the same
+// `dashboard_prefs.layout`, so they can never disagree about what's on.
 
-/** A section is visible unless explicitly turned off. */
+/** A widget is visible exactly when it appears in the saved layout. */
 export function isSectionVisible(profile, key) {
-  return profile?.dashboard_prefs?.[key] !== false;
+  return resolveLayout(profile?.dashboard_prefs).layout.some(e => e.k === key);
 }
 
 export default function SettingsModal({ onClose }) {
-  const { profile, updateProfile, isAdmin, isContractor, isClient } = useAuth();
+  const { profile, updateProfile, isAdmin, isContractor, isClient, isPartner } = useAuth();
 
   // Contractors and clients get their own portal dashboards, which have none of
   // these sections — no point offering toggles that control nothing.
   const showDashboardSections = !isContractor && !isClient;
 
+  // Toggling here adds or removes the widget from the layout. A widget turned
+  // back on lands at the end at its default size — its old slot isn't kept,
+  // since the layout array is what defines placement.
   function toggleSection(key) {
-    const current = profile?.dashboard_prefs || {};
+    const prefs = profile?.dashboard_prefs || {};
+    const { layout } = resolveLayout(prefs);
+    const on = layout.some(e => e.k === key);
+    const spec = WIDGET_BY_KEY[key];
+    const next = on
+      ? layout.filter(e => e.k !== key)
+      : [...layout, { k: key, x: 0, w: SIZES[spec.defaultSize] }];
     updateProfile({
-      dashboard_prefs: { ...current, [key]: current[key] === false },
+      dashboard_prefs: { ...prefs, layout: normalizeLayout(next), v: LAYOUT_VERSION },
     });
   }
 
@@ -93,7 +101,7 @@ export default function SettingsModal({ onClose }) {
         {showDashboardSections && (
           <>
             <div style={styles.groupHeader}>Dashboard</div>
-            {DASHBOARD_SECTIONS.map((section) => (
+            {availableWidgets({ isPartner }).map((section) => (
               <div key={section.key} style={styles.settingsRow}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={styles.settingsLabel}>{section.label}</div>

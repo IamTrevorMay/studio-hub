@@ -15,7 +15,11 @@ import { colors, spacing } from '../lib/styleTokens';
 
 import SprintBoard from '../components/SprintBoard';
 import SprintPanel from '../components/SprintPanel';
-import { isSectionVisible } from '../components/SettingsModal';
+import WidgetGrid from '../components/dashboard/WidgetGrid';
+import {
+  resolveLayout, normalizeLayout, visibleEntries, availableWidgets,
+  WIDGET_BY_KEY, SIZES, LAYOUT_VERSION,
+} from '../lib/dashboardWidgets';
 import DailyBriefingModal from '../components/DailyBriefingModal';
 import MyTasks from './MyTasks';
 import AssignmentMenuButton from '../components/AssignmentMenuButton';
@@ -114,6 +118,72 @@ function formatPeriod(row) {
 
 export default function Dashboard({ onNavigate }) {
   const { profile, updateProfile, isAdmin, isAssistant, isPartner, refreshKey } = useAuth();
+
+  // ── widget layout ──────────────────────────────────────────────────────────
+  // The layout lives on the profile so it follows the user between machines.
+  // Presence in the array *is* visibility, which is what keeps the Settings
+  // toggles and this page's Edit mode from ever disagreeing.
+  const [editing, setEditing] = useState(false);
+  const [layout, setLayout] = useState(() => resolveLayout(profile?.dashboard_prefs).layout);
+  const migratedRef = useRef(false);
+
+  // Adopt the stored layout whenever the profile changes underneath us (another
+  // tab, or the Settings modal writing a toggle).
+  useEffect(() => {
+    const { layout: resolved, migrated } = resolveLayout(profile?.dashboard_prefs);
+    setLayout(resolved);
+    // First visit since the grid shipped: persist the layout derived from the
+    // old boolean prefs so it stops being recomputed on every load.
+    if (migrated && !migratedRef.current) {
+      migratedRef.current = true;
+      updateProfile({
+        dashboard_prefs: { ...(profile?.dashboard_prefs || {}), layout: resolved, v: LAYOUT_VERSION },
+      });
+    }
+  }, [profile?.dashboard_prefs]); // eslint-disable-line
+
+  const saveLayout = useCallback((next) => {
+    const clean = normalizeLayout(next);
+    setLayout(clean);
+    updateProfile({
+      dashboard_prefs: { ...(profile?.dashboard_prefs || {}), layout: clean, v: LAYOUT_VERSION },
+    }).catch((err) => {
+      console.error('Dashboard layout save failed:', err);
+      toast.error('Could not save your dashboard layout');
+      setLayout(resolveLayout(profile?.dashboard_prefs).layout);
+    });
+  }, [profile?.dashboard_prefs, updateProfile]);
+
+  // The grid only ever sees the widgets this person can render. Writing that
+  // array back verbatim would delete the role-gated entries we promised to
+  // keep, so they're spliced back at the index they held before.
+  const saveVisibleLayout = useCallback((nextVisible) => {
+    const visibleKeys = new Set(nextVisible.map(e => e.k));
+    const preserved = layout
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) => !visibleKeys.has(entry.k));
+    const merged = [...nextVisible];
+    for (const { entry, index } of preserved) {
+      merged.splice(Math.min(index, merged.length), 0, entry);
+    }
+    saveLayout(merged);
+  }, [layout, saveLayout]);
+
+  const addWidget = useCallback((key) => {
+    const spec = WIDGET_BY_KEY[key];
+    if (!spec) return;
+    saveLayout([...layout, { k: key, x: 0, w: SIZES[spec.defaultSize] }]);
+  }, [layout, saveLayout]);
+
+  const removeWidget = useCallback((key) => {
+    saveLayout(layout.filter(e => e.k !== key));
+  }, [layout, saveLayout]);
+
+  // Role-gated widgets are skipped here but kept in the stored layout, so they
+  // return to their slot if the person's role changes back.
+  const placedEntries = visibleEntries(layout, { isPartner });
+  const placedKeys = new Set(placedEntries.map(e => e.k));
+  const hiddenWidgets = availableWidgets({ isPartner }).filter(w => !placedKeys.has(w.key));
   const { safeQuery } = useSupabaseQuery();
   // The global DM count already refreshes on every direct_messages INSERT and
   // on the read-cursor UPDATE, so it doubles as the trigger for re-pulling the
@@ -1494,262 +1564,251 @@ export default function Dashboard({ onNavigate }) {
 
   const isMember = !isAdmin && !isAssistant && !isPartner;
 
-  // Section visibility, toggled in Settings (sidebar). Default is visible, so
-  // a profile saved before a section existed still shows it.
-  const showSchedule = isSectionVisible(profile, 'schedule');
-  const showSprint = isSectionVisible(profile, 'sprint');
-  const showCheckin = isSectionVisible(profile, 'checkin');
-  const showTodo = isSectionVisible(profile, 'todo');
+  // Visibility is no longer a set of booleans — a widget is visible exactly
+  // when it appears in `layout` (see placedEntries above).
 
-  return (
-    <div style={styles.page}>
-      <div style={styles.header}>
-        <div>
-          <h1 style={styles.greeting}>
-            Welcome back, {profile?.full_name?.split(' ')[0]}
-          </h1>
-          <p style={styles.date}>
-            {new Date().toLocaleDateString('en-US', {
-              weekday: 'long',
-              month: 'long',
-              day: 'numeric',
-              year: 'numeric',
-            })}
-          </p>
-        </div>
-      </div>
+  // ─── widgets ────────────────────────────────────────────────────────────────
+  // Each case is a section lifted out of the old two-column page. They read
+  // their data from the same component state as before — only where they sit
+  // on the page changed.
+  function renderWidget(key) {
+    switch (key) {
 
-      {/* Two-column layout */}
-      <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start' }}>
-      {/* Left Column */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-
-      {/* Profile Card */}
-      <div style={styles.profileCard}>
-        <label
-          style={styles.profileAvatarUpload}
-          title="Click to upload a profile picture"
-          onMouseEnter={() => setAvatarHover(true)}
-          onMouseLeave={() => setAvatarHover(false)}
-        >
-          {profile?.avatar_url ? (
-            <img src={profile.avatar_url} alt="" style={styles.profileAvatarImg} />
-          ) : (
-            <div style={styles.profileAvatar}>
-              {profile?.full_name?.charAt(0)?.toUpperCase()}
-            </div>
-          )}
-          <div style={{ ...styles.profileAvatarHover, opacity: (avatarHover || avatarUploading) ? 1 : 0 }}>
-            {avatarUploading ? '…' : '📷'}
-          </div>
-          <input
-            ref={avatarInputRef}
-            type="file"
-            accept="image/*"
-            style={{ display: 'none' }}
-            onChange={handleAvatarUpload}
-          />
-        </label>
-        <div style={styles.profileInfo}>
-          {editingName ? (
-            <div style={styles.titleEdit}>
-              <input
-                value={nameDraft}
-                onChange={(e) => setNameDraft(e.target.value)}
-                placeholder="Enter your name"
-                style={styles.titleInput}
-                autoFocus
-                onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
-              />
-              <button onClick={handleNameSave} style={styles.saveTitleBtn}>Save</button>
-              <button onClick={() => setEditingName(false)} style={styles.cancelTitleBtn}>Cancel</button>
-            </div>
-          ) : (
-            <h2
-              style={{ ...styles.profileName, cursor: 'pointer' }}
-              onClick={() => { setNameDraft(profile?.full_name || ''); setEditingName(true); }}
-              title="Click to edit"
-            >
-              {profile?.full_name} <span style={{ fontSize: '14px', opacity: 0.4 }}>✎</span>
-            </h2>
-          )}
-          {editingTitle ? (
-            <div style={styles.titleEdit}>
-              <input
-                value={titleDraft}
-                onChange={(e) => setTitleDraft(e.target.value)}
-                placeholder="Enter your title"
-                style={styles.titleInput}
-                autoFocus
-                onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()}
-              />
-              <button onClick={handleTitleSave} style={styles.saveTitleBtn}>Save</button>
-              <button onClick={() => setEditingTitle(false)} style={styles.cancelTitleBtn}>Cancel</button>
-            </div>
-          ) : (
-            <p
-              style={styles.profileTitle}
-              onClick={() => { setTitleDraft(profile?.title || ''); setEditingTitle(true); }}
-              title="Click to edit"
-            >
-              {profile?.title || 'Click to set your title'} ✎
-            </p>
-          )}
-          <p style={styles.profileEmail}>{profile?.email}</p>
-        </div>
-        {payPeriodHours?.is_hourly && (
-          <div style={styles.hoursCard}>
-            <div style={styles.hoursLabel}>Hours this pay period</div>
-            <div style={styles.hoursValue}>
-              {formatHours(payPeriodHours.hours)}
-              <span style={styles.hoursUnit}>h</span>
-            </div>
-            <div style={styles.hoursPeriod}>{formatPeriod(payPeriodHours)}</div>
-            {/* Staff report hours by completing "Report Hours to Complete"
-                tasks — there is no separate submit step, so only a contractor
-                ever has a submitted_at to show. */}
-            <div style={payPeriodHours.submitted_at ? styles.hoursSubmitted : styles.hoursPending}>
-              {payPeriodHours.submitted_at
-                ? 'Submitted'
-                : payPeriodHours.entry_count
-                  ? `from ${payPeriodHours.entry_count} task${payPeriodHours.entry_count === 1 ? '' : 's'}`
-                  : 'No hours reported yet'}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Announcements */}
-      <div style={{ ...styles.itineraryCard, marginBottom: '36px' }}>
-        {renderAnnouncements({ showInput: isAdmin || isAssistant })}
-      </div>
-
-      {/* Today */}
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Today</h2>
-        <div style={styles.itineraryCard}>
-          <div style={styles.subSectionHeader}>
-            <h3 style={{ ...styles.subSectionTitle, margin: 0 }}>My Tasks</h3>
-            {isAdmin && (
-              <AssignmentMenuButton
-                compact
-                currentUserId={profile?.id}
-                onCreated={() => setMyTasksRefresh(n => n + 1)}
-              />
+      case 'profile':
+        return (
+        <div style={styles.profileCard}>
+          <label
+            style={styles.profileAvatarUpload}
+            title="Click to upload a profile picture"
+            onMouseEnter={() => setAvatarHover(true)}
+            onMouseLeave={() => setAvatarHover(false)}
+          >
+            {profile?.avatar_url ? (
+              <img src={profile.avatar_url} alt="" style={styles.profileAvatarImg} />
+            ) : (
+              <div style={styles.profileAvatar}>
+                {profile?.full_name?.charAt(0)?.toUpperCase()}
+              </div>
             )}
+            <div style={{ ...styles.profileAvatarHover, opacity: (avatarHover || avatarUploading) ? 1 : 0 }}>
+              {avatarUploading ? '…' : '📷'}
+            </div>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={handleAvatarUpload}
+            />
+          </label>
+          <div style={styles.profileInfo}>
+            {editingName ? (
+              <div style={styles.titleEdit}>
+                <input
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  placeholder="Enter your name"
+                  style={styles.titleInput}
+                  autoFocus
+                  onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
+                />
+                <button onClick={handleNameSave} style={styles.saveTitleBtn}>Save</button>
+                <button onClick={() => setEditingName(false)} style={styles.cancelTitleBtn}>Cancel</button>
+              </div>
+            ) : (
+              <h2
+                style={{ ...styles.profileName, cursor: 'pointer' }}
+                onClick={() => { setNameDraft(profile?.full_name || ''); setEditingName(true); }}
+                title="Click to edit"
+              >
+                {profile?.full_name} <span style={{ fontSize: '14px', opacity: 0.4 }}>✎</span>
+              </h2>
+            )}
+            {editingTitle ? (
+              <div style={styles.titleEdit}>
+                <input
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  placeholder="Enter your title"
+                  style={styles.titleInput}
+                  autoFocus
+                  onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()}
+                />
+                <button onClick={handleTitleSave} style={styles.saveTitleBtn}>Save</button>
+                <button onClick={() => setEditingTitle(false)} style={styles.cancelTitleBtn}>Cancel</button>
+              </div>
+            ) : (
+              <p
+                style={styles.profileTitle}
+                onClick={() => { setTitleDraft(profile?.title || ''); setEditingTitle(true); }}
+                title="Click to edit"
+              >
+                {profile?.title || 'Click to set your title'} ✎
+              </p>
+            )}
+            <p style={styles.profileEmail}>{profile?.email}</p>
           </div>
-          {isAdmin && fqReviewCount > 0 && (
-            <div style={styles.assignmentCommentCard}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: colors.white, marginBottom: '2px' }}>
-                  {fqReviewCount} beat sheet{fqReviewCount === 1 ? '' : 's'} awaiting review
-                </div>
-                <div style={{ fontSize: '12px', color: colors.textSubtle }}>
-                  Writers have submitted drafts in the Film Queue.
-                </div>
+          {payPeriodHours?.is_hourly && (
+            <div style={styles.hoursCard}>
+              <div style={styles.hoursLabel}>Hours this pay period</div>
+              <div style={styles.hoursValue}>
+                {formatHours(payPeriodHours.hours)}
+                <span style={styles.hoursUnit}>h</span>
               </div>
-              <button onClick={goToFilmQueue} style={styles.assignmentCommentBtn}>
-                Go There
-              </button>
+              <div style={styles.hoursPeriod}>{formatPeriod(payPeriodHours)}</div>
+              {/* Staff report hours by completing "Report Hours to Complete"
+                  tasks — there is no separate submit step, so only a contractor
+                  ever has a submitted_at to show. */}
+              <div style={payPeriodHours.submitted_at ? styles.hoursSubmitted : styles.hoursPending}>
+                {payPeriodHours.submitted_at
+                  ? 'Submitted'
+                  : payPeriodHours.entry_count
+                    ? `from ${payPeriodHours.entry_count} task${payPeriodHours.entry_count === 1 ? '' : 's'}`
+                    : 'No hours reported yet'}
+              </div>
             </div>
           )}
-          {assignmentCommentNotifs.map(notif => (
-            <div key={notif.id} style={styles.assignmentCommentCard}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '2px' }}>
-                  There's a new comment on an Assignment that needs your attention.
-                </div>
-                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {notif.body}
-                </div>
-              </div>
-              <button onClick={() => handleGoToAssignmentComment(notif)} style={styles.assignmentCommentBtn}>
-                Go There
-              </button>
-            </div>
-          ))}
-          {isAdmin && pendingOooRequests.map(req => {
-            const startFmt = new Date(req.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            const endFmt = new Date(req.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            return (
-              <div key={`ooo-${req.id}`} style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '10px 12px',
-                marginBottom: '8px',
-                background: 'rgba(249,115,22,0.06)',
-                border: '1px solid rgba(249,115,22,0.15)',
-                borderRadius: '8px',
-              }}>
-                <div style={{
-                  width: '32px', height: '32px', borderRadius: '50%',
-                  background: 'rgba(249,115,22,0.15)', color: '#f97316',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '13px', fontWeight: 700, flexShrink: 0,
-                }}>
-                  {req.requester?.full_name?.charAt(0)?.toUpperCase() || '?'}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
-                    {req.requester?.full_name || 'Unknown'}
-                  </div>
-                  <div style={{ fontSize: '11px', color: '#f97316', fontWeight: 600, marginTop: '2px' }}>
-                    Out of Office request
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
-                    {startFmt} {'–'} {endFmt}
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleOooDecision(req, 'approved')}
-                  disabled={!!oooProcessingId}
-                  style={{
-                    padding: '5px 12px', borderRadius: '6px',
-                    border: '1px solid rgba(34,197,94,0.3)',
-                    background: 'rgba(34,197,94,0.1)', color: '#22c55e',
-                    fontSize: '11px', fontWeight: 600, cursor: oooProcessingId ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
-                    opacity: oooProcessingId ? 0.5 : 1,
-                  }}
-                >
-                  {oooProcessingId === req.id ? 'Approving...' : 'Approve'}
-                </button>
-                <button
-                  onClick={() => handleOooDecision(req, 'rejected')}
-                  disabled={!!oooProcessingId}
-                  style={{
-                    padding: '5px 12px', borderRadius: '6px',
-                    border: '1px solid rgba(239,68,68,0.3)',
-                    background: 'rgba(239,68,68,0.1)', color: '#ef4444',
-                    fontSize: '11px', fontWeight: 600, cursor: oooProcessingId ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
-                    opacity: oooProcessingId ? 0.5 : 1,
-                  }}
-                >
-                  Decline
-                </button>
-              </div>
-            );
-          })}
-          {/* Remounts after an assignment is created so a self-assigned task
-              shows up without a page refresh. */}
-          <MyTasks key={myTasksRefresh} embedded onNavigate={onNavigate} />
-          {showSchedule && (
-            <>
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '16px 0' }} />
-              {renderTodaySchedule()}
-            </>
-          )}
-          {showTodo && renderTodoList()}
         </div>
-      </div>
+        );
 
-      {/* Team + Check In */}
-      <div style={styles.section}>
-        <div style={styles.teamCheckinRow}>
+      case 'announcements':
+        return (
+          <div style={styles.itineraryCard}>
+          {renderAnnouncements({ showInput: isAdmin || isAssistant })}
+          </div>
+        );
 
-          {/* Team Column */}
+      case 'tasks':
+        return (
+          <div style={styles.widgetSection}>
+            <div style={styles.itineraryCard}>
+            <div style={styles.subSectionHeader}>
+              <h3 style={{ ...styles.subSectionTitle, margin: 0 }}>My Tasks</h3>
+              {isAdmin && (
+                <AssignmentMenuButton
+                  compact
+                  currentUserId={profile?.id}
+                  onCreated={() => setMyTasksRefresh(n => n + 1)}
+                />
+              )}
+            </div>
+            {isAdmin && fqReviewCount > 0 && (
+              <div style={styles.assignmentCommentCard}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: colors.white, marginBottom: '2px' }}>
+                    {fqReviewCount} beat sheet{fqReviewCount === 1 ? '' : 's'} awaiting review
+                  </div>
+                  <div style={{ fontSize: '12px', color: colors.textSubtle }}>
+                    Writers have submitted drafts in the Film Queue.
+                  </div>
+                </div>
+                <button onClick={goToFilmQueue} style={styles.assignmentCommentBtn}>
+                  Go There
+                </button>
+              </div>
+            )}
+            {assignmentCommentNotifs.map(notif => (
+              <div key={notif.id} style={styles.assignmentCommentCard}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '2px' }}>
+                    There's a new comment on an Assignment that needs your attention.
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {notif.body}
+                  </div>
+                </div>
+                <button onClick={() => handleGoToAssignmentComment(notif)} style={styles.assignmentCommentBtn}>
+                  Go There
+                </button>
+              </div>
+            ))}
+            {isAdmin && pendingOooRequests.map(req => {
+              const startFmt = new Date(req.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              const endFmt = new Date(req.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              return (
+                <div key={`ooo-${req.id}`} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '10px 12px',
+                  marginBottom: '8px',
+                  background: 'rgba(249,115,22,0.06)',
+                  border: '1px solid rgba(249,115,22,0.15)',
+                  borderRadius: '8px',
+                }}>
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '50%',
+                    background: 'rgba(249,115,22,0.15)', color: '#f97316',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '13px', fontWeight: 700, flexShrink: 0,
+                  }}>
+                    {req.requester?.full_name?.charAt(0)?.toUpperCase() || '?'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
+                      {req.requester?.full_name || 'Unknown'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#f97316', fontWeight: 600, marginTop: '2px' }}>
+                      Out of Office request
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
+                      {startFmt} {'–'} {endFmt}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleOooDecision(req, 'approved')}
+                    disabled={!!oooProcessingId}
+                    style={{
+                      padding: '5px 12px', borderRadius: '6px',
+                      border: '1px solid rgba(34,197,94,0.3)',
+                      background: 'rgba(34,197,94,0.1)', color: '#22c55e',
+                      fontSize: '11px', fontWeight: 600, cursor: oooProcessingId ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                      opacity: oooProcessingId ? 0.5 : 1,
+                    }}
+                  >
+                    {oooProcessingId === req.id ? 'Approving...' : 'Approve'}
+                  </button>
+                  <button
+                    onClick={() => handleOooDecision(req, 'rejected')}
+                    disabled={!!oooProcessingId}
+                    style={{
+                      padding: '5px 12px', borderRadius: '6px',
+                      border: '1px solid rgba(239,68,68,0.3)',
+                      background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+                      fontSize: '11px', fontWeight: 600, cursor: oooProcessingId ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                      opacity: oooProcessingId ? 0.5 : 1,
+                    }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              );
+            })}
+            {/* Remounts after an assignment is created so a self-assigned task
+                shows up without a page refresh. */}
+            <MyTasks key={myTasksRefresh} embedded onNavigate={onNavigate} />
+            </div>
+          </div>
+        );
+
+      case 'today':
+        return (
+          <div style={styles.widgetSection}>
+            <div style={styles.itineraryCard}>{renderTodaySchedule()}</div>
+          </div>
+        );
+
+      case 'todo':
+        return (
+          <div style={styles.widgetSection}>
+            <div style={styles.itineraryCard}>{renderTodoList()}</div>
+          </div>
+        );
+
+      case 'team':
+        return (
+          <div style={styles.widgetSection}>
           <div style={styles.teamCol}>
-            <h2 style={styles.sectionTitle}>Team</h2>
             <div style={{ ...styles.teamCard, flex: 1 }}>
               {/* My Status Controls */}
               <div style={styles.myStatusRow}>
@@ -1937,11 +1996,13 @@ export default function Dashboard({ onNavigate }) {
               )}
             </div>
           </div>
+          </div>
+        );
 
-          {/* Check In Column */}
-          {showCheckin && (
+      case 'checkin':
+        return (
+          <div style={styles.widgetSection}>
           <div style={styles.checkinCol}>
-            <h2 style={styles.sectionTitle}>Check In</h2>
             <div style={styles.checkinCard}>
               {checkinLoading ? (
                 <p style={styles.emptyText}>Loading...</p>
@@ -2096,17 +2157,40 @@ export default function Dashboard({ onNavigate }) {
               })()}
             </div>
           </div>
-          )}
+          </div>
+        );
 
-        </div>
-      </div>
+      case 'sprint_panel':
+        return isPartner ? null : (
+          <SprintPanel
+            profile={profile}
+            boardVersion={boardVersion}
+            onSprintChange={() => setSprintVersion(v => v + 1)}
+          />
+        );
 
-      {/* Sponsored Deliverables */}
-      {!isPartner && (sponsorDeliverables.length > 0 || sponsorDelLoading) && (
-        <div style={styles.section}>
+      case 'sprint_board':
+        return isPartner ? null : (
+          <SprintBoard
+            profile={profile}
+            onNavigate={onNavigate}
+            todayEvents={todayEvents}
+            onBoardChange={() => setBoardVersion(v => v + 1)}
+            sprintVersion={sprintVersion}
+          />
+        );
+
+      // Sponsored and Recently Completed used to disappear when they had no
+      // rows. They hold their slot now — a widget you placed shouldn't move
+      // the rest of the page around as data comes and goes.
+      case 'sponsored':
+        return (
+        <div style={styles.widgetSection}>
           <h2 style={styles.sectionTitle}>Sponsored</h2>
           {sponsorDelLoading ? (
             <p style={styles.emptyText}>Loading...</p>
+          ) : sponsorDeliverables.length === 0 ? (
+            <p style={styles.emptyText}>Nothing sponsored assigned to you right now</p>
           ) : (
             <div style={styles.projectGrid}>
               {sponsorDeliverables.map(d => {
@@ -2149,13 +2233,15 @@ export default function Dashboard({ onNavigate }) {
             </div>
           )}
         </div>
-      )}
+        );
 
-
-      {/* Completed Projects */}
-      {!isPartner && completedAssignments.length > 0 && (
-        <div style={styles.section}>
+      case 'completed':
+        return (
+        <div style={styles.widgetSection}>
           <h2 style={styles.sectionTitle}>Recently Completed</h2>
+          {completedAssignments.length === 0 && (
+            <p style={styles.emptyText}>Nothing finished recently</p>
+          )}
           <div style={styles.completedList}>
             {completedAssignments.slice(0, 5).map(({ project, assignment_role }) => (
               <div key={project.id} style={styles.completedItem}>
@@ -2169,17 +2255,50 @@ export default function Dashboard({ onNavigate }) {
             ))}
           </div>
         </div>
-      )}
+        );
 
-      </div>
-      {/* Right Column — everything sprint-related, hidden as one unit. */}
-      {showSprint && (
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {!isPartner && <SprintPanel profile={profile} boardVersion={boardVersion} onSprintChange={() => setSprintVersion(v => v + 1)} />}
-          {!isPartner && <SprintBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />}
+      default:
+        return null;
+    }
+  }
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.header}>
+        <div>
+          <h1 style={styles.greeting}>
+            Welcome back, {profile?.full_name?.split(' ')[0]}
+          </h1>
+          <p style={styles.date}>
+            {new Date().toLocaleDateString('en-US', {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric',
+            })}
+          </p>
         </div>
-      )}
+
+        <button
+          type="button"
+          onClick={() => setEditing(v => !v)}
+          style={editing ? { ...styles.editBtn, ...styles.editBtnOn } : styles.editBtn}
+          title={editing ? 'Finish arranging widgets' : 'Rearrange, resize and add widgets'}
+        >
+          {editing ? 'Done' : 'Edit'}
+        </button>
       </div>
+
+      <WidgetGrid
+        entries={placedEntries}
+        hiddenWidgets={hiddenWidgets}
+        renderWidget={renderWidget}
+        editing={editing}
+        onChange={saveVisibleLayout}
+        onAdd={addWidget}
+        onRemove={removeWidget}
+      />
+
 
       {/* Daily Briefing Modal */}
       {showBriefing && <DailyBriefingModal onClose={() => setShowBriefing(false)} />}
@@ -2307,6 +2426,9 @@ const styles = {
     fontFamily: 'inherit',
   },
   header: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '16px',
     marginBottom: '32px',
   },
   greeting: {
@@ -2493,8 +2615,30 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
   },
-  section: {
-    marginBottom: '36px',
+  // Same as `section` minus the bottom margin — inside the widget grid the
+  // packer owns the spacing, so a trailing margin would be measured as part of
+  // the widget and push its neighbours down.
+  widgetSection: {
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  editBtn: {
+    marginLeft: 'auto',
+    alignSelf: 'flex-start',
+    padding: '7px 16px',
+    borderRadius: 999,
+    border: `1px solid ${colors.borderStrong}`,
+    background: colors.whiteA06,
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: 600,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+  },
+  editBtnOn: {
+    background: colors.accent,
+    borderColor: colors.accent,
+    color: '#fff',
   },
   sectionTitle: {
     fontSize: '16px',
