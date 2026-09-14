@@ -1573,7 +1573,17 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       return;
     }
     if (e.key === 'Enter') {
-      if (e.altKey) return;                     // ⌥⏎ — literal newline in the title
+      if (e.altKey) {                           // ⌥⏎ — literal newline in the title
+        e.preventDefault();                     // (browser default inserts nothing on mac)
+        const ta = e.target;
+        const { value, selectionStart, selectionEnd } = ta;
+        updateBeat(beat.id, 'title', value.slice(0, selectionStart) + '\n' + value.slice(selectionEnd));
+        requestAnimationFrame(() => {
+          ta.selectionStart = ta.selectionEnd = selectionStart + 1;
+          autoResize(ta);
+        });
+        return;
+      }
       e.preventDefault();
       if (e.shiftKey) {                         // ⇧⏎ — start a new segment
         const seg = insertItemRelativeTo(beat.id, 'below', newSegment);
