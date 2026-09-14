@@ -347,52 +347,9 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // Research stage: instead of fanning out to stage assignees, hand the
-  // scope owner a "Set Research Scope" task. Its step_key is
-  // 'research_scope' (not 'research') so completing it never auto-advances
-  // the card — only the researcher tasks it spawns (step_key 'research')
-  // trigger the all-done advance to Write in workflow-complete-task.
-  const RESEARCH_SCOPE_OWNER = "c3290048-436b-46c6-b3f0-fdf7923d0c3b"; // Trevor May
-  if (resolvedTargetStage === "research") {
-    const { data: scopeTask, error: scopeErr } = await admin
-      .from("tasks")
-      .insert({
-        step_key: "research_scope",
-        title: `${project.name} — Set Research Scope`,
-        description: "Define the research scope and assign researchers. The card moves to Write once every researcher marks their task complete.",
-        assignee_id: RESEARCH_SCOPE_OWNER,
-        status: "pending",
-        related_entity_type: "project",
-        related_entity_id: project.id,
-        due_date: project.deadline,
-        created_by: actorId,
-      })
-      .select("id")
-      .single();
-    if (scopeErr || !scopeTask) {
-      console.error("Failed to insert research scope task:", scopeErr?.message);
-    } else {
-      newTaskIds.push(scopeTask.id);
-      await admin.from("notifications").insert({
-        user_id: RESEARCH_SCOPE_OWNER,
-        type: "task_assigned",
-        title: `Set research scope: ${project.name}`,
-        body: "Card entered Research — set the scope and assign researchers.",
-        link_tab: "my_tasks",
-        link_target: scopeTask.id,
-        is_read: false,
-      });
-    }
-    return jsonResp({
-      project_id: project.id,
-      from_stage: currentStage,
-      target_stage: resolvedTargetStage,
-      direction: isBackward ? "backward" : "forward",
-      closed_tasks: (closedTasks || []).length,
-      new_task_ids: newTaskIds,
-      assignee_count: 0,
-    });
-  }
+  // Research fans out to stage assignees like any other stage. The old
+  // "Set Research Scope" gatekeeper task (step_key 'research_scope') is gone —
+  // the close-on-move above still sweeps up any legacy scope tasks.
 
   // Close any pre-existing open tasks for the TARGET stage before fanning out.
   // Re-entering a stage (a backward move, or a re-assign that re-triggers a move)
