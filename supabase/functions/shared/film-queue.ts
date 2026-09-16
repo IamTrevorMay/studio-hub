@@ -283,6 +283,42 @@ export async function filmQueueCompletionGate(
   return null;
 }
 
+// The reviewer's two tasks, keyed by the step that opens them. Shared by the
+// task-completion advance below and film-queue's sync_sheet_status (a manual
+// status flip on the sheet), so both paths hand Trevor the same task.
+export async function createReviewerStepTask(
+  admin: SupabaseClient,
+  stepKey: "fq_review" | "fq_send",
+  itemId: string,
+  sheetTitle: string,
+  createdBy?: string | null,
+): Promise<{ id: string } | null> {
+  if (stepKey === "fq_review") {
+    return createFilmQueueTask(admin, {
+      stepKey: "fq_review",
+      title: `${sheetTitle} — Review Beat Sheet`,
+      description:
+        "Review the beat sheet. Completing this task approves it and puts it in the film queue line.",
+      assigneeId: FILM_QUEUE_REVIEWER,
+      itemId,
+      createdBy,
+      notifyTitle: "Beat sheet ready for review",
+      notifyBody: `"${sheetTitle}" is ready for your review.`,
+    });
+  }
+  return createFilmQueueTask(admin, {
+    stepKey: "fq_send",
+    title: `${sheetTitle} — Send to Editor`,
+    description:
+      "After the shoot, paste the link to the video file and hit Send to Editor. That sends the edit task and moves this item to the edit pile.",
+    assigneeId: FILM_QUEUE_REVIEWER,
+    itemId,
+    createdBy,
+    notifyTitle: "Beat sheet approved",
+    notifyBody: `"${sheetTitle}" is approved and in the film queue line.`,
+  });
+}
+
 // Post-completion transition for fq_* tasks. The completing task is already
 // marked complete; this moves the beat sheet / queue item along and creates
 // the next task in the chain.
@@ -315,17 +351,7 @@ export async function advanceFilmQueue(
         .from("beat_sheets")
         .update({ status: "ready_for_review" })
         .eq("id", item.beat_sheet_id);
-      const next = await createFilmQueueTask(admin, {
-        stepKey: "fq_review",
-        title: `${sheetTitle} — Review Beat Sheet`,
-        description:
-          "Review the beat sheet. Completing this task approves it and puts it in the film queue line.",
-        assigneeId: FILM_QUEUE_REVIEWER,
-        itemId,
-        createdBy: task.assignee_id,
-        notifyTitle: "Beat sheet ready for review",
-        notifyBody: `"${sheetTitle}" is ready for your review.`,
-      });
+      const next = await createReviewerStepTask(admin, "fq_review", itemId, sheetTitle, task.assignee_id);
       return { next_task_ids: next ? [next.id] : [] };
     }
 
@@ -335,17 +361,7 @@ export async function advanceFilmQueue(
         .from("beat_sheets")
         .update({ status: "approved", approved_at: nowIso })
         .eq("id", item.beat_sheet_id);
-      const next = await createFilmQueueTask(admin, {
-        stepKey: "fq_send",
-        title: `${sheetTitle} — Send to Editor`,
-        description:
-          "After the shoot, paste the link to the video file and hit Send to Editor. That sends the edit task and moves this item to the edit pile.",
-        assigneeId: FILM_QUEUE_REVIEWER,
-        itemId,
-        createdBy: task.assignee_id,
-        notifyTitle: "Beat sheet approved",
-        notifyBody: `"${sheetTitle}" is approved and in the film queue line.`,
-      });
+      const next = await createReviewerStepTask(admin, "fq_send", itemId, sheetTitle, task.assignee_id);
       return { next_task_ids: next ? [next.id] : [] };
     }
 

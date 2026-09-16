@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { callEdgeFn } from '../lib/edgeFn';
 import { QUEUE_TYPES, IDEA_TAG_TO_QUEUE_TYPE } from '../lib/filmQueue';
@@ -15,8 +16,8 @@ const BUCKETS = ['up_next', 'list'];
 // The four seeded tags still map to Projects types / the legacy `category`
 // column (kept in sync for IdeasMobile, which is still sectioned). Custom
 // tags map to neither — sending those to Projects prompts for a type.
-// Mayday / Short Form ideas go to the Film Queue now, not Projects — their
-// tags deliberately map to no project type (the picker prompts instead).
+// Mayday / Short Form / Ad ideas go to the Slate, not Projects — only these
+// two tags open the Projects path (see destinationsFor).
 const TAG_LABEL_TO_PROJECT_TYPE = {
   'Trevor May Baseball Videos': 'tm_baseball_video',
   'Podcast Only': 'podcast',
@@ -32,12 +33,12 @@ const PROJECT_TYPE_OPTIONS = [
   { value: 'podcast', label: 'Podcast' },
 ];
 
-// Who the Film Queue writer/editor pickers offer: every active staff member.
+// Who the Slate writer/editor pickers offer: every active staff member.
 const STAFF_PICKER_ROLES = ['admin', 'director', 'director_creative', 'director_comms', 'member'];
 
 const TAG_COLOR_CHOICES = ['#f87171', '#fb923c', '#fbbf24', '#34d399', '#22d3ee', '#8fb4d8', '#93c5fd', '#c084fc', '#f9a8d4'];
 
-const IDEA_FIELDS = 'id, text, checked, position, category, bucket, tag_ids, context, potential_titles, project_id, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
+const IDEA_FIELDS = 'id, text, checked, position, category, bucket, tag_ids, context, potential_titles, project_id, film_queue_item_id, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
 
 // Ratings: admins + directors only — RLS on idea_ratings enforces the same
 // set server-side, so other roles never receive rating rows at all.
@@ -68,9 +69,11 @@ function fmtDateAdded(iso) {
 // Add / Add to Projects actions still ride along with the board.
 export default function Ideas({ embedded = false }) {
   const { profile } = useAuth();
+  const confirm = useConfirm();
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [sending, setSending] = useState(false);
+  const [undoingId, setUndoingId] = useState(null); // idea being pulled back from Projects / the Slate
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, id, bucket }
   const [showAddModal, setShowAddModal] = useState(false);
   const [projectModal, setProjectModal] = useState(null); // idea getting a project
@@ -464,61 +467,67 @@ export default function Ideas({ embedded = false }) {
     setSelectedIds(new Set());
   }
 
-  function requestSendToProjects() {
-    const items = BUCKETS.flatMap((k) => byBucket[k] || []).filter((i) => selectedIds.has(i.id));
+  // Ideas already sent somewhere are skipped here — the row chip undoes them.
+  function requestSendToProjects(items) {
     if (items.length === 0 || sending) return;
     // Ideas whose tags map to exactly one project type go straight through;
-    // zero or 2+ mapped types needs a human pick.
+    // 2+ mapped types (TM Baseball + Podcast) needs a human pick.
     const ambiguous = items.filter((i) => projectTypesFor(i).length !== 1);
     if (ambiguous.length > 0) {
       setTypePicker({
         items,
         ambiguous,
-        choices: Object.fromEntries(ambiguous.map((i) => [i.id, projectTypesFor(i)[0] || 'mayday_video'])),
+        choices: Object.fromEntries(ambiguous.map((i) => [i.id, projectTypesFor(i)[0] || PROJECT_TYPE_OPTIONS[0].value])),
       });
       return;
     }
     sendToProjects(items, (i) => projectTypesFor(i)[0]);
   }
 
+  // One insert per idea so each card's id can be written back to its idea.
+  // The idea stays on the board flagged In Production; the chip undoes it.
   async function sendToProjects(items, typeFor) {
     setSending(true);
-    const rows = items.map((i) => {
+    const linked = {};
+    let failure = null;
+    for (const i of items) {
       // Potential titles travel with the idea into the project's notes.
       const titles = (Array.isArray(i.potential_titles) ? i.potential_titles : []).filter(Boolean);
       const titleNote = titles.length ? `Potential titles:\n- ${titles.join('\n- ')}` : null;
-      return {
+      const { data: created, error } = await supabase.from('projects').insert({
         name: i.text,
-        type: typeFor(i) || 'mayday_video',
+        type: typeFor(i) || PROJECT_TYPE_OPTIONS[0].value,
         status: 'queue',
         start_column: 'queue',
         notes: [titleNote, i.context].filter(Boolean).join('\n\n') || null,
         stage_config: {},
         created_by: profile?.id || null,
-      };
-    });
-    const { error } = await supabase.from('projects').insert(rows);
-    if (error) {
-      alert(`Could not add to Projects: ${error.message}`);
-      setSending(false);
-      return;
+      }).select('id').single();
+      if (error) { failure = error; break; }
+      const { error: linkErr } = await supabase.from('write_ideas')
+        .update({ project_id: created.id })
+        .eq('id', i.id);
+      if (linkErr) console.error('Idea link failed:', linkErr);
+      linked[i.id] = created.id;
     }
-    // Project cards created — remove the exported ideas from the board.
-    const ids = new Set(items.map((i) => i.id));
-    const { error: delError } = await supabase.from('write_ideas').delete().in('id', [...ids]);
-    if (delError) console.error('Error removing exported ideas:', delError);
     setByBucket((prev) => {
       const next = {};
-      for (const k of BUCKETS) next[k] = (prev[k] || []).filter((i) => !ids.has(i.id));
+      for (const k of BUCKETS) {
+        next[k] = (prev[k] || []).map((i) => (linked[i.id] ? { ...i, project_id: linked[i.id] } : i));
+      }
       return next;
     });
     setSending(false);
+    if (failure) {
+      alert(`Could not add to Projects: ${failure.message}`);
+      return;
+    }
     setTypePicker(null);
     exitSelectMode();
   }
 
-  // ── Add to Film Queue ──
-  // Queue types an idea's tags map to (podcast deliberately maps to nothing).
+  // ── Add to Slate ──
+  // Queue types an idea's tags map to (podcast / TM Baseball map to nothing).
   function queueTypesFor(idea) {
     const types = [];
     for (const t of tagsForIdea(idea)) {
@@ -528,10 +537,21 @@ export default function Ideas({ embedded = false }) {
     return types;
   }
 
+  // Where an idea can be sent, from its tags: Projects for TM Baseball /
+  // Podcast, the Slate for Mayday / Short Form / Ad. Untagged or custom-tagged
+  // ideas default to the Slate; an idea carrying a tag from each bucket gets
+  // both. An idea already sent somewhere goes nowhere until it's undone.
+  function destinationsFor(idea) {
+    if (idea.project_id || idea.film_queue_item_id) return [];
+    const dests = [];
+    if (projectTypesFor(idea).length > 0) dests.push('projects');
+    if (queueTypesFor(idea).length > 0 || dests.length === 0) dests.push('slate');
+    return dests;
+  }
+
   // The details modal always opens — it captures the writer and editor
   // assignments per idea, not just the type.
-  function requestSendToFilmQueue() {
-    const items = BUCKETS.flatMap((k) => byBucket[k] || []).filter((i) => selectedIds.has(i.id));
+  function requestSendToFilmQueue(items) {
     if (items.length === 0 || sending) return;
     setFilmQueuePicker({
       items,
@@ -544,8 +564,9 @@ export default function Ideas({ embedded = false }) {
   }
 
   // The edge function creates the beat sheet + queue item + writer task and
-  // deletes the idea — no project card. Non-admins can't insert those rows
-  // directly (RLS), so this must go through film-queue.
+  // links the idea to the queue item — no project card, and the idea stays on
+  // the board flagged On Slate. Non-admins can't insert those rows directly
+  // (RLS), so this must go through film-queue.
   async function sendToFilmQueue() {
     if (!filmQueuePicker || sending) return;
     setSending(true);
@@ -555,24 +576,59 @@ export default function Ideas({ embedded = false }) {
         ...filmQueuePicker.choices[i.id],
       }));
       const result = await callEdgeFn('film-queue', { action: 'enqueue_ideas', items: payload });
-      const createdIds = new Set((result.created || []).map((c) => c.idea_id));
-      if (createdIds.size > 0) {
+      const linked = {};
+      for (const c of result.created || []) linked[c.idea_id] = c.queue_item_id;
+      if (Object.keys(linked).length > 0) {
         setByBucket((prev) => {
           const next = {};
-          for (const k of BUCKETS) next[k] = (prev[k] || []).filter((i) => !createdIds.has(i.id));
+          for (const k of BUCKETS) {
+            next[k] = (prev[k] || []).map((i) => (linked[i.id] ? { ...i, film_queue_item_id: linked[i.id] } : i));
+          }
           return next;
         });
       }
       if (result.errors?.length) {
-        alert(`Some ideas could not be queued:\n${result.errors.map((e) => e.error).join('\n')}`);
+        alert(`Some ideas could not be added to the Slate:\n${result.errors.map((e) => e.error).join('\n')}`);
       } else {
         setFilmQueuePicker(null);
         exitSelectMode();
       }
     } catch (err) {
-      alert(`Could not add to Film Queue: ${err.message}`);
+      alert(`Could not add to the Slate: ${err.message}`);
     }
     setSending(false);
+  }
+
+  // Undo a send: the chip on the row re-clicked. Full teardown — the project
+  // card (with its stage assignments, tasks, and sprint cards) or the beat
+  // sheet (with its queue item and writer task) is deleted and the idea is
+  // editable again. Goes through film-queue so any staff member can undo,
+  // not just the card's creator (projects delete RLS) or an admin (queue RLS).
+  async function unsendIdea(idea) {
+    if (undoingId) return;
+    const toProjects = !!idea.project_id;
+    const message = toProjects
+      ? `Pull "${idea.text}" back from Projects? Its project card, stage assignments, and tasks will be deleted.`
+      : `Pull "${idea.text}" back from the Slate? Its beat sheet, queue item, and writer task will be deleted.`;
+    if (!(await confirm(message))) return;
+    setUndoingId(idea.id);
+    try {
+      const result = await callEdgeFn('film-queue', { action: 'unsend_ideas', idea_ids: [idea.id] });
+      const failed = result.errors?.[0];
+      if (failed) throw new Error(failed.error);
+      setByBucket((prev) => {
+        const next = {};
+        for (const k of BUCKETS) {
+          next[k] = (prev[k] || []).map((i) => (
+            i.id === idea.id ? { ...i, project_id: null, film_queue_item_id: null } : i
+          ));
+        }
+        return next;
+      });
+    } catch (err) {
+      alert(`Could not undo: ${err.message}`);
+    }
+    setUndoingId(null);
   }
 
   // Staff list for the writer/editor pickers, loaded when the modal first opens.
@@ -681,35 +737,44 @@ export default function Ideas({ embedded = false }) {
       items: [item],
       choices: { [item.id]: { queue_type: queueTypesFor(item)[0] || 'mayday', writer_id: '', editor_id: '' } },
     }),
+    destinationsFor,
+    onUnsend: unsendIdea,
+    undoingId,
   };
+
+  // Select mode splits the selection by destination: each button sends only
+  // the ideas whose tags point its way, and only shows when it has any.
+  const selectedItems = BUCKETS.flatMap((k) => byBucket[k] || []).filter((i) => selectedIds.has(i.id));
+  const selectedForProjects = selectedItems.filter((i) => destinationsFor(i).includes('projects'));
+  const selectedForSlate = selectedItems.filter((i) => destinationsFor(i).includes('slate'));
 
   // Rendered inline in the Ideas section header, next to the title.
   const listActions = (
     <div style={styles.headerActions}>
       {selectMode ? (
         <>
-          <button
-            onClick={requestSendToProjects}
-            disabled={selectedIds.size === 0 || sending}
-            style={{
-              ...styles.addToProjectsBtn,
-              opacity: selectedIds.size === 0 || sending ? 0.4 : 1,
-              cursor: selectedIds.size === 0 || sending ? 'default' : 'pointer',
-            }}
-          >
-            {sending ? 'Adding…' : `Add to Projects (${selectedIds.size})`}
-          </button>
-          <button
-            onClick={requestSendToFilmQueue}
-            disabled={selectedIds.size === 0 || sending}
-            style={{
-              ...styles.addToFilmQueueBtn,
-              opacity: selectedIds.size === 0 || sending ? 0.4 : 1,
-              cursor: selectedIds.size === 0 || sending ? 'default' : 'pointer',
-            }}
-          >
-            {`Add to Film Queue (${selectedIds.size})`}
-          </button>
+          {selectedForProjects.length > 0 && (
+            <button
+              onClick={() => requestSendToProjects(selectedForProjects)}
+              disabled={sending}
+              style={{ ...styles.addToProjectsBtn, opacity: sending ? 0.4 : 1, cursor: sending ? 'default' : 'pointer' }}
+            >
+              {sending ? 'Adding…' : `Add to Projects (${selectedForProjects.length})`}
+            </button>
+          )}
+          {(selectedForSlate.length > 0 || selectedForProjects.length === 0) && (
+            <button
+              onClick={() => requestSendToFilmQueue(selectedForSlate)}
+              disabled={selectedForSlate.length === 0 || sending}
+              style={{
+                ...styles.addToFilmQueueBtn,
+                opacity: selectedForSlate.length === 0 || sending ? 0.4 : 1,
+                cursor: selectedForSlate.length === 0 || sending ? 'default' : 'pointer',
+              }}
+            >
+              {`Add to Slate (${selectedForSlate.length})`}
+            </button>
+          )}
           <button onClick={exitSelectMode} style={styles.selectCancelBtn}>Cancel</button>
         </>
       ) : (
@@ -786,7 +851,7 @@ export default function Ideas({ embedded = false }) {
       {projectModal && (
         <IdeaProjectModal
           idea={projectModal}
-          defaultType={projectTypesFor(projectModal)[0] || 'mayday_video'}
+          defaultType={projectTypesFor(projectModal)[0] || PROJECT_TYPE_OPTIONS[0].value}
           onCreate={createProjectFromIdea}
           onClose={() => setProjectModal(null)}
         />
@@ -1145,9 +1210,9 @@ function TypePickerModal({ picker, tagsForIdea, sending, onChoose, onConfirm, on
   );
 }
 
-// Details modal for Add to Film Queue: per idea, the type plus the writer
+// Details modal for Add to Slate: per idea, the type plus the writer
 // (required — they get the beat sheet task immediately). The editor is
-// optional here and can be assigned later in the Film Queue view; the
+// optional here and can be assigned later in the Slate view; the
 // send-to-editor step is server-gated on one being set by then.
 function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange, onConfirm, onClose }) {
   const allAssigned = picker.items.every((i) => {
@@ -1158,11 +1223,11 @@ function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange,
   return (
     <div style={styles.modalOverlay} onClick={onClose}>
       <div style={{ ...styles.modal, ...styles.modalWide }} onClick={(e) => e.stopPropagation()}>
-        <h3 style={styles.modalTitle}>Add to Film Queue</h3>
+        <h3 style={styles.modalTitle}>Add to Slate</h3>
         <p style={styles.modalHint}>
-          Each idea becomes a beat sheet in the film queue — no project card. The writer
+          Each idea becomes a beat sheet on the Slate — no project card. The writer
           gets the beat sheet task right away; the editor is optional and can be assigned
-          later in the Film Queue.
+          later on the Slate. The idea stays here flagged On Slate; click that chip to undo.
         </p>
         <div style={styles.typePickList}>
           {picker.items.map((i) => {
@@ -1230,7 +1295,7 @@ function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange,
             title={allAssigned ? undefined : 'Pick a writer for every idea'}
             style={{ ...styles.submitBtn, flex: 'none', padding: '8px 20px', opacity: sending || !allAssigned ? 0.4 : 1 }}
           >
-            {sending ? 'Adding…' : `Add to Film Queue (${picker.items.length})`}
+            {sending ? 'Adding…' : `Add to Slate (${picker.items.length})`}
           </button>
           <button onClick={onClose} style={{ ...styles.cancelBtn, flex: 'none', padding: '8px 16px' }}>Cancel</button>
         </div>
@@ -1239,7 +1304,7 @@ function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange,
   );
 }
 
-function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, tags, tagsForIdea, sort, onSort, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, onSaveTitles, onSaveTags, onCreateTag, tagEditorId, setTagEditorId, canRate, currentUserId, ratingsByIdea, onRate, selectMode, selectedIds, onToggleSelect, onAddProject, onAddFilmQueue }) {
+function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, tags, tagsForIdea, sort, onSort, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, onSaveTitles, onSaveTags, onCreateTag, tagEditorId, setTagEditorId, canRate, currentUserId, ratingsByIdea, onRate, selectMode, selectedIds, onToggleSelect, onAddProject, onAddFilmQueue, destinationsFor, onUnsend, undoingId }) {
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [contextEditingId, setContextEditingId] = useState(null);
@@ -1256,10 +1321,11 @@ function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, t
     return () => document.removeEventListener('click', close);
   }, [addMenuId]);
 
-  // Grid template gains a Rating column only for rater roles, and Up Next
-  // carries a trailing Project column ("Add Project" / "In Production").
+  // Grid template gains a Rating column only for rater roles. Both buckets
+  // carry a trailing Status column: the per-idea send button, or the
+  // "In Production" / "On Slate" chip that undoes the send when re-clicked.
   const baseGrid = canRate ? styles.rowGridRate : styles.rowGrid;
-  const hasProjectCol = bucket === 'up_next';
+  const hasProjectCol = true;
   const grid = hasProjectCol
     ? { ...baseGrid, gridTemplateColumns: `${baseGrid.gridTemplateColumns} 108px` }
     : baseGrid;
@@ -1307,7 +1373,7 @@ function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, t
         <span style={styles.th}>Potential Titles</span>
         {canRate && <SortableTh label="Rating" k="rating" sort={sort} onSort={onSort} />}
         <SortableTh label="Added by" k="addedBy" sort={sort} onSort={onSort} />
-        {hasProjectCol && <span style={styles.th}>Project</span>}
+        {hasProjectCol && <span style={styles.th}>Status</span>}
       </div>
 
       <Droppable droppableId={bucket}>
@@ -1552,40 +1618,69 @@ function BucketSection({ bucket, title, titleColor, emptyHint, items, actions, t
 
                       {hasProjectCol && (
                         <div style={styles.cell}>
-                          {item.project_id ? (
-                            <span style={styles.inProductionTag} title="A project card already exists for this idea.">
-                              In Production
-                            </span>
-                          ) : (
-                            <div style={styles.projectColActions}>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setAddMenuId(addMenuId === item.id ? null : item.id); }}
-                                disabled={selectMode}
-                                style={{ ...styles.addProjectBtn, opacity: selectMode ? 0.4 : 1 }}
-                              >
-                                + Add
-                              </button>
-                              {addMenuId === item.id && (
-                                <div style={styles.addMenu} onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    type="button"
-                                    onClick={() => { setAddMenuId(null); onAddProject(item); }}
-                                    style={styles.addMenuItem}
-                                  >
-                                    to Projects
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => { setAddMenuId(null); onAddFilmQueue(item); }}
-                                    style={styles.addMenuItem}
-                                  >
-                                    to Film Queue
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                          {item.project_id || item.film_queue_item_id ? (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onUnsend(item); }}
+                              disabled={selectMode || !!undoingId}
+                              title={item.project_id
+                                ? 'A project card exists for this idea. Click to undo — deletes the card and pulls the idea back.'
+                                : 'A beat sheet is on the Slate for this idea. Click to undo — deletes the sheet and pulls the idea back.'}
+                              style={{
+                                ...(item.project_id ? styles.inProductionTag : styles.onSlateTag),
+                                opacity: selectMode ? 0.4 : 1,
+                              }}
+                            >
+                              {undoingId === item.id ? 'Undoing…' : item.project_id ? 'In Production' : 'On Slate'}
+                            </button>
+                          ) : (() => {
+                            // One eligible destination → a direct button; a tag
+                            // from each bucket → the "+ Add" menu with both.
+                            const dests = destinationsFor(item);
+                            if (dests.length === 1) {
+                              const toProjects = dests[0] === 'projects';
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); (toProjects ? onAddProject : onAddFilmQueue)(item); }}
+                                  disabled={selectMode}
+                                  style={{ ...styles.addProjectBtn, opacity: selectMode ? 0.4 : 1 }}
+                                >
+                                  {toProjects ? '+ Project' : '+ Slate'}
+                                </button>
+                              );
+                            }
+                            return (
+                              <div style={styles.projectColActions}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setAddMenuId(addMenuId === item.id ? null : item.id); }}
+                                  disabled={selectMode}
+                                  style={{ ...styles.addProjectBtn, opacity: selectMode ? 0.4 : 1 }}
+                                >
+                                  + Add
+                                </button>
+                                {addMenuId === item.id && (
+                                  <div style={styles.addMenu} onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      onClick={() => { setAddMenuId(null); onAddProject(item); }}
+                                      style={styles.addMenuItem}
+                                    >
+                                      to Projects
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => { setAddMenuId(null); onAddFilmQueue(item); }}
+                                      style={styles.addMenuItem}
+                                    >
+                                      to Slate
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>
@@ -1898,7 +1993,13 @@ const styles = {
     display: 'inline-block', padding: '3px 10px', borderRadius: '999px',
     border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.12)',
     color: '#4ade80', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap',
-    cursor: 'default',
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  onSlateTag: {
+    display: 'inline-block', padding: '3px 10px', borderRadius: '999px',
+    border: `1px solid ${colors.info.border}`, background: colors.info.bg,
+    color: colors.info.fgSoft, fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap',
+    cursor: 'pointer', fontFamily: 'inherit',
   },
   typePickList: { display: 'flex', flexDirection: 'column', gap: '10px' },
   modalWide: { maxWidth: '640px' },

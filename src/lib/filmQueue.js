@@ -28,11 +28,11 @@ export function defaultMinutesFor(queueType) {
 }
 
 // Idea tags (idea_tags.label) → queue type. Same idea as Ideas.js's
-// TAG_LABEL_TO_PROJECT_TYPE, but for the Film Queue path. 'Podcast Only'
-// maps to nothing on purpose.
+// TAG_LABEL_TO_PROJECT_TYPE, but for the Slate path. 'Podcast Only' and
+// 'Trevor May Baseball Videos' map to nothing on purpose — those ideas go to
+// Projects (the tm_baseball queue type still exists for sheets queued by hand).
 export const IDEA_TAG_TO_QUEUE_TYPE = {
   'Mayday Videos': 'mayday',
-  'Trevor May Baseball Videos': 'tm_baseball',
   'Short Form Only': 'short_form',
   'Ad': 'ad',
 };

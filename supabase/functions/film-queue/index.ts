@@ -2,7 +2,22 @@
 // Actions:
 //   { action: "enqueue_ideas", items: [{ idea_id, queue_type, writer_id, editor_id }] }
 //     — staff JWT. Creates a beat sheet + queue item per idea, hands the
-//       writer an fq_write task, and removes the idea. No project card.
+//       writer an fq_write task, and links the idea to the queue item
+//       (write_ideas.film_queue_item_id) so it can be undone. No project card.
+//   { action: "unsend_ideas", idea_ids: [...] }
+//     — staff JWT. Undo for an idea sent to Projects or the Slate: deletes
+//       the project card (tasks + sprint cards go with it via the projects
+//       delete trigger) or the beat sheet (cascades to the queue item, whose
+//       trigger sweeps its tasks), drops the assignees' notifications, and
+//       frees the idea. Refuses a Slate item that's already filmed or packed
+//       into a locked session.
+//   { action: "sync_sheet_status", beat_sheet_id, status }
+//     — staff JWT. Called after the Production config bar's status dropdown
+//       writes beat_sheets.status by hand. Completes the open task that flip
+//       implies (ready_for_review → fq_write; approved → fq_write then
+//       fq_review) and runs the same advance step task completion would, so a
+//       manual flip still hands the reviewer their task. Also fills in a
+//       missing fq_review / fq_send when the chain never created one.
 //   { action: "lock_session", force? }
 //     — cron (x-cron-secret) or admin JWT. The 6am job: gates on 6am PT,
 //       locks the session dated today, packs approved items, generates the
@@ -19,6 +34,7 @@ import {
   corsHeaders,
   jsonResp,
   notifyUser,
+  logEvent,
 } from "../shared/workflow-engine.ts";
 import {
   FILM_QUEUE_REVIEWER,
@@ -29,6 +45,8 @@ import {
   ptNow,
   compilePrompterSession,
   createFilmQueueTask,
+  createReviewerStepTask,
+  advanceFilmQueue,
 } from "../shared/film-queue.ts";
 
 const STAFF_ROLES = ["admin", "director", "director_creative", "director_comms", "member"];
@@ -156,10 +174,12 @@ Deno.serve(async (req: Request) => {
 
         const { data: idea, error: ideaErr } = await admin
           .from("write_ideas")
-          .select("id, text, context, potential_titles")
+          .select("id, text, context, potential_titles, project_id, film_queue_item_id")
           .eq("id", ideaId)
           .single();
         if (ideaErr || !idea) throw new Error("idea not found");
+        if (idea.project_id) throw new Error("already in Projects — undo that first");
+        if (idea.film_queue_item_id) throw new Error("already on the Slate");
 
         const beats =
           queueType === "mayday" && tpl?.beats?.length
@@ -216,7 +236,12 @@ Deno.serve(async (req: Request) => {
           notifyBody: `"${sheet.title}" was added to the film queue and assigned to you.`,
         });
 
-        await admin.from("write_ideas").delete().eq("id", ideaId);
+        // The idea stays on the board, flagged On Slate, until someone undoes it.
+        const { error: linkErr } = await admin
+          .from("write_ideas")
+          .update({ film_queue_item_id: qItem.id })
+          .eq("id", ideaId);
+        if (linkErr) console.error("idea link failed:", linkErr.message);
         created.push({ idea_id: ideaId, beat_sheet_id: sheet.id, queue_item_id: qItem.id, task_id: task?.id || null });
       } catch (err) {
         errors.push({ idea_id: ideaId, error: (err as Error).message });
@@ -224,6 +249,155 @@ Deno.serve(async (req: Request) => {
     }
 
     return jsonResp({ created, errors });
+  }
+
+  // ─── sync_sheet_status ──────────────────────────────────────
+  if (action === "sync_sheet_status") {
+    if (isCron) return jsonResp({ error: "sync_sheet_status needs a user" }, 400);
+    const sheetId = String(body.beat_sheet_id || "");
+    const status = String(body.status || "");
+    if (!sheetId) return jsonResp({ error: "beat_sheet_id required" }, 400);
+    if (!["drafting", "ready_for_review", "approved"].includes(status)) {
+      return jsonResp({ error: `invalid status ${status}` }, 400);
+    }
+
+    const { data: item } = await admin
+      .from("film_queue_items")
+      .select("id, state, sheet:beat_sheets(title)")
+      .eq("beat_sheet_id", sheetId)
+      .maybeSingle();
+    // Sheets that aren't queued (or already filmed) have no task chain to keep
+    // in step — the column write the client already did is the whole change.
+    if (!item || item.state !== "queued") return jsonResp({ ok: true, note: "not queued" });
+    const sheetTitle = (item.sheet as { title?: string } | null)?.title || "Untitled";
+
+    const OPEN = ["pending", "active", "on_hold"];
+    const implied = status === "ready_for_review" ? ["fq_write"]
+      : status === "approved" ? ["fq_write", "fq_review"]
+      : [];
+    const completedIds: string[] = [];
+    const nextIds: string[] = [];
+
+    for (const stepKey of implied) {
+      const { data: open } = await admin
+        .from("tasks")
+        .select("id, step_key, related_entity_id, assignee_id")
+        .eq("related_entity_type", "film_queue_item")
+        .eq("related_entity_id", item.id)
+        .eq("step_key", stepKey)
+        .in("status", OPEN)
+        .order("created_at", { ascending: true })
+        .limit(1);
+      const task = open?.[0];
+      if (!task) continue;
+
+      // Same bookkeeping as workflow-complete-task's regular path: mark
+      // complete, log it, and close any sprint card linked to the task.
+      const nowIso = new Date().toISOString();
+      const completionPayload = { via: "sheet_status", status };
+      const { error: updErr } = await admin
+        .from("tasks")
+        .update({ status: "complete", completion_payload: completionPayload, completed_at: nowIso })
+        .eq("id", task.id);
+      if (updErr) return jsonResp({ error: `task update failed: ${updErr.message}` }, 500);
+      await logEvent(admin, task.id, "completed", auth!.userId, completionPayload);
+      await admin
+        .from("personal_tasks")
+        .update({ status: "done", completed_at: nowIso })
+        .eq("task_id", task.id)
+        .neq("status", "done");
+      completedIds.push(task.id);
+
+      const result = await advanceFilmQueue(admin, task, undefined);
+      nextIds.push(...result.next_task_ids);
+    }
+
+    // A chain that never had the preceding task (a sheet enqueued while
+    // already in review, say) still needs the reviewer's task to exist.
+    const wanted = status === "ready_for_review" ? "fq_review" : status === "approved" ? "fq_send" : null;
+    if (wanted) {
+      const { data: existing } = await admin
+        .from("tasks")
+        .select("id")
+        .eq("related_entity_type", "film_queue_item")
+        .eq("related_entity_id", item.id)
+        .eq("step_key", wanted)
+        .limit(1);
+      if (!existing || existing.length === 0) {
+        const created = await createReviewerStepTask(admin, wanted, item.id, sheetTitle, auth!.userId);
+        if (created) nextIds.push(created.id);
+      }
+    }
+
+    return jsonResp({ ok: true, completed_task_ids: completedIds, next_task_ids: nextIds });
+  }
+
+  // ─── unsend_ideas ───────────────────────────────────────────
+  if (action === "unsend_ideas") {
+    if (isCron) return jsonResp({ error: "unsend_ideas needs a user" }, 400);
+    const ideaIds = Array.isArray(body.idea_ids) ? (body.idea_ids as unknown[]).map(String) : [];
+    if (ideaIds.length === 0) return jsonResp({ error: "idea_ids required" }, 400);
+
+    // Task-assignment notifications point at task ids; sweep them so nobody
+    // is left with a bell entry for work that no longer exists.
+    const dropTaskNotifications = async (entityType: string, entityId: string) => {
+      const { data: tasks } = await admin
+        .from("tasks")
+        .select("id")
+        .eq("related_entity_type", entityType)
+        .eq("related_entity_id", entityId);
+      const taskIds = (tasks || []).map((t) => t.id);
+      if (taskIds.length === 0) return;
+      await admin.from("notifications").delete().eq("link_tab", "my_tasks").in("link_target", taskIds);
+    };
+
+    const undone: Array<Record<string, unknown>> = [];
+    const errors: Array<Record<string, unknown>> = [];
+
+    for (const ideaId of ideaIds) {
+      try {
+        const { data: idea } = await admin
+          .from("write_ideas")
+          .select("id, project_id, film_queue_item_id")
+          .eq("id", ideaId)
+          .maybeSingle();
+        if (!idea) throw new Error("idea not found");
+        if (!idea.project_id && !idea.film_queue_item_id) throw new Error("idea hasn't been sent anywhere");
+
+        if (idea.film_queue_item_id) {
+          const { data: item } = await admin
+            .from("film_queue_items")
+            .select("id, beat_sheet_id, state, session_id")
+            .eq("id", idea.film_queue_item_id)
+            .maybeSingle();
+          if (item) {
+            if (item.state !== "queued") throw new Error("already sent to the editor — it can't come back to Ideas");
+            if (item.session_id) throw new Error("already packed into a locked film session");
+            await dropTaskNotifications("film_queue_item", item.id);
+            // Deleting the sheet cascades to the queue item, whose BEFORE
+            // DELETE trigger sweeps its tasks and sprint cards.
+            const { error: delErr } = await admin.from("beat_sheets").delete().eq("id", item.beat_sheet_id);
+            if (delErr) throw new Error(`beat sheet delete failed: ${delErr.message}`);
+          }
+          await admin.from("write_ideas").update({ film_queue_item_id: null }).eq("id", ideaId);
+        }
+
+        if (idea.project_id) {
+          await dropTaskNotifications("project", idea.project_id);
+          // The projects delete trigger sweeps tasks + sprint cards; stage
+          // assignments and clips cascade.
+          const { error: delErr } = await admin.from("projects").delete().eq("id", idea.project_id);
+          if (delErr) throw new Error(`project delete failed: ${delErr.message}`);
+          await admin.from("write_ideas").update({ project_id: null }).eq("id", ideaId);
+        }
+
+        undone.push({ idea_id: ideaId });
+      } catch (err) {
+        errors.push({ idea_id: ideaId, error: (err as Error).message });
+      }
+    }
+
+    return jsonResp({ undone, errors });
   }
 
   // ─── lock_session (the 6am job) ─────────────────────────────

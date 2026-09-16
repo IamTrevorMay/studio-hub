@@ -1043,11 +1043,22 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     }
   }, [tags.length, profile?.id, writeTagIds, fireTagWorkflow, routeTagDestination]);
 
-  const setSheetStatus = useCallback((sheet, status) => {
+  // The column write is what the dropdown means; the sync call afterwards
+  // keeps the task chain in step (a queued sheet flipped to Ready for review
+  // completes the writer's task and hands the reviewer theirs — otherwise a
+  // hand-flipped sheet never reaches Trevor's tasks).
+  const setSheetStatus = useCallback(async (sheet, status) => {
+    if (status === sheet.status) return;
     const patch = { status };
     if (status === 'approved') patch.approved_at = new Date().toISOString();
     else if (sheet.status === 'approved') patch.approved_at = null;
-    writeSheetFields(sheet, patch);
+    await writeSheetFields(sheet, patch);
+    try {
+      await callWorkflowFn('film-queue', { action: 'sync_sheet_status', beat_sheet_id: sheet.id, status });
+    } catch (e) {
+      console.error('Sheet status sync failed:', e);
+      alert(`Status saved, but the task pipeline didn't advance: ${e.message}`);
+    }
   }, [writeSheetFields]);
 
   const openCtx = (e, sheet) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, sheet }); };
