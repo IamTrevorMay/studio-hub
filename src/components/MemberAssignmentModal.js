@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { RESEARCH_FIELDS, emptyResearchForm, listResearchDocs, createResearchDoc } from '../lib/researchDocs';
@@ -229,7 +230,10 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
 
   if (!open) return null;
 
-  return (
+  // Portal to <body>: rendered inline, the fixed overlay gets trapped in the
+  // stacking context of whatever mounted it (a Dashboard widget slot, say) and
+  // later siblings paint over it, so it looks washed out and clicks fall through.
+  return createPortal(
     <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         <div style={styles.header}>
@@ -441,7 +445,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 // One optgroup-style block of checkbox rows inside the Assign to dropdown.
