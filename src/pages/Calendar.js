@@ -487,6 +487,24 @@ export default function Calendar({ onNavigate }) {
     return () => { supabase.removeChannel(channel); };
   }, [fetchVideoDeliverables, fetchUnassignedDeliverables]);
 
+  // Realtime: pick up events the Google pull cron imports/moves/deletes, and
+  // teammates' edits, without waiting for a tab refocus. Debounced because a
+  // pull run can touch several rows in one burst.
+  useEffect(() => {
+    let timer = null;
+    const channel = supabase
+      .channel('calendar-events-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events' }, () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => { timer = null; fetchCalendarEvents(); }, 400);
+      })
+      .subscribe();
+    return () => {
+      if (timer) clearTimeout(timer);
+      supabase.removeChannel(channel);
+    };
+  }, [fetchCalendarEvents]);
+
   // Scroll time grid to 7 AM on mount / view change
   useEffect(() => {
     if ((viewMode === 'week' || viewMode === 'day') && timeGridRef.current) {
@@ -560,9 +578,11 @@ export default function Calendar({ onNavigate }) {
     const origTimeStr = toPTTimeString(origStart);
     const newStart = ptToDate(targetKey, origTimeStr);
     const newEnd = new Date(newStart.getTime() + duration);
-    await supabase.from('calendar_events')
+    const { error } = await supabase.from('calendar_events')
       .update({ start_date: newStart.toISOString(), end_date: newEnd.toISOString() })
       .eq('id', ev.id);
+    if (error) { console.error('Event drop save error:', error); return; }
+    syncToGoogleCalendar('update', ev.id);
     await syncVideoEventToProject(ev.id, ev.event_type, newStart);
     fetchCalendarEvents();
   }
@@ -661,15 +681,18 @@ export default function Calendar({ onNavigate }) {
         const startTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
         const newStart = ptToDate(drag.currentDateKey, startTime);
         const newEnd = new Date(newStart.getTime() + drag.durationMin * 60000);
+        // The Google push reads the row server-side, so it MUST run after the
+        // update has landed — firing it in parallel raced the write and pushed
+        // the pre-move times, and the echo guard then kept Google stale.
         supabase.from('calendar_events')
           .update({ start_date: newStart.toISOString(), end_date: newEnd.toISOString() })
           .eq('id', drag.event.id)
           .then(({ error }) => {
-            if (error) console.error('Drag save error:', error);
+            if (error) { console.error('Drag save error:', error); return; }
+            syncToGoogleCalendar('update', drag.event.id);
             syncVideoEventToProject(drag.event.id, drag.event.event_type, newStart)
               .then(() => fetchCalendarEvents());
           });
-        syncToGoogleCalendar('update', drag.event.id);
       } else {
         wasDragging.current = true;
         setTimeout(() => { wasDragging.current = false; }, 0);
@@ -1181,8 +1204,9 @@ export default function Calendar({ onNavigate }) {
         recurrence_rule: null,
         created_by: profile.id,
       };
-      const { error } = await supabase.from('calendar_events').insert(payload);
+      const { data: inserted, error } = await supabase.from('calendar_events').insert(payload).select('id').single();
       if (error) throw error;
+      syncToGoogleCalendar('create', inserted.id);
       fetchCalendarEvents();
     } catch (err) {
       console.error('Error duplicating event:', err);
