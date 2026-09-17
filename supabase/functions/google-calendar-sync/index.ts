@@ -1,9 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Admin tier = admin + director (mirrors the DB is_admin() helper and the
-// client-side isAdminTier). Directors are restricted in the UI, not here.
-const ADMIN_TIER = ["admin", "director"];
+// Any non-client account may push. calendar_events is readable by every
+// non-client under RLS, so letting them mirror an event they can already see
+// onto the team's Google calendar exposes nothing new; clients are fenced off
+// calendar_events entirely and stay fenced off here.
+const PT = "America/Los_Angeles";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,7 +56,59 @@ async function getValidToken(adminClient: any, userId: string) {
   return conn.access_token;
 }
 
-function buildRRule(rule: any): string | null {
+// ── PT wall-clock helpers (mirror google-calendar-pull) ─────────────────────
+// Studio is PT-pinned: all-day rows are stored as PT 00:00 → PT 23:59, and
+// recurrence excludedDates / endDate are PT calendar days. Everything sent to
+// Google has to be expressed on that PT wall clock, never on UTC dates.
+
+function ptParts(d: Date): { y: number; m: number; d: number; hh: number; mm: number; ss: number } {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: PT, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  const p: Record<string, string> = {};
+  for (const part of dtf.formatToParts(d)) p[part.type] = part.value;
+  return { y: +p.year, m: +p.month, d: +p.day, hh: +p.hour % 24, mm: +p.minute, ss: +p.second };
+}
+
+function ptDateKey(d: Date): string {
+  const { y, m, d: day } = ptParts(d);
+  return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function tzOffsetMs(d: Date): number {
+  const { y, m, d: day, hh, mm, ss } = ptParts(d);
+  return Date.UTC(y, m - 1, day, hh, mm, ss) - d.getTime();
+}
+
+/** PT wall-clock → UTC instant (two passes so DST edges resolve correctly). */
+function ptWallToUtc(y: number, m: number, d: number, hh: number, mm: number, ss = 0): Date {
+  const naive = Date.UTC(y, m - 1, d, hh, mm, ss);
+  let off = tzOffsetMs(new Date(naive));
+  off = tzOffsetMs(new Date(naive - off));
+  return new Date(naive - off);
+}
+
+function shiftDateKey(key: string, days: number): string {
+  const [y, m, d] = key.slice(0, 10).split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  t.setUTCDate(t.getUTCDate() + days);
+  return t.toISOString().slice(0, 10);
+}
+
+const compact = (key: string) => key.slice(0, 10).replace(/-/g, "");
+
+function utcStamp(d: Date): string {
+  return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * Studio recurrence_rule → Google `recurrence` lines (RRULE + EXDATE).
+ * Mirrors src/lib/recurrence.js: daily / weekly(daysOfWeek) / weekdays /
+ * monthly (same day-of-month) / yearly, ending never / on a PT date / after N.
+ */
+function buildRecurrence(rule: any, ev: any): string[] | null {
   if (!rule || rule.type === "none") return null;
 
   const parts: string[] = [];
@@ -83,14 +137,37 @@ function buildRRule(rule: any): string | null {
     parts.push(`INTERVAL=${rule.interval}`);
   }
 
+  // UNTIL must match DTSTART's value type: a bare date for all-day series, a
+  // UTC timestamp (end of that PT day) for timed ones.
   if (rule.endType === "count" && rule.endCount) {
     parts.push(`COUNT=${rule.endCount}`);
   } else if (rule.endType === "date" && rule.endDate) {
-    const d = rule.endDate.replace(/-/g, "");
-    parts.push(`UNTIL=${d}T235959Z`);
+    if (ev.all_day) {
+      parts.push(`UNTIL=${compact(rule.endDate)}`);
+    } else {
+      const [y, m, d] = rule.endDate.slice(0, 10).split("-").map(Number);
+      parts.push(`UNTIL=${utcStamp(ptWallToUtc(y, m, d, 23, 59, 59))}`);
+    }
   }
 
-  return `RRULE:${parts.join(";")}`;
+  const lines = [`RRULE:${parts.join(";")}`];
+
+  // Skipped occurrences. An EXDATE has to name the instance's exact start, so
+  // timed series carry the parent's PT wall-clock time on each excluded day.
+  const excluded: string[] = [...new Set((rule.excludedDates || []).map((k: string) => String(k).slice(0, 10)))]
+    .filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k))
+    .sort();
+  if (excluded.length) {
+    if (ev.all_day) {
+      lines.push(`EXDATE;VALUE=DATE:${excluded.map(compact).join(",")}`);
+    } else {
+      const { hh, mm, ss } = ptParts(new Date(ev.start_date));
+      const hms = `${String(hh).padStart(2, "0")}${String(mm).padStart(2, "0")}${String(ss).padStart(2, "0")}`;
+      lines.push(`EXDATE;TZID=${PT}:${excluded.map((k) => `${compact(k)}T${hms}`).join(",")}`);
+    }
+  }
+
+  return lines;
 }
 
 function buildGoogleEvent(ev: any) {
@@ -106,23 +183,24 @@ function buildGoogleEvent(ev: any) {
     if (isNaN(startParsed.getTime()) || isNaN(endParsed.getTime())) {
       throw new Error(`Invalid dates on event "${ev.title}": start=${ev.start_date}, end=${ev.end_date}`);
     }
-    const startDate = startParsed.toISOString().split("T")[0];
-    endParsed.setDate(endParsed.getDate() + 1);
-    const endDate = endParsed.toISOString().split("T")[0];
-    event.start = { date: startDate };
-    event.end = { date: endDate };
+    // Studio stores the last day at 23:59 PT; Google wants an exclusive end
+    // date. Resolve both on the PT wall clock — the old UTC split put a 3-day
+    // block on Google as 4 days.
+    const startKey = ptDateKey(startParsed);
+    const lastKey = ptDateKey(endParsed);
+    event.start = { date: startKey };
+    event.end = { date: shiftDateKey(lastKey < startKey ? startKey : lastKey, 1) };
   } else {
     if (!ev.start_date || !ev.end_date) {
       throw new Error(`Missing dates on event "${ev.title}"`);
     }
-    event.start = { dateTime: ev.start_date, timeZone: "America/Los_Angeles" };
-    event.end = { dateTime: ev.end_date, timeZone: "America/Los_Angeles" };
+    event.start = { dateTime: ev.start_date, timeZone: PT };
+    event.end = { dateTime: ev.end_date, timeZone: PT };
   }
 
-  const rrule = buildRRule(ev.recurrence_rule);
-  if (rrule) {
-    event.recurrence = [rrule];
-  }
+  // PUT replaces the whole resource, so an empty list is what clears a series
+  // that was made one-off in Studio.
+  event.recurrence = buildRecurrence(ev.recurrence_rule, ev) ?? [];
 
   return event;
 }
@@ -155,18 +233,18 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Google Calendar is an admin-scoped integration (per-admin connections),
-    // matching google-calendar-fetch. Without this gate any authenticated user
-    // could read an arbitrary calendar_events row by UUID and sync it.
+    // Clients are fenced off calendar_events by RLS; keep them out here too.
+    // Everyone else (staff + contractors) can already read every event, so
+    // mirroring one to Google via the team connection leaks nothing.
     {
       const roleClient = createClient(
         Deno.env.get("SUPABASE_URL")!,
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
       );
       const { data: profile } = await roleClient
-        .from("profiles").select("role").eq("id", user.id).single();
-      if (!ADMIN_TIER.includes(profile?.role)) {
-        return new Response(JSON.stringify({ error: "Admin only" }), {
+        .from("profiles").select("role, deactivated_at").eq("id", user.id).single();
+      if (!profile || profile.role === "client" || profile.deactivated_at) {
+        return new Response(JSON.stringify({ error: "Not allowed" }), {
           status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -192,23 +270,6 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Use the caller's own Google connection — never an arbitrary first row.
-    // Picking connections[0] previously meant any admin's sync ran through
-    // whichever admin happened to have connected first.
-    const { data: conn } = await adminClient
-      .from("google_calendar_connections")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (!conn) {
-      return new Response(JSON.stringify({ synced: false, reason: "no_connection" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const connUserId = conn.user_id;
-
     const { data: ev, error: evError } = await adminClient
       .from("calendar_events")
       .select("*")
@@ -227,14 +288,35 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { data: mapping } = await adminClient
-      .from("google_calendar_mappings")
-      .select("google_calendar_id")
-      .eq("user_id", connUserId)
-      .eq("event_type", ev.event_type)
-      .single();
+    // Which Google connection carries this event: the caller's own if they
+    // have one, otherwise whichever connection has this event type mapped —
+    // that's how a teammate's Studio event lands on the shared calendar. A row
+    // already on Google sticks to the calendar it was pushed to.
+    let connUserId: string | null = null;
+    let mapping: { google_calendar_id: string } | null = null;
+    {
+      const { data: own } = await adminClient
+        .from("google_calendar_connections")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-    if (!mapping) {
+      let q = adminClient
+        .from("google_calendar_mappings")
+        .select("user_id, google_calendar_id")
+        .eq("event_type", ev.event_type);
+      if (own) q = q.eq("user_id", own.user_id);
+      const { data: candidates } = await q.order("created_at", { ascending: true });
+
+      const pinned = (candidates || []).find((m: any) => m.google_calendar_id === ev.google_calendar_id);
+      const chosen = pinned || (candidates || [])[0] || null;
+      if (chosen) {
+        connUserId = chosen.user_id;
+        mapping = { google_calendar_id: chosen.google_calendar_id };
+      }
+    }
+
+    if (!connUserId || !mapping) {
       return new Response(JSON.stringify({ synced: false, reason: "no_mapping" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

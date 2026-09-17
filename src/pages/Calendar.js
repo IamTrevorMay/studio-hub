@@ -436,15 +436,17 @@ export default function Calendar({ onNavigate }) {
         return;
       }
       targetEventId = newEvent.id;
+      syncToGoogleCalendar('create', newEvent.id);
 
       // Exclude this date from the parent's recurrence
       if (parent?.recurrence_rule) {
         const dateKey = toPTDateKey(new Date(event.start_date));
         const rule = { ...parent.recurrence_rule };
         rule.excludedDates = [...(rule.excludedDates || []), dateKey];
-        await supabase.from('calendar_events')
+        const { error: ruleErr } = await supabase.from('calendar_events')
           .update({ recurrence_rule: rule })
           .eq('id', parentId);
+        if (!ruleErr) syncToGoogleCalendar('update', parentId);
       }
     }
 
@@ -837,6 +839,8 @@ export default function Calendar({ onNavigate }) {
       const { error } = await supabase.from('calendar_events')
         .update({ recurrence_rule: rule }).eq('id', parentId);
       if (error) throw error;
+      // The exclusion goes to Google as an EXDATE on the series.
+      syncToGoogleCalendar('update', parentId);
       setSelectedEvent(null);
       setRecurrencePrompt(null);
       fetchCalendarEvents();
@@ -884,7 +888,10 @@ export default function Calendar({ onNavigate }) {
     rule.excludedDates = [...(rule.excludedDates || []), dateKey];
     supabase.from('calendar_events')
       .update({ recurrence_rule: rule }).eq('id', parentId)
-      .then(({ error }) => { if (error) console.error('Error excluding date:', error); });
+      .then(({ error }) => {
+        if (error) { console.error('Error excluding date:', error); return; }
+        syncToGoogleCalendar('update', parentId);
+      });
     setRecurrencePrompt(null);
   }
 
