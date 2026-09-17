@@ -444,9 +444,9 @@ export default function Clients() {
                       </div>
                     </div>
 
-                    {/* Drive folder */}
+                    {/* Assets folder */}
                     <div style={styles.cardRow}>
-                      <span style={styles.rowLabel}>Delivery folder</span>
+                      <span style={styles.rowLabel}>Assets folder</span>
                       {cp?.drive_folder_url ? (
                         <a
                           href={cp.drive_folder_url}

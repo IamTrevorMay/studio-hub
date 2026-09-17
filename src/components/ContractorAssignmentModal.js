@@ -82,7 +82,7 @@ export default function ContractorAssignmentModal({
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     contractor_id: '', title: '', description: '', asset_url: '',
-    due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '',
+    due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '', project_folder_url: '',
   });
 
   const fetchContractors = useCallback(async () => {
@@ -111,11 +111,12 @@ export default function ContractorAssignmentModal({
         pay_amount: existing.pay_amount != null ? String(existing.pay_amount) : '',
         status: existing.status || 'assigned',
         submit_folder: existing.submit_folder_id || '',
+        project_folder_url: existing.project_folder_url || '',
       });
     } else {
       setForm({
         contractor_id: '', title: '', description: '', asset_url: '',
-        due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '',
+        due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '', project_folder_url: '',
       });
     }
   }, [open, isEdit, existing, fetchContractors, contractorOptions]);
@@ -125,7 +126,11 @@ export default function ContractorAssignmentModal({
     ? contractorList.find(c => c.id === form.contractor_id)
     : null;
 
-  const canSubmit = form.contractor_id && form.title.trim() && !submitting && !isLocked;
+  // Clients must point every project at its folder (DB sanitize/lock triggers
+  // enforce the same rule server-side).
+  const canSubmit = form.contractor_id && form.title.trim()
+    && (!isClient || form.project_folder_url.trim())
+    && !submitting && !isLocked;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -136,6 +141,7 @@ export default function ContractorAssignmentModal({
       const base = isClient ? {
         title: form.title.trim(),
         description: form.description.trim() || null,
+        project_folder_url: form.project_folder_url.trim(),
         due_date: form.due_date || null,
         due_time: form.due_time || null,
       } : {
@@ -311,6 +317,22 @@ export default function ContractorAssignmentModal({
                 disabled={isLocked}
               />
             </div>
+            {isClient && (
+              <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+                <label style={styles.label}>Project Folder Link *</label>
+                <input
+                  value={form.project_folder_url}
+                  onChange={e => setForm(p => ({ ...p, project_folder_url: e.target.value }))}
+                  style={styles.input}
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  disabled={isLocked}
+                />
+                <span style={styles.hint}>
+                  The folder with this project's footage and materials. Your editor will deliver the
+                  finished project by sending you a link to its exact location.
+                </span>
+              </div>
+            )}
             {!isClient && (
               <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
                 <label style={styles.label}>Asset Link</label>

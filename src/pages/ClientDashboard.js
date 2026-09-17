@@ -243,10 +243,10 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
         <div style={styles.headerActions}>
           {driveFolderUrl ? (
             <a href={driveFolderUrl} target="_blank" rel="noopener noreferrer" style={styles.folderLink}>
-              Delivery folder ↗
+              Assets folder ↗
             </a>
           ) : (
-            <span style={styles.folderMissing}>Set your delivery folder in Profile</span>
+            <span style={styles.folderMissing}>Set your assets folder in Profile</span>
           )}
           <button
             style={{ ...styles.newBtn, ...(editors.length === 0 ? styles.newBtnDisabled : {}) }}
@@ -354,6 +354,21 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
                   {a.description && <p style={styles.description}>{a.description}</p>}
 
                   <div style={styles.detailActions}>
+                    {driveFolderUrl && (
+                      <a href={driveFolderUrl} target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
+                        Assets ↗
+                      </a>
+                    )}
+                    {a.project_folder_url && (
+                      <a href={a.project_folder_url} target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
+                        Project folder ↗
+                      </a>
+                    )}
+                    {a.delivery_url && (
+                      <a href={a.delivery_url} target="_blank" rel="noopener noreferrer" style={styles.finishedBtn}>
+                        Finished project ↗
+                      </a>
+                    )}
                     {review && (
                       <button
                         style={styles.reviewBtn}
@@ -686,6 +701,32 @@ const styles = {
     fontSize: 13,
     fontWeight: 600,
     cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+  },
+  linkBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    background: 'rgba(99,102,241,0.12)',
+    color: '#a5b4fc',
+    border: '1px solid rgba(99,102,241,0.3)',
+    borderRadius: 8,
+    padding: '7px 14px',
+    fontSize: 13,
+    fontWeight: 600,
+    textDecoration: 'none',
+    fontFamily: 'DM Sans, sans-serif',
+  },
+  finishedBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    background: 'rgba(52,211,153,0.12)',
+    color: '#34d399',
+    border: '1px solid rgba(52,211,153,0.3)',
+    borderRadius: 8,
+    padding: '7px 14px',
+    fontSize: 13,
+    fontWeight: 600,
+    textDecoration: 'none',
     fontFamily: 'DM Sans, sans-serif',
   },
 

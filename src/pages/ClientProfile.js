@@ -249,9 +249,9 @@ export default function ClientProfile() {
         </div>
       </div>
 
-      {/* Delivery Folder */}
+      {/* Assets Folder */}
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Delivery Folder</h2>
+        <h2 style={styles.sectionTitle}>Assets Folder</h2>
 
         <div style={styles.fieldGroup}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -275,8 +275,9 @@ export default function ClientProfile() {
             style={styles.input}
           />
           <p style={styles.helperText}>
-            Your editors will deliver final files to this folder. Paste a Google Drive folder
-            link and make sure your editors have access.
+            The folder with your branding assets (logos, fonts, colors, templates). It shows up as an
+            Assets button on every project so your editors can always find it. Paste a Google Drive
+            folder link and make sure your editors have access.
           </p>
         </div>
       </div>

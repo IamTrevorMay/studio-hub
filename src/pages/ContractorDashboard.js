@@ -7,6 +7,9 @@ import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 import { extractVideoId } from '../components/reviews/ReviewPlayer';
 
+// Finished-project links must be real URLs — the DB gate only checks non-blank.
+const isValidUrl = (v) => /^https?:\/\/\S+$/i.test((v || '').trim());
+
 const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
 
 const STATUS_LABELS = {
@@ -93,6 +96,11 @@ export default function ContractorDashboard({ onNavigate }) {
   const [stuckSending, setStuckSending] = useState(false);
   const [postingComment, setPostingComment] = useState(false);
   const [completeConfirmAssignment, setCompleteConfirmAssignment] = useState(null);
+  // Client-created assignments complete with a link to the finished project
+  // instead of a Drive upload: { [assignmentId]: url } while typing, and the
+  // url carried into the hours modal for hourly editors.
+  const [deliveryInputs, setDeliveryInputs] = useState({});
+  const [hoursDeliveryUrl, setHoursDeliveryUrl] = useState('');
   const [myDriveFolderId, setMyDriveFolderId] = useState(null);
 
   // Client-created assignments: delivery folder URLs + review-room links
@@ -268,14 +276,20 @@ export default function ContractorDashboard({ onNavigate }) {
 
   // ── Handlers ───────────────────────────────────────────────────
 
-  async function handleStatusChange(assignment, newStatus) {
+  async function handleStatusChange(assignment, newStatus, extra = {}) {
     if (readOnly) return; // preview mode — no writes
     if (statusChangingRef.current.has(assignment.id)) return; // guard double-click
     statusChangingRef.current.add(assignment.id);
     try {
-      const updates = { status: newStatus, updated_at: new Date().toISOString() };
+      const updates = { status: newStatus, updated_at: new Date().toISOString(), ...extra };
       if (newStatus === 'completed') updates.completed_at = new Date().toISOString();
-      await supabase.from('contractor_assignments').update(updates).eq('id', assignment.id);
+      const { error } = await supabase.from('contractor_assignments').update(updates).eq('id', assignment.id);
+      if (error) {
+        // The DB refuses to complete a client project without a finished-project
+        // link — say so instead of silently leaving the card unchanged.
+        window.alert(error.message);
+        return;
+      }
 
       // Client-created assignments: DB triggers notify the client on
       // completion — inserting here too would double-notify (and there are
@@ -382,17 +396,20 @@ export default function ContractorDashboard({ onNavigate }) {
     setHoursSubmitting(true);
     try {
       const hours = parseFloat(hoursInput);
+      const hoursCreatorIsClient = hoursModalAssignment.created_by_profile?.role === 'client';
       const updates = {
         status: 'completed',
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         hours_spent: hours,
+        // Only client projects carry a delivery link through this modal.
+        ...(hoursCreatorIsClient && hoursDeliveryUrl ? { delivery_url: hoursDeliveryUrl } : {}),
       };
-      await supabase.from('contractor_assignments').update(updates).eq('id', hoursModalAssignment.id);
+      const { error } = await supabase.from('contractor_assignments').update(updates).eq('id', hoursModalAssignment.id);
+      if (error) { window.alert(error.message); return; }
 
       // Same double-notification guard as handleStatusChange: DB triggers
       // cover client creators on completion.
-      const hoursCreatorIsClient = hoursModalAssignment.created_by_profile?.role === 'client';
       if (hoursModalAssignment.created_by && !hoursCreatorIsClient) {
         await supabase.from('notifications').insert({
           user_id: hoursModalAssignment.created_by,
@@ -413,6 +430,7 @@ export default function ContractorDashboard({ onNavigate }) {
       }
       setHoursModalAssignment(null);
       setHoursInput('');
+      setHoursDeliveryUrl('');
       fetchAssignments();
     } catch (err) {
       console.error('handleCompleteWithHours failed', err);
@@ -805,24 +823,42 @@ export default function ContractorDashboard({ onNavigate }) {
                     </p>
                   )}
 
-                  {/* Client delivery folder (manual delivery — link only) */}
+                  {/* Client project: branding assets folder + this project's folder (links only) */}
                   {isClientCreated && (
-                    clientFolders[a.created_by] ? (
-                      <p style={{ margin: '8px 0 0' }}>
+                    <div style={styles.clientLinksRow}>
+                      {clientFolders[a.created_by] ? (
                         <a
                           href={clientFolders[a.created_by]}
                           target="_blank"
                           rel="noopener noreferrer"
                           style={styles.deliveryLink}
                         >
-                          Client delivery folder ↗
+                          Assets ↗
                         </a>
-                      </p>
-                    ) : (
-                      <p style={styles.deliveryMuted}>
-                        Client hasn't linked a delivery folder yet
-                      </p>
-                    )
+                      ) : (
+                        <span style={styles.deliveryMuted}>Client hasn't linked an assets folder yet</span>
+                      )}
+                      {a.project_folder_url && (
+                        <a
+                          href={a.project_folder_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={styles.deliveryLink}
+                        >
+                          Project folder ↗
+                        </a>
+                      )}
+                      {a.delivery_url && (
+                        <a
+                          href={a.delivery_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={styles.finishedLink}
+                        >
+                          Finished project ↗
+                        </a>
+                      )}
+                    </div>
                   )}
 
                   {/* Status action buttons */}
@@ -859,7 +895,40 @@ export default function ContractorDashboard({ onNavigate }) {
                           ● In Progress
                         </span>
 
-                        {a.content_type === 'podcast' ? (
+                        {isClientCreated ? (
+                          /* Client projects: no upload — paste the exact location of the finished
+                             project. The DB refuses completion without it. */
+                          <div style={styles.deliveryRow} onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="url"
+                              value={deliveryInputs[a.id] ?? ''}
+                              onChange={(e) => setDeliveryInputs(prev => ({ ...prev, [a.id]: e.target.value }))}
+                              placeholder="Link to the finished project (exact file or folder)"
+                              style={styles.deliveryInput}
+                              disabled={readOnly}
+                            />
+                            <button
+                              style={{
+                                ...styles.submitButtonGreen,
+                                opacity: isValidUrl(deliveryInputs[a.id]) && !readOnly ? 1 : 0.45,
+                              }}
+                              disabled={!isValidUrl(deliveryInputs[a.id]) || readOnly}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const url = deliveryInputs[a.id].trim();
+                                if (myPaymentType === 'hourly') {
+                                  setHoursDeliveryUrl(url);
+                                  setHoursModalAssignment(a);
+                                  setHoursInput('');
+                                } else {
+                                  handleStatusChange(a, 'completed', { delivery_url: url });
+                                }
+                              }}
+                            >
+                              &#10003; Complete
+                            </button>
+                          </div>
+                        ) : a.content_type === 'podcast' ? (
                           <button
                             style={styles.actionButton}
                             onClick={(e) => { e.stopPropagation(); setCompleteConfirmAssignment(a); }}
@@ -1735,6 +1804,45 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: 0.4,
     verticalAlign: 'middle',
+  },
+  clientLinksRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    margin: '8px 0 0',
+  },
+  finishedLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 12px',
+    background: 'rgba(52,211,153,0.12)',
+    color: '#34d399',
+    borderRadius: 8,
+    fontSize: 13,
+    fontWeight: 500,
+    textDecoration: 'none',
+    border: '1px solid rgba(52,211,153,0.3)',
+  },
+  deliveryRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flex: '1 1 320px',
+    minWidth: 0,
+  },
+  deliveryInput: {
+    flex: 1,
+    minWidth: 0,
+    padding: '8px 12px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 8,
+    color: '#fff',
+    fontSize: 13,
+    fontFamily: 'inherit',
+    outline: 'none',
   },
   deliveryLink: {
     display: 'inline-flex',

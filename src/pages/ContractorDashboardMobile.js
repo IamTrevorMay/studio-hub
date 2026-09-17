@@ -59,7 +59,7 @@ export default function ContractorDashboardMobile() {
     if (!profile?.id) return;
     const { data } = await supabase
       .from('contractor_assignments')
-      .select('*, created_by_profile:profiles!created_by(full_name)')
+      .select('*, created_by_profile:profiles!created_by(full_name, role)')
       .eq('contractor_id', profile.id)
       .order('created_at', { ascending: false });
     setAssignments(data || []);
@@ -194,6 +194,7 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
   const [text, setText] = useState('');
   const [posting, setPosting] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [deliveryUrl, setDeliveryUrl] = useState('');
   const endRef = useRef(null);
 
   const fetchComments = useCallback(async () => {
@@ -248,14 +249,17 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
     }
   }
 
-  async function setStatus(next) {
+  async function setStatus(next, extra = {}) {
     if (updating || !assignment) return;
     setUpdating(true);
     try {
-      const updates = { status: next, updated_at: new Date().toISOString() };
+      const updates = { status: next, updated_at: new Date().toISOString(), ...extra };
       if (next === 'completed') updates.completed_at = new Date().toISOString();
-      await supabase.from('contractor_assignments').update(updates).eq('id', assignmentId);
-      if (next === 'completed' && assignment.created_by) {
+      const { error } = await supabase.from('contractor_assignments').update(updates).eq('id', assignmentId);
+      if (error) { window.alert(error.message); return; }
+      // Client creators are notified by DB triggers (and get the finished link there).
+      const creatorIsClient = assignment.created_by_profile?.role === 'client';
+      if (next === 'completed' && assignment.created_by && !creatorIsClient) {
         await supabase.from('notifications').insert({
           user_id: assignment.created_by,
           type: 'fl_assignment_completed',
@@ -273,6 +277,7 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
   }
 
   if (!assignment) return null;
+  const isClientCreated = assignment.created_by_profile?.role === 'client';
   const accent = STATUS_COLORS[assignment.status] || '#94a3b8';
   const due = fmtDue(assignment.due_date, assignment.due_time);
 
@@ -294,14 +299,42 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
         {assignment.created_by_profile?.full_name && (
           <div style={detailStyles.metaLine}>From {assignment.created_by_profile.full_name}</div>
         )}
+        {(assignment.project_folder_url || assignment.delivery_url) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+            {assignment.project_folder_url && (
+              <a href={assignment.project_folder_url} target="_blank" rel="noopener noreferrer" style={detailStyles.assetLink}>Project folder ↗</a>
+            )}
+            {assignment.delivery_url && (
+              <a href={assignment.delivery_url} target="_blank" rel="noopener noreferrer" style={detailStyles.assetLink}>Finished project ↗</a>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={detailStyles.statusActions}>
         {assignment.status === 'assigned' && (
           <button onClick={() => setStatus('in_progress')} disabled={updating} style={detailStyles.statusBtn}>Start</button>
         )}
-        {assignment.status === 'in_progress' && (
+        {assignment.status === 'in_progress' && !isClientCreated && (
           <button onClick={() => setStatus('completed')} disabled={updating} style={{ ...detailStyles.statusBtn, background: 'linear-gradient(135deg, #22c55e, #4ade80)' }}>Mark complete</button>
+        )}
+        {assignment.status === 'in_progress' && isClientCreated && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+            <input
+              type="url"
+              value={deliveryUrl}
+              onChange={(e) => setDeliveryUrl(e.target.value)}
+              placeholder="Link to the finished project"
+              style={detailStyles.input}
+            />
+            <button
+              onClick={() => setStatus('completed', { delivery_url: deliveryUrl.trim() })}
+              disabled={updating || !/^https?:\/\/\S+$/i.test(deliveryUrl.trim())}
+              style={{ ...detailStyles.statusBtn, background: 'linear-gradient(135deg, #22c55e, #4ade80)', opacity: /^https?:\/\/\S+$/i.test(deliveryUrl.trim()) ? 1 : 0.5 }}
+            >
+              Complete
+            </button>
+          </div>
         )}
         {assignment.status === 'completed' && (
           <button onClick={() => setStatus('in_progress')} disabled={updating} style={detailStyles.statusBtnSecondary}>Reopen</button>
@@ -462,6 +495,18 @@ const detailStyles = {
     marginTop: mobileTokens.space.md, marginBottom: 0,
     fontSize: mobileTokens.font.md, color: 'rgba(255,255,255,0.75)',
     lineHeight: 1.5, whiteSpace: 'pre-wrap',
+  },
+  assetLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '6px 12px',
+    background: 'rgba(99,102,241,0.12)',
+    color: '#a5b4fc',
+    border: '1px solid rgba(99,102,241,0.3)',
+    borderRadius: 8,
+    fontSize: 13,
+    fontWeight: 600,
+    textDecoration: 'none',
   },
   metaLine: {
     marginTop: mobileTokens.space.sm,
