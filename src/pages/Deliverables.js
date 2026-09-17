@@ -627,6 +627,18 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
 
   // --- Deliverable handlers ---
   function resetDeliverableForm() {
+    // Closing the form unmounts the debounce; flush unsaved ad copy first so
+    // the last few hundred ms of typing aren't dropped.
+    if (editingDeliverable && adCopyDirtyRef.current) {
+      if (adCopyTimerRef.current) clearTimeout(adCopyTimerRef.current);
+      supabase.from('sponsor_deliverables').update({
+        ad_copy: deliverableNotes || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', editingDeliverable).then(({ error }) => {
+        if (error) toast.error('Ad copy did not save: ' + error.message);
+      });
+    }
+    adCopyDirtyRef.current = false;
     setDeliverableType('long_form_read');
     setDueDate(''); setDeliverableNotes('');
     setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableBrandId('');
@@ -638,10 +650,21 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     setEditingDeliverable(null); setShowDeliverableForm(null);
   }
 
-  function startEditDeliverable(d) {
+  async function startEditDeliverable(d) {
+    // Seed the ad copy from the DB, not from the list. The list is refreshed by
+    // realtime and can lag (or miss an event) right after an autosave — seeding
+    // stale copy here and then persisting it is how ad copy got wiped.
+    adCopyDirtyRef.current = false;
+    let src = d;
+    const { data: fresh } = await supabase
+      .from('sponsor_deliverables')
+      .select('ad_copy, notes')
+      .eq('id', d.id)
+      .maybeSingle();
+    if (fresh) src = { ...d, ...fresh };
     setDeliverableType(d.deliverable_type);
     setDueDate(d.due_date ? d.due_date.slice(0, 7) : '');
-    setDeliverableNotes(d.ad_copy || d.notes || '');
+    setDeliverableNotes(src.ad_copy || src.notes || '');
     setDeliverablePlatforms(d.platforms || []);
     setDeliverableNeedsReview(d.needs_review || false);
     setDeliverableBrandId(d.campaign_id || '');
@@ -665,7 +688,8 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         title: autoTitle,
         deliverable_type: deliverableType,
         due_date: dueDate ? dueDate + '-01' : null,
-        ad_copy: deliverableNotes || null,
+        // Only touch ad_copy if it was actually edited in this session.
+        ...(adCopyDirtyRef.current ? { ad_copy: deliverableNotes || null } : {}),
         platforms: deliverablePlatforms,
         needs_review: deliverableNeedsReview,
         campaign_id: brandId || deliverableBrandId || null,
@@ -877,24 +901,29 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   // Flush the ad-copy autosave immediately (used by the Ad Copy modal's
   // "Save & Close" so the write is guaranteed persisted before closing).
   async function saveAdCopyNow() {
-    if (!editingDeliverable) return;
+    if (!editingDeliverable || !adCopyDirtyRef.current) return;
     if (adCopyTimerRef.current) clearTimeout(adCopyTimerRef.current);
-    await supabase.from('sponsor_deliverables').update({
+    const { error } = await supabase.from('sponsor_deliverables').update({
       ad_copy: deliverableNotes || null,
       updated_at: new Date().toISOString(),
     }).eq('id', editingDeliverable);
+    if (error) toast.error('Ad copy did not save: ' + error.message);
   }
 
-  // Auto-save ad copy (debounced) when editing an existing deliverable
+  // Auto-save ad copy (debounced) when editing an existing deliverable.
+  // adCopyDirtyRef is set by the textarea and cleared when a form is opened, so
+  // merely opening Edit never writes the seeded value back over the DB.
   const adCopyTimerRef = useRef(null);
+  const adCopyDirtyRef = useRef(false);
   useEffect(() => {
-    if (!editingDeliverable) return;
+    if (!editingDeliverable || !adCopyDirtyRef.current) return;
     if (adCopyTimerRef.current) clearTimeout(adCopyTimerRef.current);
     adCopyTimerRef.current = setTimeout(async () => {
-      await supabase.from('sponsor_deliverables').update({
+      const { error } = await supabase.from('sponsor_deliverables').update({
         ad_copy: deliverableNotes || null,
         updated_at: new Date().toISOString(),
       }).eq('id', editingDeliverable);
+      if (error) toast.error('Ad copy did not save: ' + error.message);
     }, 600);
     return () => { if (adCopyTimerRef.current) clearTimeout(adCopyTimerRef.current); };
   }, [deliverableNotes, editingDeliverable]);
@@ -2643,7 +2672,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                   <div style={{ padding: '10px 18px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.4)', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>Editor · autosaves</div>
                   <textarea
                     value={deliverableNotes}
-                    onChange={e => setDeliverableNotes(e.target.value)}
+                    onChange={e => { adCopyDirtyRef.current = true; setDeliverableNotes(e.target.value); }}
                     placeholder="Write your ad copy here…"
                     style={{
                       flex: 1, minHeight: 0,
