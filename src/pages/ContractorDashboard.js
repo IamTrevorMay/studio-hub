@@ -610,9 +610,6 @@ export default function ContractorDashboard({ onNavigate }) {
                   {a.created_by_profile?.full_name && (
                     <p style={styles.assignedBy}>
                       Assigned by {a.created_by_profile.full_name}
-                      {isClientCreated && (
-                        <span style={styles.clientBadge}>Client project</span>
-                      )}
                     </p>
                   )}
 
@@ -672,7 +669,7 @@ export default function ContractorDashboard({ onNavigate }) {
                           style={styles.actionButton}
                           onClick={(e) => { e.stopPropagation(); handleStatusChange(a, 'in_progress'); }}
                         >
-                          Start Working
+                          Accept
                         </button>
                         <button
                           style={{
@@ -694,9 +691,6 @@ export default function ContractorDashboard({ onNavigate }) {
                     )}
                     {a.status === 'in_progress' && (
                       <>
-                        <span style={styles.inProgressIndicator}>
-                          ● In Progress
-                        </span>
 
                         {isClientCreated ? (
                           /* Client projects: no upload — paste the exact location of the finished
@@ -793,7 +787,11 @@ export default function ContractorDashboard({ onNavigate }) {
                       </div>
                     )}
 
-                    {/* Client review loop: submit cuts + jump to the review room */}
+                  </div>
+
+                  {/* Client review loop: submit cuts + jump to the review room (own line) */}
+                  {isClientCreated && (
+                    <div style={styles.reviewRow}>
                     {isClientCreated && !readOnly && (
                       <button
                         style={styles.reviewButton}
@@ -813,7 +811,8 @@ export default function ContractorDashboard({ onNavigate }) {
                         Reviews &rarr;
                       </button>
                     )}
-                  </div>
+                    </div>
+                  )}
 
                   {/* I'm Stuck text input */}
                   {stuckAssignment === a.id && (
@@ -1801,6 +1800,7 @@ const styles = {
   },
 
   // Action buttons
+  reviewRow: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' },
   actionRow: {
     marginTop: 16,
     display: 'flex',

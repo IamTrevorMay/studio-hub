@@ -330,7 +330,7 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
 
       <div style={detailStyles.statusActions}>
         {assignment.status === 'assigned' && (
-          <button onClick={() => setStatus('in_progress')} disabled={updating} style={detailStyles.statusBtn}>Start</button>
+          <button onClick={() => setStatus('in_progress')} disabled={updating} style={detailStyles.statusBtn}>Accept</button>
         )}
         {assignment.status === 'in_progress' && !isClientCreated && (
           <button onClick={() => setStatus('completed')} disabled={updating} style={{ ...detailStyles.statusBtn, background: 'linear-gradient(135deg, #22c55e, #4ade80)' }}>Mark complete</button>
