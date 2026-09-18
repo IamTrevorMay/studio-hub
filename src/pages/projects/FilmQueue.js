@@ -31,13 +31,16 @@ function fmtSessionDate(iso) {
 }
 
 // The Film Queue view: counts up top, the packed next session, then the line
-// of approved-but-unpacked items. Writer/editor assignments are edited here
-// (admins), and only here — never on the beat sheet.
+// of approved-but-unpacked items. The writer is edited here (admins), and only
+// here — never on the beat sheet. Editors aren't named on a slate item at all:
+// the edit is a "+ Assignment" row pointed at the item, which is what marks it
+// filmed and, on completion, done.
 export default function FilmQueue({ onNavigate }) {
   const { profile, isAdmin } = useAuth();
   const [items, setItems] = useState([]); // film_queue_items + embedded sheet
   const [sessions, setSessions] = useState([]);
   const [profiles, setProfiles] = useState([]);
+  const [linksByItem, setLinksByItem] = useState({}); // itemId → the editing assignment on it
   const [loading, setLoading] = useState(true);
   const [openItemId, setOpenItemId] = useState(null);
   const [showInEdit, setShowInEdit] = useState(false);
@@ -45,7 +48,7 @@ export default function FilmQueue({ onNavigate }) {
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, item } — right-click delete (admin)
 
   const fetchAll = useCallback(async () => {
-    const [itemsRes, sessionsRes, profilesRes] = await Promise.all([
+    const [itemsRes, sessionsRes, profilesRes, linksRes] = await Promise.all([
       supabase
         .from('film_queue_items')
         .select('*, sheet:beat_sheets(id, title, status, estimated_minutes, approved_at, film_date)')
@@ -61,6 +64,9 @@ export default function FilmQueue({ onNavigate }) {
         .select('id, full_name, email, role, deactivated_at')
         .in('role', STAFF_PICKER_ROLES)
         .order('full_name', { ascending: true, nullsFirst: false }),
+      // Via RPC: staff can't read contractor_assignments or other people's
+      // tasks under RLS, and this only hands back the summary these rows need.
+      supabase.rpc('slate_item_assignments'),
     ]);
     if (itemsRes.error) console.error('Error loading film queue:', itemsRes.error);
     else setItems(itemsRes.data || []);
@@ -68,6 +74,11 @@ export default function FilmQueue({ onNavigate }) {
     else setSessions(sessionsRes.data || []);
     if (profilesRes.error) console.error('Error loading profiles:', profilesRes.error);
     else setProfiles(profilesRes.data || []);
+    // One assignment per item (DB-enforced), so keying by item id is safe.
+    if (linksRes.error) console.error('Error loading linked assignments:', linksRes.error);
+    setLinksByItem(Object.fromEntries(
+      (linksRes.data || []).map((l) => [l.film_queue_item_id, l]),
+    ));
     setLoading(false);
   }, []);
 
@@ -146,7 +157,6 @@ export default function FilmQueue({ onNavigate }) {
   async function saveItem(item, patch) {
     const queuePatch = {};
     if ('writer_id' in patch) queuePatch.writer_id = patch.writer_id || null;
-    if ('editor_id' in patch) queuePatch.editor_id = patch.editor_id || null;
     if (Object.keys(queuePatch).length > 0) {
       const { error } = await supabase
         .from('film_queue_items')
@@ -204,7 +214,6 @@ export default function FilmQueue({ onNavigate }) {
         </span>
         <span style={styles.minutesCell}>{item.estimated_minutes}m</span>
         <span style={styles.personCell}>{nameOf(item.writer_id)}</span>
-        <span style={styles.personCell}>{nameOf(item.editor_id)}</span>
         <span>
           <span style={{ ...styles.statusChip, background: `${status.color}22`, color: status.color, borderColor: `${status.color}55` }}>
             {status.label}
@@ -272,7 +281,6 @@ export default function FilmQueue({ onNavigate }) {
               <span style={styles.th}>Type</span>
               <span style={styles.th}>Min</span>
               <span style={styles.th}>Writer</span>
-              <span style={styles.th}>Editor</span>
               <span style={styles.th}>Status</span>
             </div>
             {sessionRows.map((item, i) => renderRow(item, i, true))}
@@ -300,7 +308,6 @@ export default function FilmQueue({ onNavigate }) {
           <span style={styles.th}>Type</span>
           <span style={styles.th}>Min</span>
           <span style={styles.th}>Writer</span>
-          <span style={styles.th}>Editor</span>
           <span style={styles.th}>Status</span>
         </div>
         {lineRows.map((item, i) => renderRow(item, i, false))}
@@ -309,7 +316,7 @@ export default function FilmQueue({ onNavigate }) {
         )}
       </section>
 
-      {/* ── In edit (filmed, cut not delivered yet) ── */}
+      {/* ── In edit (filmed — an editing assignment is out on it) ── */}
       {inEditItems.length > 0 && (
         <section style={styles.section}>
           <button style={styles.collapseHeader} onClick={() => setShowInEdit((v) => !v)}>
@@ -317,20 +324,25 @@ export default function FilmQueue({ onNavigate }) {
             <span style={styles.sectionCount}>{inEditItems.length}</span>
             <span style={styles.chevron}>{showInEdit ? '▲' : '▼'}</span>
           </button>
-          {showInEdit && inEditItems.map((item) => (
-            <div key={item.id} style={{ ...styles.row, gridTemplateColumns: 'minmax(200px, 2fr) 110px minmax(120px, 1fr) 120px' }} onClick={() => setOpenItemId(item.id)} {...rowCtxProps(item)}>
-              <span style={styles.titleCell}>{item.sheet?.title || 'Untitled'}</span>
-              <span>
-                <span style={{ ...styles.typeChip, background: `${queueTypeColor(item.queue_type)}26`, color: queueTypeColor(item.queue_type), borderColor: `${queueTypeColor(item.queue_type)}55` }}>
-                  {queueTypeLabel(item.queue_type)}
+          {showInEdit && inEditItems.map((item) => {
+            const link = linksByItem[item.id];
+            return (
+              <div key={item.id} style={{ ...styles.row, gridTemplateColumns: 'minmax(200px, 2fr) 110px minmax(120px, 1fr) 120px' }} onClick={() => setOpenItemId(item.id)} {...rowCtxProps(item)}>
+                <span style={styles.titleCell}>{item.sheet?.title || 'Untitled'}</span>
+                <span>
+                  <span style={{ ...styles.typeChip, background: `${queueTypeColor(item.queue_type)}26`, color: queueTypeColor(item.queue_type), borderColor: `${queueTypeColor(item.queue_type)}55` }}>
+                    {queueTypeLabel(item.queue_type)}
+                  </span>
                 </span>
-              </span>
-              <span style={styles.personCell}>{nameOf(item.editor_id)}</span>
-              <span style={styles.personCell}>
-                {item.filmed_at ? `Sent ${new Date(item.filmed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
-              </span>
-            </div>
-          ))}
+                <span style={styles.personCell}>
+                  {link ? link.person_name : 'Unassigned'}
+                </span>
+                <span style={styles.personCell}>
+                  {item.filmed_at ? `Sent ${new Date(item.filmed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                </span>
+              </div>
+            );
+          })}
         </section>
       )}
 
@@ -347,7 +359,6 @@ export default function FilmQueue({ onNavigate }) {
           <span style={styles.th}>Type</span>
           <span style={styles.th}>Min</span>
           <span style={styles.th}>Writer</span>
-          <span style={styles.th}>Editor</span>
           <span style={styles.th}>Status</span>
         </div>
         {draftingReviewItems.map((item, i) => renderRow(item, i, false))}
@@ -382,6 +393,7 @@ export default function FilmQueue({ onNavigate }) {
       {openItem && (
         <FilmQueueItemModal
           item={openItem}
+          link={linksByItem[openItem.id] || null}
           isAdmin={isAdmin}
           pickerProfiles={pickerProfiles}
           nameOf={nameOf}
@@ -397,25 +409,24 @@ export default function FilmQueue({ onNavigate }) {
   );
 }
 
-// Click-to-open item modal: the writer and editor assignments live here (and
-// only here — deliberately not on the beat sheet). Admin-tier edits; everyone
-// else reads.
-function FilmQueueItemModal({ item, isAdmin, pickerProfiles, nameOf, onSave, onOpenSheet, onClose }) {
+// Click-to-open item modal: the writer assignment lives here (and only here —
+// deliberately not on the beat sheet). Admin-tier edits; everyone else reads.
+// The editing assignment is read-only here — it's created and owned by the
+// Dashboard's "+ Assignment" menu.
+function FilmQueueItemModal({ item, link, isAdmin, pickerProfiles, nameOf, onSave, onOpenSheet, onClose }) {
   const [writerId, setWriterId] = useState(item.writer_id || '');
-  const [editorId, setEditorId] = useState(item.editor_id || '');
   const [minutes, setMinutes] = useState(item.sheet?.estimated_minutes ?? defaultMinutesFor(item.queue_type));
   const [saving, setSaving] = useState(false);
 
   const status = STATUS_BY_VALUE[item.sheet?.status] || STATUS_BY_VALUE.drafting;
   const titles = Array.isArray(item.source_titles) ? item.source_titles : [];
   const dirty = writerId !== (item.writer_id || '')
-    || editorId !== (item.editor_id || '')
     || Number(minutes) !== (item.sheet?.estimated_minutes ?? defaultMinutesFor(item.queue_type));
 
   async function commit() {
     if (saving) return;
     setSaving(true);
-    await onSave(item, { writer_id: writerId, editor_id: editorId, estimated_minutes: minutes });
+    await onSave(item, { writer_id: writerId, estimated_minutes: minutes });
     setSaving(false);
     onClose();
   }
@@ -445,13 +456,6 @@ function FilmQueueItemModal({ item, isAdmin, pickerProfiles, nameOf, onSave, onO
                 <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
               ))}
             </select>
-            <div style={styles.modalFieldLabel}>Editor</div>
-            <select value={editorId} onChange={(e) => setEditorId(e.target.value)} style={styles.modalSelect}>
-              <option value="">— Unassigned —</option>
-              {pickerProfiles.map((p) => (
-                <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
-              ))}
-            </select>
             <div style={styles.modalFieldLabel}>Estimated minutes</div>
             <input
               type="number"
@@ -465,10 +469,24 @@ function FilmQueueItemModal({ item, isAdmin, pickerProfiles, nameOf, onSave, onO
         ) : (
           <div style={styles.readonlyBlock}>
             <div><span style={styles.readonlyLabel}>Writer</span> {nameOf(item.writer_id)}</div>
-            <div><span style={styles.readonlyLabel}>Editor</span> {nameOf(item.editor_id)}</div>
             <div><span style={styles.readonlyLabel}>Estimated</span> {item.sheet?.estimated_minutes ?? defaultMinutesFor(item.queue_type)} min</div>
           </div>
         )}
+
+        <div style={styles.assignmentBlock}>
+          <div style={styles.modalFieldLabel}>Editing assignment</div>
+          {link ? (
+            <p style={styles.assignmentLine}>
+              {link.title || 'Untitled'} &bull; {link.person_name}
+              {link.done ? ' \u2022 finished' : ''}
+            </p>
+          ) : (
+            <p style={styles.assignmentEmpty}>
+              None yet — hand it out from &ldquo;+ Assignment&rdquo; on the Dashboard and point it at
+              this slate item.
+            </p>
+          )}
+        </div>
 
         {(item.source_context || titles.length > 0) && (
           <div style={styles.sourceBlock}>
@@ -551,9 +569,16 @@ const styles = {
     color: colors.textBright, fontSize: '12px', fontFamily: 'inherit', outline: 'none',
     colorScheme: 'dark',
   },
+  assignmentBlock: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTop: '1px solid rgba(255,255,255,0.08)',
+  },
+  assignmentLine: { fontSize: 13, color: 'rgba(255,255,255,0.75)', margin: '4px 0 0' },
+  assignmentEmpty: { fontSize: 12, color: 'rgba(255,255,255,0.4)', margin: '4px 0 0', lineHeight: 1.5 },
   rowGrid: {
     display: 'grid',
-    gridTemplateColumns: '28px minmax(200px, 2fr) 110px 52px minmax(110px, 1fr) minmax(110px, 1fr) 130px',
+    gridTemplateColumns: '28px minmax(200px, 2fr) 110px 52px minmax(110px, 1fr) 130px',
     gap: '12px',
     alignItems: 'center',
   },
@@ -564,7 +589,7 @@ const styles = {
   },
   row: {
     display: 'grid',
-    gridTemplateColumns: '28px minmax(200px, 2fr) 110px 52px minmax(110px, 1fr) minmax(110px, 1fr) 130px',
+    gridTemplateColumns: '28px minmax(200px, 2fr) 110px 52px minmax(110px, 1fr) 130px',
     gap: '12px',
     alignItems: 'center',
     padding: '10px',

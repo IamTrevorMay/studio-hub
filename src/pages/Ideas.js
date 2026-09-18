@@ -33,7 +33,7 @@ const PROJECT_TYPE_OPTIONS = [
   { value: 'podcast', label: 'Podcast' },
 ];
 
-// Who the Slate writer/editor pickers offer: every active staff member.
+// Who the Slate writer picker offers: every active staff member.
 const STAFF_PICKER_ROLES = ['admin', 'director', 'director_creative', 'director_comms', 'member'];
 
 const TAG_COLOR_CHOICES = ['#f87171', '#fb923c', '#fbbf24', '#34d399', '#22d3ee', '#8fb4d8', '#93c5fd', '#c084fc', '#f9a8d4'];
@@ -78,8 +78,8 @@ export default function Ideas({ embedded = false }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [projectModal, setProjectModal] = useState(null); // idea getting a project
   const [typePicker, setTypePicker] = useState(null); // { items, choices: { ideaId: type } }
-  const [filmQueuePicker, setFilmQueuePicker] = useState(null); // { items, choices: { ideaId: { queue_type, writer_id, editor_id } } }
-  const [staffProfiles, setStaffProfiles] = useState([]); // writer/editor picker options
+  const [filmQueuePicker, setFilmQueuePicker] = useState(null); // { items, choices: { ideaId: { queue_type, writer_id } } }
+  const [staffProfiles, setStaffProfiles] = useState([]); // writer picker options
   const [tagEditorId, setTagEditorId] = useState(null); // idea id with open tag popover
   const [tags, setTags] = useState([]);
   // View-only sort override, shared by both buckets. null = manual drag order.
@@ -549,8 +549,9 @@ export default function Ideas({ embedded = false }) {
     return dests;
   }
 
-  // The details modal always opens — it captures the writer and editor
-  // assignments per idea, not just the type.
+  // The details modal always opens — it captures the type and the writer per
+  // idea. Editors are never named here: editing is handed out later from
+  // "+ Assignment" and linked back to the slate item.
   function requestSendToFilmQueue(items) {
     if (items.length === 0 || sending) return;
     setFilmQueuePicker({
@@ -558,7 +559,6 @@ export default function Ideas({ embedded = false }) {
       choices: Object.fromEntries(items.map((i) => [i.id, {
         queue_type: queueTypesFor(i)[0] || 'mayday',
         writer_id: '',
-        editor_id: '',
       }])),
     });
   }
@@ -631,7 +631,7 @@ export default function Ideas({ embedded = false }) {
     setUndoingId(null);
   }
 
-  // Staff list for the writer/editor pickers, loaded when the modal first opens.
+  // Staff list for the writer picker, loaded when the modal first opens.
   useEffect(() => {
     if (!filmQueuePicker || staffProfiles.length > 0) return undefined;
     let alive = true;
@@ -735,7 +735,7 @@ export default function Ideas({ embedded = false }) {
     onAddProject: (item) => setProjectModal(item),
     onAddFilmQueue: (item) => setFilmQueuePicker({
       items: [item],
-      choices: { [item.id]: { queue_type: queueTypesFor(item)[0] || 'mayday', writer_id: '', editor_id: '' } },
+      choices: { [item.id]: { queue_type: queueTypesFor(item)[0] || 'mayday', writer_id: '' } },
     }),
     destinationsFor,
     onUnsend: unsendIdea,
@@ -1211,9 +1211,9 @@ function TypePickerModal({ picker, tagsForIdea, sending, onChoose, onConfirm, on
 }
 
 // Details modal for Add to Slate: per idea, the type plus the writer
-// (required — they get the beat sheet task immediately). The editor is
-// optional here and can be assigned later in the Slate view; the
-// send-to-editor step is server-gated on one being set by then.
+// (required — they get the beat sheet task immediately). No editor: once the
+// sheet is approved and the item has been shot, the edit goes out from the
+// Dashboard's "+ Assignment" menu pointed at this slate item.
 function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange, onConfirm, onClose }) {
   const allAssigned = picker.items.every((i) => {
     const c = picker.choices[i.id] || {};
@@ -1226,8 +1226,9 @@ function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange,
         <h3 style={styles.modalTitle}>Add to Slate</h3>
         <p style={styles.modalHint}>
           Each idea becomes a beat sheet on the Slate — no project card. The writer
-          gets the beat sheet task right away; the editor is optional and can be assigned
-          later on the Slate. The idea stays here flagged On Slate; click that chip to undo.
+          gets the beat sheet task right away. After it's approved and shot, hand the edit
+          out from "+ Assignment" and point it at this slate item. The idea stays here
+          flagged On Slate; click that chip to undo.
         </p>
         <div style={styles.typePickList}>
           {picker.items.map((i) => {
@@ -1265,19 +1266,6 @@ function FilmQueueModal({ picker, tagsForIdea, staffProfiles, sending, onChange,
                       style={styles.typeSelect}
                     >
                       <option value="">— Pick —</option>
-                      {staffProfiles.map((p) => (
-                        <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label style={styles.fqSelectLabel}>
-                    Editor (optional)
-                    <select
-                      value={c.editor_id || ''}
-                      onChange={(e) => onChange(i.id, { editor_id: e.target.value })}
-                      style={styles.typeSelect}
-                    >
-                      <option value="">— Later —</option>
                       {staffProfiles.map((p) => (
                         <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
                       ))}

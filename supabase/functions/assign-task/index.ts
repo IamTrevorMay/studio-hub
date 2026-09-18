@@ -3,9 +3,13 @@
 // `tasks` rows with no workflow behind them — and can cancel them.
 //
 // Operations:
-//   { op: "create", title, assignee_ids: string[], due_date?, notes?, link_url? }
+//   { op: "create", title, assignee_ids: string[], due_date?, notes?, link_url?,
+//     film_queue_item_id? }
 //     → Inserts one task per assignee (status 'active', no workflow_instance_id)
 //       and notifies each one. Returns the created task ids.
+//       film_queue_item_id optionally points the task at a slate item: the DB
+//       triggers mark that item filmed on link and done on completion. One
+//       assignment per item, so it requires exactly one assignee.
 //   { op: "cancel", task_id }
 //     → Deletes a direct task (only if it has no workflow_instance_id).
 //
@@ -56,6 +60,8 @@ Deno.serve(async (req: Request) => {
     // "Report Hours to Complete" — assignee must report hours before the task
     // can be closed; those hours are paid in Payroll at their hourly rate.
     const requiresHours = body.requires_hours === true;
+    // Optional slate item this task edits (see film_queue_item_id triggers).
+    const filmQueueItemId = ((body.film_queue_item_id as string) || "").trim() || null;
 
     // Optional template: reuse a workflow block's action/modal as a one-off.
     // Whitelisted so a client can't set an arbitrary step_key.
@@ -87,6 +93,35 @@ Deno.serve(async (req: Request) => {
     if (stepKey === "background_research" && !linkUrl) {
       return jsonResp({ error: "a research doc is required for Background Research" }, 400);
     }
+    // A slate item carries exactly one assignment — it can't fan out, and the
+    // item has to actually be open for one. (slate_items_for_assignment() is
+    // is_staff()-gated, so it's no use here: the service role has no auth.uid().
+    // The link-guard trigger is still the backstop; this is the friendly error.)
+    if (filmQueueItemId) {
+      if (assigneeIds.length > 1) {
+        return jsonResp({ error: "a slate item takes a single assignee" }, 400);
+      }
+      const { data: item } = await admin
+        .from("film_queue_items")
+        .select("id, state, sheet:beat_sheets(status)")
+        .eq("id", filmQueueItemId)
+        .maybeSingle();
+      const sheetStatus = (item?.sheet as { status?: string } | null)?.status;
+      if (!item || item.state === "done" || sheetStatus !== "approved") {
+        return jsonResp({ error: "that slate item isn't open for an editing assignment" }, 400);
+      }
+      const [{ count: caCount }, { count: taskCount }] = await Promise.all([
+        admin.from("contractor_assignments")
+          .select("id", { count: "exact", head: true })
+          .eq("film_queue_item_id", filmQueueItemId),
+        admin.from("tasks")
+          .select("id", { count: "exact", head: true })
+          .eq("film_queue_item_id", filmQueueItemId),
+      ]);
+      if ((caCount || 0) + (taskCount || 0) > 0) {
+        return jsonResp({ error: "that slate item already has an editing assignment" }, 400);
+      }
+    }
 
     const rows = assigneeIds.map((uid) => ({
       workflow_instance_id: null,
@@ -100,6 +135,7 @@ Deno.serve(async (req: Request) => {
       nav_target: navTarget,
       related_entity_type: relType,
       related_entity_id: relId,
+      film_queue_item_id: filmQueueItemId,
       requires_hours: requiresHours,
       created_by: auth.userId,
       position: 0,

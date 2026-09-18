@@ -1,6 +1,10 @@
 // Film Queue shared logic for edge functions: session packing, prompter
-// compilation, and the task pipeline transitions
-// (fq_write → fq_review → fq_send → fq_edit).
+// compilation, and the task pipeline transitions (fq_write → fq_review).
+//
+// The pipeline stops at approval. Editing is handed out separately from the
+// Dashboard's "+ Assignment" menu and linked back to the item through
+// contractor_assignments.film_queue_item_id / tasks.film_queue_item_id — the
+// DB triggers there own the filmed and done states.
 //
 // The packer must stay in sync with src/lib/filmQueue.js — the Film Queue view
 // derives the same "next session" display client-side.
@@ -8,8 +12,8 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyUser } from "./workflow-engine.ts";
 
-// Trevor May — reviews every queue beat sheet and owns the Send to Editor step
-// (same id as RESEARCH_SCOPE_OWNER in card-move and TREVOR in action-registry).
+// Trevor May — reviews every queue beat sheet (same id as RESEARCH_SCOPE_OWNER
+// in card-move and TREVOR in action-registry).
 export const FILM_QUEUE_REVIEWER = "c3290048-436b-46c6-b3f0-fdf7923d0c3b";
 
 export const SESSION_MINUTES_LIMIT = 60;
@@ -207,121 +211,33 @@ export function compilePrompterSession(
 
 // ── Task pipeline ───────────────────────────────────────────────────────────
 
-function isHttpUrl(value: unknown): boolean {
-  if (typeof value !== "string" || !value.trim()) return false;
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-export async function createFilmQueueTask(
-  admin: SupabaseClient,
-  opts: {
-    stepKey: string;
-    title: string;
-    description: string;
-    assigneeId: string;
-    itemId: string;
-    linkUrl?: string | null;
-    createdBy?: string | null;
-    notifyTitle: string;
-    notifyBody: string;
-  },
-): Promise<{ id: string } | null> {
-  const { data: task, error } = await admin
-    .from("tasks")
-    .insert({
-      step_key: opts.stepKey,
-      title: opts.title,
-      description: opts.description,
-      assignee_id: opts.assigneeId,
-      status: "pending",
-      related_entity_type: "film_queue_item",
-      related_entity_id: opts.itemId,
-      link_url: opts.linkUrl || null,
-      created_by: opts.createdBy || null,
-    })
-    .select("id")
-    .single();
-  if (error || !task) {
-    console.error("film-queue task insert failed:", error?.message);
-    return null;
-  }
-  await notifyUser(admin, opts.assigneeId, opts.notifyTitle, opts.notifyBody, task.id);
-  return task as { id: string };
-}
-
-// Pre-completion validation for fq_* tasks. Returns an error message (blocks
-// completion with a 400) or null. Runs server-side so no path can skip it —
-// the "needs a link to hit Send" rule lives here, mirroring requires_hours.
-export async function filmQueueCompletionGate(
-  admin: SupabaseClient,
-  task: { step_key?: string | null; related_entity_id?: string | null },
-  payload: Record<string, unknown> | undefined,
-): Promise<string | null> {
-  if (task.step_key === "fq_send") {
-    if (!isHttpUrl(payload?.video_url)) {
-      return "Paste the link to the video file to send this to the editor.";
-    }
-    const { data: item } = await admin
-      .from("film_queue_items")
-      .select("editor_id")
-      .eq("id", task.related_entity_id)
-      .single();
-    if (!item?.editor_id) {
-      return "Assign an editor in the Film Queue before sending.";
-    }
-  }
-  if (task.step_key === "fq_edit") {
-    if (!isHttpUrl(payload?.cut_url)) {
-      return "Paste the link to the finished cut to complete this task.";
-    }
-  }
-  return null;
-}
-
-// The reviewer's two tasks, keyed by the step that opens them. Shared by the
-// task-completion advance below and film-queue's sync_sheet_status (a manual
-// status flip on the sheet), so both paths hand Trevor the same task.
+// The reviewer's task. Shared by the task-completion advance below and
+// film-queue's sync_sheet_status (a manual status flip on the sheet), so both
+// paths hand Trevor the same task.
 export async function createReviewerStepTask(
   admin: SupabaseClient,
-  stepKey: "fq_review" | "fq_send",
+  stepKey: "fq_review",
   itemId: string,
   sheetTitle: string,
   createdBy?: string | null,
 ): Promise<{ id: string } | null> {
-  if (stepKey === "fq_review") {
-    return createFilmQueueTask(admin, {
-      stepKey: "fq_review",
-      title: `${sheetTitle} — Review Beat Sheet`,
-      description:
-        "Review the beat sheet. Completing this task approves it and puts it in the film queue line.",
-      assigneeId: FILM_QUEUE_REVIEWER,
-      itemId,
-      createdBy,
-      notifyTitle: "Beat sheet ready for review",
-      notifyBody: `"${sheetTitle}" is ready for your review.`,
-    });
-  }
   return createFilmQueueTask(admin, {
-    stepKey: "fq_send",
-    title: `${sheetTitle} — Send to Editor`,
+    stepKey: "fq_review",
+    title: `${sheetTitle} — Review Beat Sheet`,
     description:
-      "After the shoot, paste the link to the video file and hit Send to Editor. That sends the edit task and moves this item to the edit pile.",
+      "Review the beat sheet. Completing this task approves it and puts it in the film queue line.",
     assigneeId: FILM_QUEUE_REVIEWER,
     itemId,
     createdBy,
-    notifyTitle: "Beat sheet approved",
-    notifyBody: `"${sheetTitle}" is approved and in the film queue line.`,
+    notifyTitle: "Beat sheet ready for review",
+    notifyBody: `"${sheetTitle}" is ready for your review.`,
   });
 }
 
 // Post-completion transition for fq_* tasks. The completing task is already
-// marked complete; this moves the beat sheet / queue item along and creates
-// the next task in the chain.
+// marked complete; this moves the beat sheet along and creates the next task.
+// The chain ends at approval — the item then waits in The Line until someone
+// hands the edit out from "+ Assignment".
 export async function advanceFilmQueue(
   admin: SupabaseClient,
   task: {
@@ -329,20 +245,18 @@ export async function advanceFilmQueue(
     related_entity_id?: string | null;
     assignee_id?: string | null;
   },
-  payload: Record<string, unknown> | undefined,
 ): Promise<{ next_task_ids: string[]; note?: string }> {
   const itemId = task.related_entity_id;
   if (!itemId) return { next_task_ids: [], note: "no film queue item" };
 
   const { data: item } = await admin
     .from("film_queue_items")
-    .select("*, sheet:beat_sheets(id, title, status)")
+    .select("id, beat_sheet_id, sheet:beat_sheets(id, title, status)")
     .eq("id", itemId)
     .single();
   if (!item) return { next_task_ids: [], note: "film queue item missing" };
 
   const sheetTitle = item.sheet?.title || "Untitled";
-  const nowIso = new Date().toISOString();
 
   switch (task.step_key) {
     case "fq_write": {
@@ -356,55 +270,13 @@ export async function advanceFilmQueue(
     }
 
     case "fq_review": {
-      // Approved — into the line, and the Send to Editor task appears.
+      // Approved — into the line. Nothing else is scheduled: the shoot happens,
+      // then the edit goes out as its own assignment.
       await admin
         .from("beat_sheets")
-        .update({ status: "approved", approved_at: nowIso })
+        .update({ status: "approved", approved_at: new Date().toISOString() })
         .eq("id", item.beat_sheet_id);
-      const next = await createReviewerStepTask(admin, "fq_send", itemId, sheetTitle, task.assignee_id);
-      return { next_task_ids: next ? [next.id] : [] };
-    }
-
-    case "fq_send": {
-      // Send = filmed: the item leaves the queue for the edit pile and the
-      // editor's task opens with the raw video linked.
-      const videoUrl = String(payload?.video_url || "").trim();
-      await admin
-        .from("film_queue_items")
-        .update({
-          state: "filmed",
-          filmed_at: nowIso,
-          video_url: videoUrl,
-          updated_at: nowIso,
-        })
-        .eq("id", itemId);
-      if (!item.editor_id) return { next_task_ids: [], note: "no editor assigned" };
-      const next = await createFilmQueueTask(admin, {
-        stepKey: "fq_edit",
-        title: `${sheetTitle} — Edit`,
-        description:
-          "Edit the video — the raw file is linked on this task. When the finished cut is uploaded, paste its link and complete.",
-        assigneeId: item.editor_id,
-        itemId,
-        linkUrl: videoUrl,
-        createdBy: task.assignee_id,
-        notifyTitle: "New edit task",
-        notifyBody: `"${sheetTitle}" was filmed and is ready to edit.`,
-      });
-      return { next_task_ids: next ? [next.id] : [] };
-    }
-
-    case "fq_edit": {
-      // Finished cut delivered — the item is done.
-      await admin
-        .from("film_queue_items")
-        .update({
-          state: "done",
-          cut_url: String(payload?.cut_url || "").trim() || null,
-          updated_at: nowIso,
-        })
-        .eq("id", itemId);
-      return { next_task_ids: [], note: "pipeline complete" };
+      return { next_task_ids: [], note: "approved — waiting in the line" };
     }
 
     default:

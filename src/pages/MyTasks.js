@@ -40,20 +40,6 @@ function cloneBeatsFresh(items) {
   });
 }
 
-// Inline link input on fq_send / fq_edit film-queue task cards.
-const FQ_LINK_INPUT_STYLE = {
-  flex: 1,
-  minWidth: 0,
-  background: 'rgba(255,255,255,0.06)',
-  border: '1px solid rgba(255,255,255,0.12)',
-  borderRadius: 6,
-  padding: '7px 10px',
-  color: '#fff',
-  fontSize: 13,
-  fontFamily: 'inherit',
-  outline: 'none',
-};
-
 // ─── Helpers ──────────────────────────────────────────────────
 
 function timeAgo(dateStr) {
@@ -226,11 +212,6 @@ export default function MyTasks({ onNavigate, embedded = false }) {
   const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
   const [projectMeta, setProjectMeta] = useState({}); // { [project_id]: { name, type } }
   const [fqMeta, setFqMeta] = useState({}); // { [film_queue_item_id]: { beat_sheet_id, queue_type, sheet_title } }
-  const [fqLinkDrafts, setFqLinkDrafts] = useState({}); // { [taskId]: url draft for fq_send / fq_edit }
-  const [fqReviewOptions, setFqReviewOptions] = useState(null); // my recent reviews, for the fq_edit draft-review picker
-  const [fqReviewDrafts, setFqReviewDrafts] = useState({}); // { [taskId]: review_id }
-  const [fqNotifyState, setFqNotifyState] = useState({}); // { [taskId]: 'sending' | 'sent' }
-  const [fqEditorModal, setFqEditorModal] = useState(null); // { task, editorId } — fq_send with no editor assigned
   const [startingBeatSheet, setStartingBeatSheet] = useState(null); // task id being processed
   const [activeProfiles, setActiveProfiles] = useState([]); // for inline editor pickers
   const channelRef = useRef(null);
@@ -438,72 +419,17 @@ export default function MyTasks({ onNavigate, embedded = false }) {
     const unique = [...new Set(ids)];
     supabase
       .from('film_queue_items')
-      .select('id, beat_sheet_id, queue_type, editor_id, sheet:beat_sheets(title)')
+      .select('id, beat_sheet_id, queue_type, sheet:beat_sheets(title)')
       .in('id', unique)
       .then(({ data }) => {
         if (!data) return;
         const map = {};
         for (const i of data) {
-          map[i.id] = { beat_sheet_id: i.beat_sheet_id, queue_type: i.queue_type, editor_id: i.editor_id, sheet_title: i.sheet?.title };
+          map[i.id] = { beat_sheet_id: i.beat_sheet_id, queue_type: i.queue_type, sheet_title: i.sheet?.title };
         }
         setFqMeta(map);
       });
   }, [tasks]);
-
-  // Recent reviews (everyone's), for the "notify Trevor" draft-review picker
-  // on fq_edit cards. Loaded once, only when an fq_edit task is on screen.
-  useEffect(() => {
-    if (fqReviewOptions !== null || !profile?.id) return;
-    if (!tasks.some(t => t.step_key === 'fq_edit' && t.related_entity_type === 'film_queue_item')) return;
-    supabase
-      .from('reviews')
-      .select('id, title, created_at')
-      .order('created_at', { ascending: false })
-      .limit(50)
-      .then(({ data, error }) => {
-        if (error) { console.error('Error loading reviews:', error); return; }
-        setFqReviewOptions(data || []);
-      });
-  }, [tasks, profile?.id, fqReviewOptions]);
-
-  // fq_edit → "Notify Trevor": creates the fq_draft_review task + notification
-  // via the film-queue edge function (staff can't insert tasks under RLS).
-  async function requestDraftReview(task) {
-    const reviewId = fqReviewDrafts[task.id];
-    if (!reviewId || fqNotifyState[task.id] === 'sending') return;
-    setFqNotifyState(prev => ({ ...prev, [task.id]: 'sending' }));
-    try {
-      await callWorkflowFn('film-queue', {
-        action: 'request_draft_review',
-        item_id: task.related_entity_id,
-        review_id: reviewId,
-      });
-      setFqNotifyState(prev => ({ ...prev, [task.id]: 'sent' }));
-      toast.success('Trevor has been sent a review task.');
-    } catch (err) {
-      setFqNotifyState(prev => { const next = { ...prev }; delete next[task.id]; return next; });
-      toast.error(`Could not send the review request: ${err.message}`);
-    }
-  }
-
-  // fq_send with no editor on the queue item: assign one right here, then
-  // continue the send. Direct film_queue_items write — fq_send is always held
-  // by an admin, and film_queue_items is admin-write under RLS.
-  async function assignEditorAndSend() {
-    if (!fqEditorModal?.editorId) return;
-    const { task, editorId } = fqEditorModal;
-    const itemId = task.related_entity_id;
-    const { error } = await supabase.from('film_queue_items')
-      .update({ editor_id: editorId })
-      .eq('id', itemId);
-    if (error) {
-      toast.error(`Could not assign the editor: ${error.message}`);
-      return;
-    }
-    setFqMeta(prev => ({ ...prev, [itemId]: { ...prev[itemId], editor_id: editorId } }));
-    setFqEditorModal(null);
-    handleComplete(task, { video_url: (fqLinkDrafts[task.id] || '').trim() });
-  }
 
   // Create a beat sheet from the Mayday Video template (in the Mayday folder,
   // named after the project) and jump straight into it.
@@ -912,15 +838,10 @@ export default function MyTasks({ onNavigate, embedded = false }) {
           const isMaydayWrite = task.related_entity_type === 'project'
             && task.step_key === 'write'
             && projectMeta[task.related_entity_id]?.type === 'mayday_video';
-          // Film-queue pipeline tasks (fq_write → fq_review → fq_send → fq_edit).
-          // fq_send and fq_edit need a link to complete — the server enforces
-          // it too (workflow-complete-task), this is just the friendly path.
+          // Film-queue pipeline tasks — the chain is just fq_write → fq_review
+          // now. Editing is a separate "+ Assignment" row, not a task here.
           const isFilmQueue = task.related_entity_type === 'film_queue_item';
           const isFqOpenSheet = isFilmQueue && (task.step_key === 'fq_write' || task.step_key === 'fq_review');
-          const isFqSend = isFilmQueue && task.step_key === 'fq_send';
-          const isFqEdit = isFilmQueue && task.step_key === 'fq_edit';
-          const isFqDraftReview = task.step_key === 'fq_draft_review' && task.related_entity_type === 'review';
-          const fqLinkValid = /^https?:\/\//i.test((fqLinkDrafts[task.id] || '').trim());
 
           return (
             <div
@@ -980,10 +901,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                   Film Queue{fqMeta[task.related_entity_id]?.sheet_title ? ` \u2022 ${fqMeta[task.related_entity_id].sheet_title}` : ''}
                 </p>
               )}
-              {isFqDraftReview && (
-                <p style={styles.entitySummary}>Film Queue &bull; draft check-in</p>
-              )}
-              {!isReviewProposal && !isFilmQueue && !isFqDraftReview && task.related_entity_type && task.related_entity_type !== 'deliverable' && (
+              {!isReviewProposal && !isFilmQueue && task.related_entity_type && task.related_entity_type !== 'deliverable' && (
                 <p style={styles.entitySummary}>
                   {task.related_entity_type}{task.related_entity_id ? ` \u2022 ${task.related_entity_id.slice(0, 8)}...` : ''}
                 </p>
@@ -1009,7 +927,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
               )}
 
               {/* Action row */}
-              <div style={{ ...styles.actionRow, ...(isWriteAdRead || isFqEdit ? { flexWrap: 'wrap' } : {}) }}>
+              <div style={{ ...styles.actionRow, ...(isWriteAdRead ? { flexWrap: 'wrap' } : {}) }}>
                 {task.requires_sign_off && !isOnHold ? (
                   <button
                     style={styles.signOffBtn}
@@ -1052,36 +970,6 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                     >
                       Open Beat Sheet
                     </button>
-                ) : isFqDraftReview ? (
-                    <button
-                      style={styles.primaryBtn}
-                      onClick={() => { if (onNavigate) onNavigate('reviews', task.related_entity_id); }}
-                      disabled={isCompleting}
-                    >
-                      Open Review
-                    </button>
-                ) : isFqSend ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                      <input
-                        value={fqLinkDrafts[task.id] || ''}
-                        onChange={e => setFqLinkDrafts(prev => ({ ...prev, [task.id]: e.target.value }))}
-                        placeholder="Link to the video file…"
-                        style={FQ_LINK_INPUT_STYLE}
-                        disabled={isCompleting}
-                      />
-                      <button
-                        style={styles.primaryBtn}
-                        disabled={!fqLinkValid || isCompleting}
-                        title={fqLinkValid ? undefined : 'Paste the video file link to send'}
-                        onClick={() => {
-                          const meta = fqMeta[task.related_entity_id];
-                          if (meta && !meta.editor_id) { setFqEditorModal({ task, editorId: '' }); return; }
-                          handleComplete(task, { video_url: (fqLinkDrafts[task.id] || '').trim() });
-                        }}
-                      >
-                        {isCompleting ? 'Sending…' : 'Send to Editor'}
-                      </button>
-                    </div>
                 ) : action.type === 'editor_picker' ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                     <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Assign an editor</label>
@@ -1129,7 +1017,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                         Skip
                       </button>
                     </>
-                ) : !isFqEdit && (action.type === 'external_link' || task.link_url) ? (
+                ) : (action.type === 'external_link' || task.link_url) ? (
                     <button
                       style={styles.primaryBtn}
                       onClick={() => {
@@ -1241,54 +1129,6 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                   </>
                 )}
 
-                {/* Draft check-in: pick one of my Reviews and ping Trevor to look at it */}
-                {isFqEdit && !isOnHold && (
-                  <div style={{ flexBasis: '100%', width: '100%', display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-                    <select
-                      value={fqReviewDrafts[task.id] || ''}
-                      onChange={e => setFqReviewDrafts(prev => ({ ...prev, [task.id]: e.target.value }))}
-                      style={{ ...FQ_LINK_INPUT_STYLE, cursor: 'pointer' }}
-                      disabled={fqNotifyState[task.id] === 'sending'}
-                    >
-                      <option value="">— Select a review for a draft check-in —</option>
-                      {(fqReviewOptions || []).map(r => (
-                        <option key={r.id} value={r.id}>{r.title || 'Untitled review'}</option>
-                      ))}
-                    </select>
-                    <button
-                      style={{ ...styles.primaryBtn, opacity: !fqReviewDrafts[task.id] || fqNotifyState[task.id] ? 0.5 : 1 }}
-                      disabled={!fqReviewDrafts[task.id] || !!fqNotifyState[task.id]}
-                      title={fqReviewDrafts[task.id] ? 'Sends Trevor a task to review this draft' : 'Pick a review first'}
-                      onClick={() => requestDraftReview(task)}
-                    >
-                      {fqNotifyState[task.id] === 'sending' ? 'Notifying…'
-                        : fqNotifyState[task.id] === 'sent' ? 'Notified ✓'
-                        : 'Notify'}
-                    </button>
-                  </div>
-                )}
-
-                {/* Finished-cut link for edit tasks — completing requires it */}
-                {isFqEdit && !isOnHold && (
-                  <div style={{ flexBasis: '100%', width: '100%', display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
-                    <input
-                      value={fqLinkDrafts[task.id] || ''}
-                      onChange={e => setFqLinkDrafts(prev => ({ ...prev, [task.id]: e.target.value }))}
-                      placeholder="Link to the finished cut…"
-                      style={FQ_LINK_INPUT_STYLE}
-                      disabled={isCompleting}
-                    />
-                    <button
-                      style={styles.primaryBtn}
-                      disabled={!fqLinkValid || isCompleting}
-                      title={fqLinkValid ? undefined : 'Paste the finished-cut link to complete'}
-                      onClick={() => handleComplete(task, { cut_url: (fqLinkDrafts[task.id] || '').trim() })}
-                    >
-                      {isCompleting ? 'Working…' : 'Deliver Cut'}
-                    </button>
-                  </div>
-                )}
-
                 {/* Go to Deliverables — pinned right */}
                 {isWriteAdRead && !isOnHold && (
                   <button
@@ -1306,7 +1146,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
               {/* Bottom row: Complete + Decline left, Hold + Snooze right */}
               <div style={styles.cardBottomRow}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {!isOnHold && !isReviewProposal && !isConfirmAutomation && !isConfirmOvertime && !isResearchScope && !isFqSend && !isFqEdit && action.type !== 'auto' && (
+                  {!isOnHold && !isReviewProposal && !isConfirmAutomation && !isConfirmOvertime && !isResearchScope && action.type !== 'auto' && (
                     <button
                       style={styles.primaryBtn}
                       onClick={() => handlePrimaryAction(task)}
@@ -1483,46 +1323,6 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                 disabled={!holdReason.trim()}
               >
                 Put on Hold
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Assign-editor modal — fq_send clicked with no editor on the item */}
-      {fqEditorModal && (
-        <div style={styles.modalOverlay} {...backdropDismiss(() => setFqEditorModal(null))}>
-          <div style={styles.modal} onClick={e => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>Assign an editor</h3>
-            <p style={styles.modalSubtitle}>
-              {fqMeta[fqEditorModal.task.related_entity_id]?.sheet_title || fqEditorModal.task.title} has no editor yet —
-              pick who gets the edit task when this sends.
-            </p>
-            <select
-              value={fqEditorModal.editorId}
-              onChange={e => setFqEditorModal(prev => ({ ...prev, editorId: e.target.value }))}
-              autoFocus
-              style={{
-                width: '100%', boxSizing: 'border-box', marginBottom: 14,
-                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 6, padding: '8px 10px', color: '#fff', fontSize: 13, fontFamily: 'inherit',
-              }}
-            >
-              <option value="">— Pick an editor —</option>
-              {activeProfiles.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} ({p.role})</option>
-              ))}
-            </select>
-            <div style={styles.modalActions}>
-              <button style={styles.secondaryBtn} onClick={() => setFqEditorModal(null)}>
-                Cancel
-              </button>
-              <button
-                style={{ ...styles.primaryBtn, opacity: fqEditorModal.editorId ? 1 : 0.5 }}
-                onClick={assignEditorAndSend}
-                disabled={!fqEditorModal.editorId}
-              >
-                Assign &amp; Send
               </button>
             </div>
           </div>

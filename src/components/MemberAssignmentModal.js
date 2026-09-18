@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient';
 import { RESEARCH_FIELDS, emptyResearchForm, listResearchDocs, createResearchDoc } from '../lib/researchDocs';
 import { fetchAllRows } from '../pages/analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
+import SlateItemPicker from './SlateItemPicker';
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
 
@@ -18,6 +19,11 @@ const TASK_TEMPLATES = [
 
 // Modal version of the old Assignments page form. Hands out one-off tasks
 // to members/assistants/partners — lands in each assignee's My Tasks.
+//
+// A task can optionally point at a slate item (the Film Queue pipeline stops
+// at approval and hands editing over here). Linking one marks it filmed;
+// completing the task marks it done. One assignment per item, so picking one
+// pins this to a single assignee.
 export default function MemberAssignmentModal({ open, onClose, onCreated, showToast }) {
   const [profiles, setProfiles] = useState([]);
 
@@ -28,6 +34,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
   const [link, setLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [requiresHours, setRequiresHours] = useState(false);
+  const [slateItemId, setSlateItemId] = useState('');
   const [assigneeMenuOpen, setAssigneeMenuOpen] = useState(false);
   const [template, setTemplate] = useState('');
   const [recordId, setRecordId] = useState('');
@@ -167,7 +174,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
 
   const resetForm = () => {
     setTitle(''); setAssignees([]); setDueDate(''); setNotes(''); setLink('');
-    setRequiresHours(false); setAssigneeMenuOpen(false);
+    setRequiresHours(false); setAssigneeMenuOpen(false); setSlateItemId('');
     setTemplate(''); setRecordId(''); setRecordSearch('');
     setResearchMode('existing'); setSelectedDocUrl(''); setResearchForm(emptyResearchForm());
   };
@@ -202,6 +209,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
           notes: notes.trim() || null,
           link_url: linkUrl,
           requires_hours: requiresHours,
+          film_queue_item_id: slateItemId || null,
           ...(activeTemplate ? (isResearch ? {
             step_key: activeTemplate.key,
           } : {
@@ -224,9 +232,11 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
     }
   };
 
+  // A slate item carries exactly one assignment, so it can't fan out.
+  const slateFanOut = !!slateItemId && assignees.length > 1;
   const canAssign = title.trim() && assignees.length > 0
     && (!activeTemplate || isResearch || recordId)
-    && researchReady && !submitting;
+    && researchReady && !slateFanOut && !submitting;
 
   if (!open) return null;
 
@@ -270,6 +280,19 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
               placeholder="Any context or instructions…"
               rows={3}
             />
+          </div>
+
+          <div style={styles.field}>
+            <SlateItemPicker
+              value={slateItemId}
+              onChange={setSlateItemId}
+              styles={{ label: styles.fieldLabel, select: styles.input, hint: styles.researchHelp }}
+            />
+            {slateFanOut && (
+              <div style={{ ...styles.researchHelp, color: '#f87171' }}>
+                A slate item takes one assignment — pick a single person, or clear the slate item.
+              </div>
+            )}
           </div>
 
           {activeTemplate && !isResearch && (

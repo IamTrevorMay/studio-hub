@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom';
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
+import SlateItemPicker from './SlateItemPicker';
 import { colors } from '../lib/styleTokens';
 
 // Create / edit a contractor_assignments row. The Workflows Progress
@@ -11,6 +12,11 @@ import { colors } from '../lib/styleTokens';
 // Create: insert + notify the contractor.
 // Edit:   update only (we do NOT re-notify on edits — only on creation).
 // Both: contractor list comes from profiles where role='freelancer'.
+//
+// Staff-mode assignments can optionally point at a slate item (the Film Queue
+// pipeline stops at approval and hands editing over here). Linking one marks
+// it filmed; completing the assignment marks it done — both via DB triggers,
+// so every completion path is covered. Clients never see the field.
 
 const EDIT_STATUSES = [
   { value: 'assigned',    label: 'Assigned' },
@@ -84,6 +90,7 @@ export default function ContractorAssignmentModal({
   const [form, setForm] = useState({
     contractor_id: '', title: '', description: '', asset_url: '',
     due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '', project_folder_url: '',
+    film_queue_item_id: '',
   });
 
   const fetchContractors = useCallback(async () => {
@@ -113,11 +120,13 @@ export default function ContractorAssignmentModal({
         status: existing.status || 'assigned',
         submit_folder: existing.submit_folder_id || '',
         project_folder_url: existing.project_folder_url || '',
+        film_queue_item_id: existing.film_queue_item_id || '',
       });
     } else {
       setForm({
         contractor_id: '', title: '', description: '', asset_url: '',
         due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '', project_folder_url: '',
+        film_queue_item_id: '',
       });
     }
   }, [open, isEdit, existing, fetchContractors, contractorOptions]);
@@ -154,6 +163,7 @@ export default function ContractorAssignmentModal({
         due_time: form.due_time || null,
         pay_amount: form.pay_amount ? parseFloat(form.pay_amount) : null,
         submit_folder_id: parseDriveFolderId(form.submit_folder) || null,
+        film_queue_item_id: form.film_queue_item_id || null,
       };
 
       if (isEdit) {
@@ -345,6 +355,16 @@ export default function ContractorAssignmentModal({
                   onChange={e => setForm(p => ({ ...p, asset_url: e.target.value }))}
                   style={styles.input}
                   placeholder="Paste an Assets Library, Drive, or other URL"
+                />
+              </div>
+            )}
+            {!isClient && (
+              <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+                <SlateItemPicker
+                  value={form.film_queue_item_id}
+                  onChange={(v) => setForm(p => ({ ...p, film_queue_item_id: v }))}
+                  includeId={isEdit ? (existing.film_queue_item_id || null) : null}
+                  styles={{ label: styles.label, select: styles.select, hint: styles.hint }}
                 />
               </div>
             )}

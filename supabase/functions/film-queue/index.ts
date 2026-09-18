@@ -1,6 +1,6 @@
 // Film Queue engine.
 // Actions:
-//   { action: "enqueue_ideas", items: [{ idea_id, queue_type, writer_id, editor_id }] }
+//   { action: "enqueue_ideas", items: [{ idea_id, queue_type, writer_id }] }
 //     — staff JWT. Creates a beat sheet + queue item per idea, hands the
 //       writer an fq_write task, and links the idea to the queue item
 //       (write_ideas.film_queue_item_id) so it can be undone. No project card.
@@ -17,7 +17,7 @@
 //       implies (ready_for_review → fq_write; approved → fq_write then
 //       fq_review) and runs the same advance step task completion would, so a
 //       manual flip still hands the reviewer their task. Also fills in a
-//       missing fq_review / fq_send when the chain never created one.
+//       missing fq_review when the chain never created one.
 //   { action: "lock_session", force? }
 //     — cron (x-cron-secret) or admin JWT. The 6am job: gates on 6am PT,
 //       locks the session dated today, packs approved items, generates the
@@ -33,7 +33,6 @@ import {
   getAdminClient,
   corsHeaders,
   jsonResp,
-  notifyUser,
   logEvent,
 } from "../shared/workflow-engine.ts";
 import {
@@ -167,7 +166,6 @@ Deno.serve(async (req: Request) => {
       const ideaId = String(entry.idea_id || "");
       const queueType = String(entry.queue_type || "");
       const writerId = String(entry.writer_id || "");
-      const editorId = entry.editor_id ? String(entry.editor_id) : null;
       try {
         if (!(queueType in DEFAULT_MINUTES)) throw new Error(`invalid queue_type ${queueType}`);
         if (!writerId) throw new Error("writer required");
@@ -211,7 +209,6 @@ Deno.serve(async (req: Request) => {
             beat_sheet_id: sheet.id,
             queue_type: queueType,
             writer_id: writerId,
-            editor_id: editorId,
             source_context: idea.context || null,
             source_titles: Array.isArray(idea.potential_titles) ? idea.potential_titles : [],
             created_by: auth!.userId,
@@ -308,23 +305,23 @@ Deno.serve(async (req: Request) => {
         .neq("status", "done");
       completedIds.push(task.id);
 
-      const result = await advanceFilmQueue(admin, task, undefined);
+      const result = await advanceFilmQueue(admin, task);
       nextIds.push(...result.next_task_ids);
     }
 
-    // A chain that never had the preceding task (a sheet enqueued while
-    // already in review, say) still needs the reviewer's task to exist.
-    const wanted = status === "ready_for_review" ? "fq_review" : status === "approved" ? "fq_send" : null;
-    if (wanted) {
+    // A chain that never had the write task (a sheet enqueued while already in
+    // review, say) still needs the reviewer's task to exist. Approving outright
+    // needs no follow-up — the item just lands in the line.
+    if (status === "ready_for_review") {
       const { data: existing } = await admin
         .from("tasks")
         .select("id")
         .eq("related_entity_type", "film_queue_item")
         .eq("related_entity_id", item.id)
-        .eq("step_key", wanted)
+        .eq("step_key", "fq_review")
         .limit(1);
       if (!existing || existing.length === 0) {
-        const created = await createReviewerStepTask(admin, wanted, item.id, sheetTitle, auth!.userId);
+        const created = await createReviewerStepTask(admin, "fq_review", item.id, sheetTitle, auth!.userId);
         if (created) nextIds.push(created.id);
       }
     }
@@ -594,7 +591,6 @@ Deno.serve(async (req: Request) => {
         beat_sheet_id: sheetId,
         queue_type: queueType,
         writer_id: writerId,
-        editor_id: null,
         created_by: auth!.userId,
       })
       .select("id")
@@ -620,72 +616,6 @@ Deno.serve(async (req: Request) => {
       taskId = task?.id || null;
     }
     return jsonResp({ ok: true, queue_item_id: qItem.id, task_id: taskId });
-  }
-
-  // ─── request_draft_review ───────────────────────────────────
-  // Editor picks one of their Reviews on the fq_edit card and pings the
-  // reviewer (Trevor): creates a standalone fq_draft_review task pointing at
-  // the review + a notification. Service role because staff can't insert tasks.
-  if (action === "request_draft_review") {
-    if (isCron) return jsonResp({ error: "request_draft_review needs a user" }, 400);
-    const itemId = String(body.item_id || "");
-    const reviewId = String(body.review_id || "");
-    if (!itemId || !reviewId) return jsonResp({ error: "item_id and review_id required" }, 400);
-
-    const { data: item } = await admin
-      .from("film_queue_items")
-      .select("id, sheet:beat_sheets(title)")
-      .eq("id", itemId)
-      .maybeSingle();
-    if (!item) return jsonResp({ error: "Film queue item not found" }, 404);
-
-    const { data: review } = await admin
-      .from("reviews")
-      .select("id, title")
-      .eq("id", reviewId)
-      .maybeSingle();
-    if (!review) return jsonResp({ error: "Review not found" }, 404);
-
-    // One open draft-review task per review — re-notifying is a no-op.
-    const { data: existing } = await admin
-      .from("tasks")
-      .select("id")
-      .eq("step_key", "fq_draft_review")
-      .eq("related_entity_type", "review")
-      .eq("related_entity_id", reviewId)
-      .in("status", ["pending", "active", "on_hold"])
-      .limit(1);
-    if (existing && existing.length > 0) {
-      return jsonResp({ ok: true, task_id: existing[0].id, already_requested: true });
-    }
-
-    const sheetTitle = (item.sheet as { title?: string } | null)?.title || "Untitled";
-    const reviewTitle = review.title || sheetTitle;
-    const { data: task, error: taskErr } = await admin
-      .from("tasks")
-      .insert({
-        step_key: "fq_draft_review",
-        title: `Review the draft: ${reviewTitle}`,
-        description: `A draft cut of "${sheetTitle}" is up for review ("${reviewTitle}"). Open it on the Reviews page to leave timestamped feedback.`,
-        assignee_id: FILM_QUEUE_REVIEWER,
-        status: "pending",
-        related_entity_type: "review",
-        related_entity_id: reviewId,
-        created_by: auth!.userId,
-      })
-      .select("id")
-      .single();
-    if (taskErr || !task) {
-      return jsonResp({ error: `Could not create the review task: ${taskErr?.message}` }, 500);
-    }
-    await notifyUser(
-      admin,
-      FILM_QUEUE_REVIEWER,
-      "Draft ready for review",
-      `A draft cut of "${sheetTitle}" is waiting on the Reviews page.`,
-      task.id,
-    );
-    return jsonResp({ ok: true, task_id: task.id });
   }
 
   return jsonResp({ error: `Unknown action: ${action}` }, 400);

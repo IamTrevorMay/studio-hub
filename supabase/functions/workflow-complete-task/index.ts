@@ -18,10 +18,7 @@ import {
   signOffTask,
   type Instance,
 } from "../shared/workflow-engine.ts";
-import {
-  filmQueueCompletionGate,
-  advanceFilmQueue,
-} from "../shared/film-queue.ts";
+import { advanceFilmQueue } from "../shared/film-queue.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -135,14 +132,6 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // ─── Film queue link gates ───────────────────────────────────
-  // fq_send needs the video-file link (that's the "Send"), fq_edit needs the
-  // finished-cut link. Enforced here, like hours, so no client path skips it.
-  if (task.related_entity_type === "film_queue_item") {
-    const gateError = await filmQueueCompletionGate(admin, task, payload);
-    if (gateError) return jsonResp({ error: gateError }, 400);
-  }
-
   // Mark complete.
   const { error: updErr } = await admin
     .from("tasks")
@@ -174,11 +163,11 @@ Deno.serve(async (req: Request) => {
 
   // Standalone task — done (possibly auto-advance a project).
   if (!task.workflow_instance_id) {
-    // Film queue pipeline: fq_write → fq_review → fq_send → fq_edit. Each
-    // completion moves the beat sheet / queue item along and creates the next
-    // task in the chain.
+    // Film queue pipeline: fq_write → fq_review. Completing fq_review approves
+    // the sheet and drops the item in the line; the edit goes out separately
+    // as a "+ Assignment" row linked back via film_queue_item_id.
     if (task.related_entity_type === "film_queue_item" && task.related_entity_id && task.step_key) {
-      const result = await advanceFilmQueue(admin, task, payload);
+      const result = await advanceFilmQueue(admin, task);
       return jsonResp({ completed: task_id, ...result });
     }
     if (task.related_entity_type === "project" && task.related_entity_id && task.step_key) {
