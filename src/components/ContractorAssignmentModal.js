@@ -370,18 +370,18 @@ export default function ContractorAssignmentModal({
             )}
             {!isClient && (
               <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
-                <label style={styles.label}>Submission Folder Override</label>
+                <label style={styles.label}>Submission Folder</label>
                 <input
                   value={form.submit_folder}
                   onChange={e => setForm(p => ({ ...p, submit_folder: e.target.value }))}
                   style={styles.input}
-                  placeholder="Optional — paste a Drive folder link to override the default submit location"
+                  placeholder="Paste the Drive folder link where the finished work should be submitted"
                 />
                 {form.submit_folder.trim() && (
                   <span style={styles.hint}>
                     {parseDriveFolderId(form.submit_folder)
                       ? `Files for this assignment will upload to folder ${parseDriveFolderId(form.submit_folder)}`
-                      : 'Could not read a Drive folder from that link — submissions will use the default location.'}
+                      : 'Could not read a Drive folder from that link.'}
                   </span>
                 )}
               </div>

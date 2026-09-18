@@ -496,18 +496,18 @@ export default function AssignmentModal({ open, onClose, onCreated, showToast, c
                 )}
               </div>
               <div style={styles.field}>
-                <div style={styles.fieldLabel}>Submission Folder Override</div>
+                <div style={styles.fieldLabel}>Submission Folder</div>
                 <input
                   style={styles.input}
                   value={submitFolder}
                   onChange={e => setSubmitFolder(e.target.value)}
-                  placeholder="Optional — paste a Drive folder link to override the default submit location"
+                  placeholder="Paste the Drive folder link where the finished work should be submitted"
                 />
                 {submitFolder.trim() && (
                   <div style={{ ...styles.help, marginTop: 6 }}>
                     {parseDriveFolderId(submitFolder)
                       ? `Uploads for this assignment go to folder ${parseDriveFolderId(submitFolder)}${memberIds.length ? ' (noted in the task for team members)' : ''}`
-                      : 'Could not read a Drive folder from that link — submissions will use the default location.'}
+                      : 'Could not read a Drive folder from that link.'}
                   </div>
                 )}
               </div>
