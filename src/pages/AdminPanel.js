@@ -161,6 +161,12 @@ export default function AdminPanel({ initialTab }) {
     fetchTeamMembers();
   }
 
+  async function handleSpecialtiesAssign(userId, specialties) {
+    const { error } = await supabase.from('profiles').update({ specialties }).eq('id', userId);
+    if (error) console.error('Specialties update failed:', error);
+    fetchTeamMembers();
+  }
+
   async function handleSubRoleAssign(userId, subRole, role) {
     // Keep the deprecated `title` column mirrored for contractors so legacy
     // title-based display keeps working until title is fully retired.
@@ -620,8 +626,16 @@ export default function AdminPanel({ initialTab }) {
                         ? (DIRECTOR_SUB_ROLE_LABELS[member.sub_role] || 'No director type set')
                         : (member.sub_role || member.title || 'No sub-role set')}
                     </span>
-                    {member.role === 'contractor' && Array.isArray(member.specialties) && member.specialties.length > 0 && (
-                      <span style={{ color: 'rgba(255,255,255,0.35)' }}> · {formatSpecialties(member.specialties, ', ')}</span>
+                    {member.role === 'contractor' && (
+                      <span
+                        onClick={() => setTitlePickerFor(titlePickerFor === member.id ? null : member.id)}
+                        style={{ color: 'rgba(255,255,255,0.45)', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '3px' }}
+                        title="Edit specialties"
+                      >
+                        {' · '}{Array.isArray(member.specialties) && member.specialties.length > 0
+                          ? formatSpecialties(member.specialties, ', ')
+                          : 'Add specialties'}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -648,6 +662,15 @@ export default function AdminPanel({ initialTab }) {
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
+                )}
+                {titlePickerFor === member.id && member.role === 'contractor' && (
+                  <div style={{ flexBasis: '100%', paddingLeft: 52, marginTop: 4 }}>
+                    <SpecialtyPicker
+                      value={Array.isArray(member.specialties) ? member.specialties : []}
+                      onChange={(v) => handleSpecialtiesAssign(member.id, v)}
+                      compact
+                    />
+                  </div>
                 )}
                 {isStrictAdmin && member.id !== profile.id && (
                   <button
@@ -921,7 +944,7 @@ const styles = {
   emptyText: { color: 'rgba(255,255,255,0.35)', fontSize: '14px', margin: 0 },
   teamList: { display: 'flex', flexDirection: 'column', gap: '6px' },
   teamItem: {
-    display: 'flex', alignItems: 'center', gap: '14px',
+    display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap',
     padding: '12px 14px', background: 'rgba(255,255,255,0.02)',
     borderRadius: '10px',
   },
