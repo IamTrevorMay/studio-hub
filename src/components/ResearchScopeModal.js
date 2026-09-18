@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { RESEARCH_FIELDS, emptyResearchForm, listResearchDocs, createResearchDoc } from '../lib/researchDocs';
-import { PeopleChips } from './MemberAssignmentModal';
+import PeopleChips from './PeopleChips';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 
@@ -9,7 +9,7 @@ const TEAM_ROLES = ['admin', 'director', 'member', 'director_creative', 'directo
 
 // Set Research Scope — opened from the "Set Research Scope" task that lands
 // in My Tasks when a project card enters the Research column. Mirrors the
-// Background Research layout of MemberAssignmentModal (research doc
+// Background Research layout of AssignmentModal (research doc
 // existing/create-new + assignee chips). Submitting spawns one 'research'
 // task per assignee (via assign-task); when all of those complete, the card
 // auto-advances to Write (workflow-complete-task → card-move).

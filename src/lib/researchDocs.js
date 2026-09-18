@@ -1,6 +1,6 @@
 // Shared config + Drive API helpers for Research documents.
 // Used by the Research page (ResearchDocs.js) and the Background Research
-// assignment template (MemberAssignmentModal.js) so the field set and the
+// assignment template (AssignmentModal.js) so the field set and the
 // create/list calls stay in one place.
 
 import { supabase } from '../supabaseClient';

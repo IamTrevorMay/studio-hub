@@ -3,11 +3,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
 import SlateItemPicker from './SlateItemPicker';
-import { colors } from '../lib/styleTokens';
+import { colors, fontFamily } from '../lib/styleTokens';
 
-// Create / edit a contractor_assignments row. The Workflows Progress
-// table opens this in edit mode when a contractor row is clicked; the
-// `+ Assignment` button on Workflows opens it in create mode.
+// Create / edit a contractor_assignments row. Staff create through the
+// unified AssignmentModal now — this stays for editing existing rows (the
+// Workflows Progress table, mobile) and for the client portal's create/edit.
 //
 // Create: insert + notify the contractor.
 // Edit:   update only (we do NOT re-notify on edits — only on creation).
@@ -445,9 +445,12 @@ export default function ContractorAssignmentModal({
 }
 
 const styles = {
+  // Portalled to <body>, which never gets DM Sans (it's set on the app root),
+  // so the overlay names the font itself.
   overlay: {
     position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    fontFamily,
   },
   modal: {
     background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,

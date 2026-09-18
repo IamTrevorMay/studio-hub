@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import BottomSheet from '../components/mobile/BottomSheet';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
+import AssignmentModal from '../components/AssignmentModal';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { colors } from '../lib/styleTokens';
@@ -74,11 +75,16 @@ export default function ContractorsMobile() {
 
       <button onClick={() => setCreating(true)} style={styles.fab} aria-label="New assignment">+</button>
 
+      <AssignmentModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={() => setCreating(false)}
+        currentUserId={profile?.id}
+      />
       <ContractorAssignmentModal
-        open={creating || !!editing}
+        open={!!editing}
         existing={editing || undefined}
-        onClose={() => { setCreating(false); setEditing(null); }}
-        onCreated={() => { setCreating(false); }}
+        onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); }}
         currentUserId={profile?.id}
       />

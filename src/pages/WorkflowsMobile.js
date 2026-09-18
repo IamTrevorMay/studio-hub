@@ -2,11 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import TaskEditModal from '../components/TaskEditModal';
-import MemberAssignmentModal from '../components/MemberAssignmentModal';
+import AssignmentModal from '../components/AssignmentModal';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { fetchAllRows } from './analytics/utils';
-import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 
 // Mobile Workflows: Progress table + assignment shortcuts only.
@@ -30,9 +29,7 @@ export default function WorkflowsMobile() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [assignSheetOpen, setAssignSheetOpen] = useState(false);
-  const [memberAssignOpen, setMemberAssignOpen] = useState(false);
-  const [contractorAssignOpen, setContractorAssignOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [editingContractorAssign, setEditingContractorAssign] = useState(null);
 
@@ -178,43 +175,20 @@ export default function WorkflowsMobile() {
         </div>
       )}
 
-      {/* FAB: + Assignment */}
-      <button onClick={() => setAssignSheetOpen(true)} style={styles.fab} aria-label="New assignment">+</button>
+      {/* FAB: + Assignment — one modal for members and contractors */}
+      <button onClick={() => setAssignOpen(true)} style={styles.fab} aria-label="New assignment">+</button>
 
-      {assignSheetOpen && (
-        <div style={styles.sheetBackdrop} {...backdropDismiss(() => setAssignSheetOpen(false))}>
-          <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.sheetGrabber} />
-            <div style={styles.sheetTitle}>New assignment</div>
-            <button
-              style={styles.sheetItem}
-              onClick={() => { setAssignSheetOpen(false); setMemberAssignOpen(true); }}
-            >
-              <div style={styles.sheetLabel}>Member</div>
-              <div style={styles.sheetDesc}>Team / assistant / partner — one-off task</div>
-            </button>
-            <button
-              style={styles.sheetItem}
-              onClick={() => { setAssignSheetOpen(false); setContractorAssignOpen(true); }}
-            >
-              <div style={styles.sheetLabel}>Contractor</div>
-              <div style={styles.sheetDesc}>Contractor — paid assignment</div>
-            </button>
-            <button style={styles.sheetCancel} onClick={() => setAssignSheetOpen(false)}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      <MemberAssignmentModal
-        open={memberAssignOpen}
-        onClose={() => setMemberAssignOpen(false)}
+      <AssignmentModal
+        open={assignOpen}
+        onClose={() => setAssignOpen(false)}
         onCreated={fetchProgress}
+        currentUserId={profile?.id}
       />
+      {/* Edit an existing contractor assignment (opened from a Progress row) */}
       <ContractorAssignmentModal
-        open={contractorAssignOpen || !!editingContractorAssign}
+        open={!!editingContractorAssign}
         existing={editingContractorAssign || undefined}
-        onClose={() => { setContractorAssignOpen(false); setEditingContractorAssign(null); }}
-        onCreated={fetchProgress}
+        onClose={() => setEditingContractorAssign(null)}
         onSaved={fetchProgress}
         currentUserId={profile?.id}
       />
@@ -391,38 +365,5 @@ const styles = {
     boxShadow: '0 8px 22px rgba(91, 143, 199,0.45)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 50,
-  },
-  sheetBackdrop: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
-    zIndex: 200, display: 'flex', alignItems: 'flex-end',
-  },
-  sheet: {
-    width: '100%', background: colors.bgHover,
-    borderTopLeftRadius: 16, borderTopRightRadius: 16,
-    padding: `8px ${mobileTokens.space.lg}px calc(${mobileTokens.space.lg}px + ${mobileTokens.safeBottom})`,
-    display: 'flex', flexDirection: 'column', gap: 8,
-  },
-  sheetGrabber: { width: 36, height: 4, background: 'rgba(255,255,255,0.2)', borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
-  sheetTitle: { fontSize: mobileTokens.font.sm, color: 'rgba(255,255,255,0.4)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, paddingLeft: 4 },
-  sheetItem: {
-    ...mobileTapButton,
-    width: '100%', textAlign: 'left',
-    padding: `${mobileTokens.space.md}px ${mobileTokens.space.md}px`,
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: mobileTokens.radius.md,
-    color: '#fff', alignItems: 'flex-start', display: 'flex',
-    flexDirection: 'column', gap: 2,
-  },
-  sheetLabel: { fontSize: mobileTokens.font.md, fontWeight: 700, color: '#fff' },
-  sheetDesc: { fontSize: mobileTokens.font.xs, color: 'rgba(255,255,255,0.5)' },
-  sheetCancel: {
-    ...mobileTapButton,
-    width: '100%', marginTop: 4,
-    padding: `${mobileTokens.space.md}px`,
-    background: 'transparent',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: mobileTokens.radius.md,
-    color: 'rgba(255,255,255,0.6)', fontSize: mobileTokens.font.md, fontWeight: 600,
   },
 };
