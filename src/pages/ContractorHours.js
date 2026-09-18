@@ -3,43 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useEffectivePortalIdentity } from '../lib/impersonation';
 import { colors } from '../lib/styleTokens';
 import { ptDayKey } from '../lib/ptDate';
-
-// Build YYYY-MM-DD from local parts (m is 0-based). toISOString() converts to
-// UTC, which lands period boundaries on the wrong day for UTC+ users.
-const ymd = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-
-function getPayPeriods(count = 6) {
-  const periods = [];
-  const now = new Date();
-  let year = now.getFullYear();
-  let month = now.getMonth();
-  let isFirstHalf = now.getDate() <= 15;
-
-  for (let i = 0; i < count; i++) {
-    if (isFirstHalf) {
-      periods.push({
-        start: ymd(year, month, 1),
-        end: ymd(year, month, 15),
-        label: new Date(year, month, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) + ' 1\u201315',
-      });
-    } else {
-      const lastDay = new Date(year, month + 1, 0).getDate();
-      periods.push({
-        start: ymd(year, month, 16),
-        end: ymd(year, month, lastDay),
-        label: new Date(year, month, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) + ` 16\u2013${lastDay}`,
-      });
-    }
-    if (isFirstHalf) {
-      month--;
-      if (month < 0) { month = 11; year--; }
-      isFirstHalf = false;
-    } else {
-      isFirstHalf = true;
-    }
-  }
-  return periods;
-}
+import { getPayPeriods } from '../lib/payPeriods';
 
 export default function ContractorHours() {
   const { profile: realProfile } = useAuth();

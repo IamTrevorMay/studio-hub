@@ -2,91 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { ptDateToUtcISO } from '../lib/ptDate';
+import { getCurrentPayPeriod, getPayPeriodHistory } from '../lib/payPeriods';
 import { callWorkflowFn } from '../lib/workflowApi';
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
-
-// ── Pay Period Helpers ────────────────────────────────────────────
-
-function getCurrentPayPeriod() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const day = now.getDate();
-
-  if (day <= 14) {
-    const start = new Date(year, month, 1);
-    const end = new Date(year, month, 14);
-    const payday = new Date(year, month, 15);
-    return {
-      start: start.toISOString().split('T')[0],
-      end: end.toISOString().split('T')[0],
-      payday: payday.toISOString().split('T')[0],
-      label: start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) + ' 1–14',
-    };
-  } else {
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    const start = new Date(year, month, 15);
-    const end = new Date(year, month, lastDay);
-    const payday = new Date(year, month + 1, 1);
-    return {
-      start: start.toISOString().split('T')[0],
-      end: end.toISOString().split('T')[0],
-      payday: payday.toISOString().split('T')[0],
-      label: start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) + ` 15–${lastDay}`,
-    };
-  }
-}
-
-function getPayPeriodHistory(count = 6) {
-  const periods = [];
-  const now = new Date();
-  let year = now.getFullYear();
-  let month = now.getMonth();
-  let isFirstHalf = now.getDate() <= 14;
-
-  // Start from previous period
-  if (isFirstHalf) {
-    month--;
-    if (month < 0) { month = 11; year--; }
-    isFirstHalf = false;
-  } else {
-    isFirstHalf = true;
-  }
-
-  for (let i = 0; i < count; i++) {
-    if (isFirstHalf) {
-      const start = new Date(year, month, 1);
-      const end = new Date(year, month, 14);
-      const payday = new Date(year, month, 15);
-      periods.push({
-        start: start.toISOString().split('T')[0],
-        end: end.toISOString().split('T')[0],
-        payday: payday.toISOString().split('T')[0],
-        label: start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) + ' 1–14',
-      });
-    } else {
-      const lastDay = new Date(year, month + 1, 0).getDate();
-      const start = new Date(year, month, 15);
-      const end = new Date(year, month, lastDay);
-      const payday = new Date(year, month + 1, 1);
-      periods.push({
-        start: start.toISOString().split('T')[0],
-        end: end.toISOString().split('T')[0],
-        payday: payday.toISOString().split('T')[0],
-        label: start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) + ` 15–${lastDay}`,
-      });
-    }
-    if (isFirstHalf) {
-      month--;
-      if (month < 0) { month = 11; year--; }
-      isFirstHalf = false;
-    } else {
-      isFirstHalf = true;
-    }
-  }
-  return periods;
-}
 
 function countBusinessDays(startStr, endStr) {
   let count = 0;
