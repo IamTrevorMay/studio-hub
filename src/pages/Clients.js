@@ -50,7 +50,7 @@ export default function Clients() {
   /* ─────────────────────────────────────────── */
 
   const fetchAll = useCallback(async () => {
-    const [clientsRes, cpRes, ceRes, edRes, docsRes] = await Promise.all([
+    const [clientsRes, cpRes, ceRes, edRes, docsRes, dirRes] = await Promise.all([
       supabase.from('profiles')
         .select('id, full_name, email, avatar_url, title')
         .eq('role', 'client')
@@ -59,19 +59,30 @@ export default function Clients() {
       supabase.from('client_profiles').select('*'),
       supabase.from('client_editors').select('client_id, contractor_id'),
       supabase.from('profiles')
-        .select('id, full_name, email, avatar_url, sub_role')
+        .select('id, full_name, email, avatar_url, role, sub_role')
         .in('role', ['contractor', 'freelancer'])
         .in('sub_role', EDITOR_SUB_ROLES)
         .is('deactivated_at', null)
         .order('full_name'),
       supabase.from('client_documents').select('*').order('created_at', { ascending: false }),
+      // The Director of Production can be linked as a client's editor too
+      // (mirrors client_editors_validate). 'creative' is the legacy value.
+      supabase.from('profiles')
+        .select('id, full_name, email, avatar_url, role, sub_role')
+        .eq('role', 'director')
+        .in('sub_role', ['production', 'creative'])
+        .is('deactivated_at', null)
+        .order('full_name'),
     ]);
     setClients(clientsRes.data || []);
     const cpMap = {};
     (cpRes.data || []).forEach(r => { cpMap[r.id] = r; });
     setClientProfilesMap(cpMap);
     setEditorRows(ceRes.data || []);
-    setEditorOptions(edRes.data || []);
+    setEditorOptions([
+      ...(edRes.data || []).map(e => ({ ...e, roleLabel: e.sub_role })),
+      ...(dirRes.data || []).map(e => ({ ...e, roleLabel: 'Director of Production' })),
+    ]);
     setDocs(docsRes.data || []);
     // Seed notes drafts without clobbering in-progress edits.
     setNotesDraft(prev => {
@@ -471,7 +482,7 @@ export default function Clients() {
                         {assignedEditors.map(ed => (
                           <span key={ed.id} style={styles.editorChip}>
                             {ed.full_name || ed.email}
-                            <span style={styles.chipSub}>{ed.sub_role}</span>
+                            <span style={styles.chipSub}>{ed.roleLabel || ed.sub_role}</span>
                             <button
                               onClick={() => handleRemoveEditor(client.id, ed.id)}
                               style={styles.chipRemove}
@@ -490,7 +501,7 @@ export default function Clients() {
                             <option value="">Assign editor…</option>
                             {availableEditors.map(ed => (
                               <option key={ed.id} value={ed.id}>
-                                {(ed.full_name || ed.email)} — {ed.sub_role}
+                                {(ed.full_name || ed.email)} — {ed.roleLabel || ed.sub_role}
                               </option>
                             ))}
                           </select>
