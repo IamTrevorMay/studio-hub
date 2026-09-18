@@ -41,7 +41,6 @@ import ContractorDashboard from './ContractorDashboard';
 import ContractorHours from './ContractorHours';
 import ContractorProfile from './ContractorProfile';
 import ContractorNotifications from './ContractorNotifications';
-import ContractorDocuments from './ContractorDocuments';
 import ContractorReviews from './ContractorReviews';
 import Contractors from './Contractors';
 import Clients from './Clients';
@@ -101,7 +100,7 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_documents', 'fl_assignments', 'fl_reviews', 'ct_assignments', 'ct_hours', 'ct_documents', 'ct_team', 'clients', 'cl_dashboard', 'cl_review', 'cl_documents', 'cl_profile', 'cl_notifications'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_assignments', 'fl_reviews', 'ct_assignments', 'ct_hours', 'ct_documents', 'ct_team', 'clients', 'cl_dashboard', 'cl_review', 'cl_documents', 'cl_profile', 'cl_notifications'));
 
 // ─── Modes ──────────────────────────────────────────────────
 // Beta pages: still under refinement. Grouped in a "Beta" folder at the bottom
@@ -293,7 +292,6 @@ const NAV_ICON_MAP = {
   fl_dashboard: DashboardIcon,
   fl_hours: HoursIcon,
   fl_profile: ProfileIcon,
-  fl_documents: DocumentsIcon,
   fl_assignments: ResourcesIcon,
   fl_reviews: ReviewsIcon,
   clients: ContractorsIcon,
@@ -998,7 +996,7 @@ export default function AppLayout() {
                       {entry.key === 'deliverables' && pendingProposalCount > 0 && (
                         <span style={styles.navDot} />
                       )}
-                      {entry.key === 'fl_documents' && unsignedDocCount > 0 && (
+                      {entry.key === 'fl_profile' && unsignedDocCount > 0 && (
                         <span style={styles.navBadge}>{unsignedDocCount}</span>
                       )}
                       {entry.key === 'fl_dashboard' && newAssignmentCount > 0 && (
@@ -1305,8 +1303,7 @@ export default function AppLayout() {
           {isAdmin && activeTab === 'jobs' && <PageErrorBoundary key="jobs"><Jobs initialApplicationId={navTarget} onApplicationOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {asContractor && activeTab === 'fl_dashboard' && <PageErrorBoundary key="fl_dashboard"><ContractorDashboard onNavigate={navigateTo} /></PageErrorBoundary>}
           {asContractor && activeTab === 'fl_hours' && <PageErrorBoundary key="fl_hours"><ContractorHours /></PageErrorBoundary>}
-          {asContractor && activeTab === 'fl_profile' && <PageErrorBoundary key="fl_profile"><ContractorProfile /></PageErrorBoundary>}
-          {asContractor && activeTab === 'fl_documents' && <PageErrorBoundary key="fl_documents"><ContractorDocuments /></PageErrorBoundary>}
+          {asContractor && activeTab === 'fl_profile' && <PageErrorBoundary key="fl_profile"><ContractorProfile initialView={navTarget} /></PageErrorBoundary>}
           {asContractor && activeTab === 'fl_reviews' && <PageErrorBoundary key="fl_reviews"><ContractorReviews initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {isAdmin && canManageClients(profile?.role, profile?.sub_role) && activeTab === 'clients' && <PageErrorBoundary key="clients"><Clients /></PageErrorBoundary>}
           {asClient && activeTab === 'cl_dashboard' && <PageErrorBoundary key="cl_dashboard"><ClientDashboard onNavigate={navigateTo} initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}

@@ -3,10 +3,27 @@ import { useAuth } from '../contexts/AuthContext';
 import { useEffectivePortalIdentity } from '../lib/impersonation';
 import { colors } from '../lib/styleTokens';
 import { formatSpecialties } from '../lib/rolePermissions';
+import { useNotifications } from '../contexts/NotificationContext';
+import usePersistedTab from '../hooks/usePersistedTab';
+import ContractorDocuments from './ContractorDocuments';
 
-export default function ContractorProfile() {
+// Views. Documents used to be its own sidebar page; it lives here now.
+const VIEWS = [
+  { key: 'profile', label: 'Profile' },
+  { key: 'payment', label: 'Payment' },
+  { key: 'documents', label: 'Documents' },
+  { key: 'password', label: 'Password' },
+];
+
+export default function ContractorProfile({ initialView }) {
   const { profile: realProfile, updateProfile } = useAuth();
   const { profile, supabase, readOnly } = useEffectivePortalIdentity(realProfile);
+  const { unsignedDocCount } = useNotifications();
+  const [view, setView] = usePersistedTab('fl-profile-view', 'profile', VIEWS.map(v => v.key));
+  // A notification about a document to sign deep-links straight to that view.
+  useEffect(() => {
+    if (initialView && VIEWS.some(v => v.key === initialView)) setView(initialView);
+  }, [initialView, setView]);
   const [form, setForm] = useState({
     full_name: '',
     phone: '',
@@ -15,7 +32,6 @@ export default function ContractorProfile() {
     bio: '',
   });
   const [email, setEmail] = useState('');
-  const [title, setTitle] = useState('');
   const [specialties, setSpecialties] = useState([]); // admin-set, shown read-only
   const [paymentType, setPaymentType] = useState('');
   const [rate, setRate] = useState('');
@@ -33,7 +49,7 @@ export default function ContractorProfile() {
     if (!profile?.id) return;
     setLoading(true);
     const [{ data: prof }, { data: flProf }] = await Promise.all([
-      supabase.from('profiles').select('full_name, email, avatar_url, title, specialties').eq('id', profile.id).single(),
+      supabase.from('profiles').select('full_name, email, avatar_url, specialties').eq('id', profile.id).single(),
       supabase.from('contractor_profiles').select('*').eq('id', profile.id).single(),
     ]);
     setForm({
@@ -44,7 +60,6 @@ export default function ContractorProfile() {
       bio: flProf?.bio || '',
     });
     setEmail(prof?.email || '');
-    setTitle(prof?.title || '');
     setSpecialties(Array.isArray(prof?.specialties) ? prof.specialties : []);
     setAvatarUrl(prof?.avatar_url || '');
     setPaymentType(flProf?.payment_type || '');
@@ -139,7 +154,6 @@ export default function ContractorProfile() {
   if (loading) {
     return (
       <div style={styles.container}>
-        <h1 style={styles.title}>Profile</h1>
         <p style={styles.loadingText}>Loading...</p>
       </div>
     );
@@ -147,15 +161,27 @@ export default function ContractorProfile() {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>Profile</h1>
+      {/* View switch: Profile | Payment | Documents | Password */}
+      <div style={styles.viewSwitch}>
+        {VIEWS.map(v => (
+          <button
+            key={v.key}
+            onClick={() => setView(v.key)}
+            style={{ ...styles.viewBtn, ...(view === v.key ? styles.viewBtnActive : {}) }}
+          >
+            {v.label}
+            {v.key === 'documents' && unsignedDocCount > 0 && (
+              <span style={styles.viewBadge}>{unsignedDocCount}</span>
+            )}
+          </button>
+        ))}
+      </div>
 
       {error && <div style={styles.errorBanner}>{error}</div>}
       {saved && <div style={styles.savedBanner}>Saved successfully</div>}
 
-      {/* Profile Info */}
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Profile Info</h2>
-
+      {view === 'profile' && (
+        <div style={styles.section}>
         {/* Avatar upload + Morty toggle */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
           <label style={{ cursor: 'pointer', position: 'relative' }}>
@@ -246,18 +272,6 @@ export default function ContractorProfile() {
           />
         </div>
 
-        {title && (
-          <div style={styles.fieldGroup}>
-            <label style={styles.fieldLabel}>Title</label>
-            <input
-              type="text"
-              value={title}
-              disabled
-              style={{ ...styles.input, ...styles.inputDisabled }}
-            />
-          </div>
-        )}
-
         {specialties.length > 0 && (
           <div style={styles.fieldGroup}>
             <label style={styles.fieldLabel}>Specialties</label>
@@ -269,26 +283,6 @@ export default function ContractorProfile() {
             />
           </div>
         )}
-
-        <div style={styles.fieldGroup}>
-          <label style={styles.fieldLabel}>Payment Type</label>
-          <input
-            type="text"
-            value={paymentType ? (paymentType === 'hourly' ? 'Hourly' : 'By Project') : 'Not set'}
-            disabled
-            style={{ ...styles.input, ...styles.inputDisabled }}
-          />
-        </div>
-
-        <div style={styles.fieldGroup}>
-          <label style={styles.fieldLabel}>{paymentType === 'hourly' ? 'Hourly Rate' : 'Project Rate'}</label>
-          <input
-            type="text"
-            value={rate ? `$${Number(rate).toFixed(2)}` : 'Not set'}
-            disabled
-            style={{ ...styles.input, ...styles.inputDisabled }}
-          />
-        </div>
 
         <div style={styles.fieldGroup}>
           <label style={styles.fieldLabel}>Phone</label>
@@ -311,11 +305,42 @@ export default function ContractorProfile() {
             style={styles.textarea}
           />
         </div>
-      </div>
 
-      {/* Payment Info */}
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Payment Info</h2>
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        style={{
+          ...styles.saveBtn,
+          ...(saving ? styles.saveBtnDisabled : {}),
+        }}
+      >
+        {saving ? 'Saving...' : 'Save'}
+      </button>
+
+        </div>
+      )}
+
+      {view === 'payment' && (
+        <div style={styles.section}>
+        <div style={styles.fieldGroup}>
+          <label style={styles.fieldLabel}>Payment Type</label>
+          <input
+            type="text"
+            value={paymentType ? (paymentType === 'hourly' ? 'Hourly' : 'By Project') : 'Not set'}
+            disabled
+            style={{ ...styles.input, ...styles.inputDisabled }}
+          />
+        </div>
+
+        <div style={styles.fieldGroup}>
+          <label style={styles.fieldLabel}>{paymentType === 'hourly' ? 'Hourly Rate' : 'Project Rate'}</label>
+          <input
+            type="text"
+            value={rate ? `$${Number(rate).toFixed(2)}` : 'Not set'}
+            disabled
+            style={{ ...styles.input, ...styles.inputDisabled }}
+          />
+        </div>
 
         <div style={styles.fieldGroup}>
           <label style={styles.fieldLabel}>Payment Method</label>
@@ -338,7 +363,6 @@ export default function ContractorProfile() {
             style={styles.input}
           />
         </div>
-      </div>
 
       <button
         onClick={handleSave}
@@ -351,10 +375,15 @@ export default function ContractorProfile() {
         {saving ? 'Saving...' : 'Save'}
       </button>
 
-      {/* Change Password */}
-      <div style={{ ...styles.section, marginTop: 40 }}>
-        <h2 style={styles.sectionTitle}>Change Password</h2>
+        </div>
+      )}
 
+      {view === 'documents' && (
+        <ContractorDocuments embedded />
+      )}
+
+      {view === 'password' && (
+        <div style={styles.section}>
         <div style={styles.fieldGroup}>
           <label style={styles.fieldLabel}>New Password</label>
           <input
@@ -387,8 +416,8 @@ export default function ContractorProfile() {
         >
           Update Password
         </button>
-      </div>
-
+        </div>
+      )}
     </div>
   );
 }
@@ -396,7 +425,7 @@ export default function ContractorProfile() {
 const styles = {
   container: {
     padding: '32px 40px',
-    maxWidth: 600,
+    maxWidth: 720,
     margin: '0 auto',
     fontFamily: 'DM Sans, sans-serif',
   },
@@ -405,6 +434,21 @@ const styles = {
     fontWeight: 700,
     color: 'rgba(255,255,255,0.95)',
     margin: '0 0 32px 0',
+  },
+  viewSwitch: {
+    display: 'inline-flex', gap: 2, padding: 3, marginBottom: 24,
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10,
+  },
+  viewBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '7px 14px', background: 'transparent', border: 'none', borderRadius: 8,
+    color: 'rgba(255,255,255,0.45)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  viewBtnActive: { background: colors.accentA15, color: colors.accentFg },
+  viewBadge: {
+    minWidth: 18, height: 18, padding: '0 5px', borderRadius: 9,
+    background: '#ef4444', color: '#fff', fontSize: 11, fontWeight: 700,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
   },
   loadingText: {
     color: 'rgba(255,255,255,0.5)',

@@ -5,7 +5,8 @@ import { useNotifications } from '../contexts/NotificationContext';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 
-export default function ContractorDocuments() {
+// embedded: rendered as a view inside ContractorProfile — no page padding or title.
+export default function ContractorDocuments({ embedded = false }) {
   const { user: realUser } = useAuth();
   const { user, supabase, readOnly } = useEffectivePortalIdentity(null, realUser);
   const { refreshNotifications } = useNotifications();
@@ -81,16 +82,16 @@ export default function ContractorDocuments() {
 
   if (loading) {
     return (
-      <div style={styles.page}>
-        <h1 style={styles.pageTitle}>Documents</h1>
+      <div style={embedded ? styles.pageEmbedded : styles.page}>
+        {!embedded && <h1 style={styles.pageTitle}>Documents</h1>}
         <p style={styles.muted}>Loading...</p>
       </div>
     );
   }
 
   return (
-    <div style={styles.page}>
-      <h1 style={styles.pageTitle}>Documents</h1>
+    <div style={embedded ? styles.pageEmbedded : styles.page}>
+      {!embedded && <h1 style={styles.pageTitle}>Documents</h1>}
 
       {/* Action Required */}
       {actionRequired.length > 0 && (
@@ -227,6 +228,9 @@ const styles = {
   page: {
     padding: '32px 40px',
     maxWidth: 900,
+    fontFamily: 'DM Sans, sans-serif',
+  },
+  pageEmbedded: {
     fontFamily: 'DM Sans, sans-serif',
   },
   pageTitle: {

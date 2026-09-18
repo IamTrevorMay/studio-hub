@@ -4,7 +4,6 @@ import { colors } from '../lib/styleTokens';
 const TOUR_STEPS = [
   { key: 'fl_dashboard', title: 'Dashboard', description: 'Your home base. View active assignments, update your status, log hours, and report blockers.' },
   { key: 'fl_assignments', title: 'Assignments', description: 'Your shared work. Download assets you need and find project files here.' },
-  { key: 'fl_documents', title: 'Documents', description: 'Review and sign documents from your team. A badge appears when something needs your signature.' },
   { key: 'fl_hours', title: 'Hours', description: 'If you\'re paid hourly, log your work hours for each pay period. Hours are reviewed bi-weekly (1st\u201315th and 16th\u2013end of month).' },
   { key: 'pitch_videos', title: 'Video Assets', description: 'Search and download video assets to use in your edits.' },
   { key: 'fl_profile', title: 'Profile', description: 'Set up your payment method and contact info so you can get paid.' },
