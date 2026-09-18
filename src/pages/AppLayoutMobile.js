@@ -253,7 +253,7 @@ export default function AppLayoutMobile() {
 
   // Contractor redirect (mirror desktop AppLayout)
   useEffect(() => {
-    if (isContractor && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'pitch_videos' && activeTab !== 'channels' && activeTab !== 'messages') {
+    if (isContractor && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'pitch_videos' && activeTab !== 'messages') {
       setActiveTab('fl_dashboard');
     }
   }, [isContractor]); // eslint-disable-line
