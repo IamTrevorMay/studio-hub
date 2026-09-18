@@ -63,8 +63,8 @@ function applyFormatMarker(textareaRef, text, marker, setter) {
 const DEMO_CLIENT_RECIPIENTS = [
   { id: 'demo-admin', full_name: 'Studio Admin', nickname: 'Studio Admin', title: 'Admin', role: 'admin', avatar_url: null },
   { id: 'demo-cd', full_name: 'Casey Morgan', nickname: 'Casey', title: 'Director of Production', role: 'director', sub_role: 'production', avatar_url: null },
-  { id: 'demo-e1', full_name: 'Jordan Lee', nickname: 'Jordan', title: 'Long Form Editor', role: 'contractor', sub_role: 'Long Form Editor', avatar_url: null },
-  { id: 'demo-e2', full_name: 'Sam Rivera', nickname: 'Sam', title: 'Short Form Editor', role: 'contractor', sub_role: 'Short Form Editor', avatar_url: null },
+  { id: 'demo-e1', full_name: 'Jordan Lee', nickname: 'Jordan', title: 'Editor', role: 'contractor', sub_role: 'Editor', specialties: ['long_form'], avatar_url: null },
+  { id: 'demo-e2', full_name: 'Sam Rivera', nickname: 'Sam', title: 'Editor', role: 'contractor', sub_role: 'Editor', specialties: ['social_video'], avatar_url: null },
 ];
 
 export default function Messages({ onNavigate, simulateClient = false, initialConversationId = null, onConversationOpened }) {

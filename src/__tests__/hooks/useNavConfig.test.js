@@ -41,7 +41,7 @@ describe('useNavConfig – getResolvedNav', () => {
     const { result } = renderHook(() => useNavConfig());
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 
-    const nav = result.current.getResolvedNav(NAV_ITEMS, false, false, true, { sub_role: 'Long Form Editor' });
+    const nav = result.current.getResolvedNav(NAV_ITEMS, false, false, true, { sub_role: 'Editor' });
     expect(nav.map((i) => i.key)).toContain('fl_reviews');
     const navNonEditor = result.current.getResolvedNav(NAV_ITEMS, false, false, true, { sub_role: 'Graphic Designer' });
     expect(navNonEditor.map((i) => i.key)).not.toContain('fl_reviews');
@@ -55,13 +55,13 @@ describe('useNavConfig – getResolvedNav', () => {
     expect(nav.map((i) => i.key)).toContain('fl_assignments');
   });
 
-  it('returns the locked client nav (no Notifications tab)', async () => {
+  it('returns the locked client nav (no Notifications tab; Calendar lives on the Dashboard)', async () => {
     const { result } = renderHook(() => useNavConfig());
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 
     const nav = result.current.getResolvedNav(NAV_ITEMS, false, false, false, null, new Set(), true);
     expect(nav.map((i) => i.key)).toEqual([
-      'cl_dashboard', 'cl_calendar', 'cl_review', 'messages',
+      'cl_dashboard', 'cl_review', 'messages',
       'cl_documents', 'cl_profile',
     ]);
   });

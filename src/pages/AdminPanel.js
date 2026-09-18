@@ -5,15 +5,14 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { colors } from '../lib/styleTokens';
-import { isDirectorRole, DIRECTOR_SUB_ROLE_LABELS, MEMBER_SUB_ROLES } from '../lib/rolePermissions';
+import { isDirectorRole, DIRECTOR_SUB_ROLE_LABELS, MEMBER_SUB_ROLES, CONTRACTOR_SUB_ROLES, formatSpecialties } from '../lib/rolePermissions';
+import SpecialtyPicker from '../components/SpecialtyPicker';
 import UserDetailModal from '../components/UserDetailModal';
 
 
-// Contractor sub-roles (formerly "titles").
-const CONTRACTOR_TITLES = [
-  'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
-  'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
-];
+// Contractor sub-roles come from rolePermissions (CONTRACTOR_SUB_ROLES); the
+// former per-format editor titles are one 'Editor' + specialties now.
+const CONTRACTOR_TITLES = CONTRACTOR_SUB_ROLES;
 
 // Director sub-roles.
 const DIRECTOR_SUB_ROLE_OPTIONS = [
@@ -49,6 +48,7 @@ export default function AdminPanel({ initialTab }) {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
   const [inviteSubRole, setInviteSubRole] = useState('');
+  const [inviteSpecialties, setInviteSpecialties] = useState([]); // contractor invites only
   const [loading, setLoading] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [inviteError, setInviteError] = useState('');
@@ -111,7 +111,12 @@ export default function AdminPanel({ initialTab }) {
             'Authorization': `Bearer ${session.access_token}`,
             'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ email: inviteEmail.toLowerCase().trim(), role: inviteRole, sub_role: inviteSubRole || null }),
+          body: JSON.stringify({
+            email: inviteEmail.toLowerCase().trim(),
+            role: inviteRole,
+            sub_role: inviteSubRole || null,
+            specialties: inviteRole === 'contractor' ? inviteSpecialties : [],
+          }),
         }
       );
 
@@ -122,6 +127,7 @@ export default function AdminPanel({ initialTab }) {
       setInviteEmail('');
       setInviteRole('member');
       setInviteSubRole('');
+      setInviteSpecialties([]);
       fetchInvitations();
       setInviteSuccess(`✉ Invitation email sent to ${sentTo}!`);
       setTimeout(() => setInviteSuccess(''), 8000);
@@ -496,7 +502,7 @@ export default function AdminPanel({ initialTab }) {
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <select
                   value={inviteRole}
-                  onChange={(e) => { setInviteRole(e.target.value); setInviteSubRole(''); }}
+                  onChange={(e) => { setInviteRole(e.target.value); setInviteSubRole(''); setInviteSpecialties([]); }}
                   style={styles.roleSelect}
                 >
                   <option value="member">Member</option>
@@ -518,6 +524,12 @@ export default function AdminPanel({ initialTab }) {
                   </select>
                 )}
               </div>
+              {inviteRole === 'contractor' && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>Specialties</div>
+                  <SpecialtyPicker value={inviteSpecialties} onChange={setInviteSpecialties} compact />
+                </div>
+              )}
             </form>
             {inviteSuccess && <div style={styles.successMsg}>{inviteSuccess}</div>}
             {inviteError && <div style={styles.errorMsg}>{inviteError}</div>}
@@ -608,6 +620,9 @@ export default function AdminPanel({ initialTab }) {
                         ? (DIRECTOR_SUB_ROLE_LABELS[member.sub_role] || 'No director type set')
                         : (member.sub_role || member.title || 'No sub-role set')}
                     </span>
+                    {member.role === 'contractor' && Array.isArray(member.specialties) && member.specialties.length > 0 && (
+                      <span style={{ color: 'rgba(255,255,255,0.35)' }}> · {formatSpecialties(member.specialties, ', ')}</span>
+                    )}
                   </div>
                 </div>
                 <select

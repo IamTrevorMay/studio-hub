@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useEffectivePortalIdentity } from '../lib/impersonation';
 import { colors } from '../lib/styleTokens';
+import { formatSpecialties } from '../lib/rolePermissions';
 
 export default function ContractorProfile() {
   const { profile: realProfile, updateProfile } = useAuth();
@@ -15,6 +16,7 @@ export default function ContractorProfile() {
   });
   const [email, setEmail] = useState('');
   const [title, setTitle] = useState('');
+  const [specialties, setSpecialties] = useState([]); // admin-set, shown read-only
   const [paymentType, setPaymentType] = useState('');
   const [rate, setRate] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -31,7 +33,7 @@ export default function ContractorProfile() {
     if (!profile?.id) return;
     setLoading(true);
     const [{ data: prof }, { data: flProf }] = await Promise.all([
-      supabase.from('profiles').select('full_name, email, avatar_url, title').eq('id', profile.id).single(),
+      supabase.from('profiles').select('full_name, email, avatar_url, title, specialties').eq('id', profile.id).single(),
       supabase.from('contractor_profiles').select('*').eq('id', profile.id).single(),
     ]);
     setForm({
@@ -43,6 +45,7 @@ export default function ContractorProfile() {
     });
     setEmail(prof?.email || '');
     setTitle(prof?.title || '');
+    setSpecialties(Array.isArray(prof?.specialties) ? prof.specialties : []);
     setAvatarUrl(prof?.avatar_url || '');
     setPaymentType(flProf?.payment_type || '');
     setRate(flProf?.rate != null ? String(flProf.rate) : '');
@@ -249,6 +252,18 @@ export default function ContractorProfile() {
             <input
               type="text"
               value={title}
+              disabled
+              style={{ ...styles.input, ...styles.inputDisabled }}
+            />
+          </div>
+        )}
+
+        {specialties.length > 0 && (
+          <div style={styles.fieldGroup}>
+            <label style={styles.fieldLabel}>Specialties</label>
+            <input
+              type="text"
+              value={formatSpecialties(specialties, ', ')}
               disabled
               style={{ ...styles.input, ...styles.inputDisabled }}
             />

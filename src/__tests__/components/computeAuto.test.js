@@ -28,7 +28,7 @@ const revenue = [
 ];
 
 const profilesById = {
-  alana: { id: 'alana', full_name: 'Alana', role: 'contractor', sub_role: 'Long Form Editor' },
+  alana: { id: 'alana', full_name: 'Alana', role: 'contractor', sub_role: 'Editor', specialties: ['long_form'] },
   staff: { id: 'staff', full_name: 'Staff', role: 'admin' },
 };
 
@@ -43,7 +43,7 @@ const products = [
     id: 'lf', name: 'YouTube long-form video', bucket: 'labour', readout_row: 'labour_content',
     unit_label: 'per video', target_margin: 0.28, rework_pct: 0.15, headroom_pct: 0,
     actual_price_cents: null, match_content_type: 'video', match_assignment_type: null,
-    match_sub_role: 'Long Form Editor', match_client_work: false, match_task_keyword: null,
+    match_sub_role: 'Editor', match_specialty: 'long_form', match_client_work: false, match_task_keyword: null,
   },
 ];
 

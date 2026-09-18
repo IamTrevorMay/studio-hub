@@ -5,6 +5,8 @@ import { fetchAllRows } from './analytics/utils';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { colors } from '../lib/styleTokens';
 import ContractorProfileDetail from './ContractorProfileDetail';
+import { CONTRACTOR_SUB_ROLES, formatSpecialties } from '../lib/rolePermissions';
+import SpecialtyPicker from '../components/SpecialtyPicker';
 
 const TABS = ['Assignments', 'Hours', 'Documents', 'Team'];
 
@@ -21,10 +23,8 @@ const TYPE_LABELS = { edit: 'Edit', design: 'Design', write: 'Write', other: 'Ot
 
 const SPECIALTY_LABELS = { editor: 'Editor', designer: 'Designer', writer: 'Writer', other: 'Other' };
 
-const CONTRACTOR_TITLES = [
-  'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
-  'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
-];
+// Contractor sub-roles ("titles") — one Editor sub-role + specialties since 2026-09-18.
+const CONTRACTOR_TITLES = CONTRACTOR_SUB_ROLES;
 
 /* ─────────────────────────────────────────── */
 /*  Component                                  */
@@ -51,6 +51,7 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteTitle, setInviteTitle] = useState('');
+  const [inviteSpecialties, setInviteSpecialties] = useState([]);
   const [invitePaymentType, setInvitePaymentType] = useState('hourly');
   const [inviteRate, setInviteRate] = useState('');
   const [inviteRetainerEnabled, setInviteRetainerEnabled] = useState(false);
@@ -336,6 +337,7 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
           email: inviteEmail.trim(),
           role: 'contractor',
           title: inviteTitle,
+          specialties: inviteSpecialties,
           payment_type: invitePaymentType,
           rate: parseFloat(inviteRate),
           retainer_enabled: invitePaymentType === 'hourly' ? inviteRetainerEnabled : false,
@@ -358,6 +360,7 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
       setInviteMsg({ type: 'success', text: `Invite sent to ${inviteEmail.trim()}` });
       setInviteEmail('');
       setInviteTitle('');
+      setInviteSpecialties([]);
       setInvitePaymentType('hourly');
       setInviteRate('');
       setInviteRetainerEnabled(false);
@@ -448,6 +451,7 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
     setEditForm({
       full_name: fl.full_name || '',
       title: fl.title || '',
+      specialties: Array.isArray(fl.specialties) ? fl.specialties : [],
       payment_type: fp.payment_type || 'hourly',
       rate: fp.rate != null ? String(fp.rate) : '',
       assigned_drive_folder_id: fl.assigned_drive_folder_id || '',
@@ -466,6 +470,8 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
       await supabase.from('profiles').update({
         full_name: editForm.full_name.trim(),
         title: editForm.title,
+        sub_role: editForm.title || null, // sub_role is canonical; title mirrors it
+        specialties: editForm.specialties || [],
         assigned_drive_folder_id: editForm.assigned_drive_folder_id || null,
         assigned_drive_folder_name: editForm.assigned_drive_folder_name || null,
       }).eq('id', flId);
@@ -816,6 +822,12 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
                     </select>
                   </div>
 
+                  {/* Specialties */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={styles.fieldLabel}>Specialties</label>
+                    <SpecialtyPicker value={inviteSpecialties} onChange={setInviteSpecialties} compact />
+                  </div>
+
                   {/* Payment Type */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <label style={styles.fieldLabel}>Payment Type</label>
@@ -1048,6 +1060,7 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
                         setShowInviteForm(false);
                         setInviteEmail('');
                         setInviteTitle('');
+                        setInviteSpecialties([]);
                         setInvitePaymentType('hourly');
                         setInviteRate('');
                         setInviteContractFile(null);
@@ -1115,8 +1128,8 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
                       {/* Badges */}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
                         {fl.title && (
-                          <span style={styles.badge}>
-                            {fl.title}
+                          <span style={styles.badge} title={formatSpecialties(fl.specialties, ', ') || undefined}>
+                            {fl.title}{Array.isArray(fl.specialties) && fl.specialties.length > 0 ? ` · ${formatSpecialties(fl.specialties, ', ')}` : ''}
                           </span>
                         )}
                         {fp.rate && (
@@ -1221,6 +1234,10 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
                                     <option key={t} value={t}>{t}</option>
                                   ))}
                                 </select>
+                              </div>
+                              <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+                                <label style={styles.label}>Specialties</label>
+                                <SpecialtyPicker value={editForm.specialties || []} onChange={v => setEditForm(p => ({ ...p, specialties: v }))} compact />
                               </div>
                               <div style={styles.formField}>
                                 <label style={styles.label}>Payment Type</label>
@@ -1365,6 +1382,10 @@ function Contractors({ initialAssignmentId, onAssignmentOpened, chromeless = fal
                               <div>
                                 <div style={styles.fieldLabel}>Title</div>
                                 <div style={{ color: '#fff', fontSize: 13, marginTop: 2 }}>{fl.title || '--'}</div>
+                              </div>
+                              <div>
+                                <div style={styles.fieldLabel}>Specialties</div>
+                                <div style={{ color: '#fff', fontSize: 13, marginTop: 2 }}>{formatSpecialties(fl.specialties, ', ') || '--'}</div>
                               </div>
                               {fp.payment_type && (
                                 <div>

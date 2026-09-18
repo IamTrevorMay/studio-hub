@@ -249,14 +249,14 @@ describe('auto vs manual resolution', () => {
 
 describe('measured hours', () => {
   const profilesById = {
-    alana: { sub_role: 'Long Form Editor', role: 'contractor' },
-    aaron: { sub_role: 'Short Form Editor', role: 'contractor' },
+    alana: { sub_role: 'Editor', specialties: ['long_form'], role: 'contractor' },
+    aaron: { sub_role: 'Editor', specialties: ['social_video'], role: 'contractor' },
     clientCo: { role: 'client' },
     staff: { role: 'admin' },
   };
   const longForm = {
     id: 'lf', bucket: 'labour', match_content_type: 'video',
-    match_sub_role: 'Long Form Editor', match_client_work: false,
+    match_sub_role: 'Editor', match_specialty: 'long_form', match_client_work: false,
   };
 
   const assignments = (n, over = {}) => Array.from({ length: n }, (_, i) => ({

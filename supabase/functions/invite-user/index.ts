@@ -60,7 +60,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Parse the request body
-    const { email, role, title, sub_role, payment_type, rate, contract_storage_path, contract_file_name, contract_needs_signing, blocked_folders, assigned_drive_folder_id, assigned_drive_folder_name, retainer_enabled, retainer_min_hours, overtime_enabled, overtime_max_hours, overtime_multiplier } = await req.json();
+    const { email, role, title, sub_role, specialties, payment_type, rate, contract_storage_path, contract_file_name, contract_needs_signing, blocked_folders, assigned_drive_folder_id, assigned_drive_folder_name, retainer_enabled, retainer_min_hours, overtime_enabled, overtime_max_hours, overtime_multiplier } = await req.json();
     if (!email) {
       return new Response(JSON.stringify({ error: "Email is required" }), {
         status: 400,
@@ -89,8 +89,29 @@ Deno.serve(async (req: Request) => {
     // Sub-role plumbing: the Contractors page carries the contractor sub-role as
     // `title`; the Admin Panel sends `sub_role`. Keep both columns mirrored so
     // the deprecated `title` display keeps working for contractors.
-    const effectiveSubRole = isClientInvite ? null : (sub_role || (inviteRole === "contractor" ? title : null) || null);
-    const effectiveTitle = isClientInvite ? (title || null) : (title || (inviteRole === "contractor" ? sub_role : null) || null);
+    // The three editor titles were condensed into 'Editor' (2026-09-18); a stale
+    // client still sending one is mapped, and its specialty is inferred.
+    const LEGACY_EDITOR: Record<string, string> = {
+      "Long Form Editor": "long_form",
+      "Short Form Editor": "social_video",
+      "Short-Form Video Editor": "social_video",
+      "Podcast Editor": "audio_podcast",
+    };
+    const rawSubRole = isClientInvite ? null : (sub_role || (inviteRole === "contractor" ? title : null) || null);
+    const legacySpecialty = rawSubRole && LEGACY_EDITOR[rawSubRole] ? LEGACY_EDITOR[rawSubRole] : null;
+    const effectiveSubRole = legacySpecialty ? "Editor" : rawSubRole;
+    const effectiveTitle = isClientInvite
+      ? (title || null)
+      : (inviteRole === "contractor" ? effectiveSubRole : (title || sub_role || null));
+
+    // Specialties: contractor-only, validated against the DB check constraint's list.
+    const SPECIALTIES = ["long_form", "social_video", "audio_podcast", "graphic_design", "sound_design", "color_correction"];
+    const effectiveSpecialties: string[] = inviteRole === "contractor"
+      ? Array.from(new Set([
+          ...(Array.isArray(specialties) ? specialties.filter((s: unknown) => typeof s === "string" && SPECIALTIES.includes(s)) : []),
+          ...(legacySpecialty ? [legacySpecialty] : []),
+        ]))
+      : [];
 
     // Hourly retainer/overtime settings — only meaningful for hourly payment.
     // Sanitize: keep the numeric floor/cap only when its toggle is on.
@@ -121,6 +142,7 @@ Deno.serve(async (req: Request) => {
       role: inviteRole,
       title: effectiveTitle,
       sub_role: effectiveSubRole,
+      specialties: effectiveSpecialties,
       payment_type: effectivePaymentType,
       rate: effectiveRate,
       contract_storage_path: contract_storage_path || null,
@@ -150,6 +172,7 @@ Deno.serve(async (req: Request) => {
         role: inviteRole,
         title: effectiveTitle,
         sub_role: effectiveSubRole,
+        specialties: effectiveSpecialties,
         payment_type: effectivePaymentType,
         rate: effectiveRate,
         assigned_drive_folder_id: isClientInvite ? null : (assigned_drive_folder_id || null),

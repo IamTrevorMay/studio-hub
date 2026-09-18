@@ -38,12 +38,43 @@ export function isDirectorRole(role) {
 // rename is confirmed everywhere, then safe to prune.
 export const DIRECTOR_SUB_ROLES = ['communications', 'production', 'content_strategy'];
 
-// Contractor sub-roles (the former "titles"). Display/organizational for now;
-// used by the AdminPanel picker and the admin "View as…" portal preview.
+// Contractor sub-roles (the former "titles"). Condensed 2026-09-18: the three
+// editor titles (Long Form / Short Form / Podcast Editor) became one `Editor`
+// sub-role, with the distinction carried by `profiles.specialties` instead.
+// Used by every contractor picker (AdminPanel, UserDetailModal, Contractors,
+// ContractorProfileDetail) — import this, don't redeclare it.
 export const CONTRACTOR_SUB_ROLES = [
-  'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
-  'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
+  'Editor', 'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
 ];
+
+// Pre-condense editor titles. Rows were migrated to 'Editor' by
+// 20260918140000_editor_role_specialties.sql; kept in accept-lists so a stale
+// client or an un-migrated invitation still gates as an editor.
+export const LEGACY_EDITOR_SUB_ROLES = [
+  'Long Form Editor', 'Short Form Editor', 'Podcast Editor', 'Short-Form Video Editor',
+];
+
+// Specialties: context on top of a contractor sub-role (multi-select, stored in
+// profiles.specialties text[]; DB check constraint mirrors these values).
+export const CONTRACTOR_SPECIALTIES = [
+  { value: 'long_form', label: 'Long Form' },
+  { value: 'social_video', label: 'Social Video' },
+  { value: 'audio_podcast', label: 'Audio/Podcast' },
+  { value: 'graphic_design', label: 'Graphic Design' },
+  { value: 'sound_design', label: 'Sound Design' },
+  { value: 'color_correction', label: 'Color Correction' },
+];
+export const SPECIALTY_LABELS = Object.fromEntries(CONTRACTOR_SPECIALTIES.map(s => [s.value, s.label]));
+
+export function formatSpecialties(list, sep = ' · ') {
+  if (!Array.isArray(list) || list.length === 0) return '';
+  return list.map(v => SPECIALTY_LABELS[v] || v).join(sep);
+}
+
+// Map a legacy editor title to the condensed sub-role (anything else passes through).
+export function normalizeContractorSubRole(subRole) {
+  return LEGACY_EDITOR_SUB_ROLES.includes(subRole) ? 'Editor' : subRole;
+}
 
 // Member sub-roles (internal staff job functions). Display/organizational only,
 // same as the contractor list — no feature gating hangs off these yet.
@@ -68,7 +99,7 @@ export function isClientRole(role) {
 
 // Contractor sub-roles that act as client-facing editors. Mirrors the DB
 // client_editors_validate() trigger — keep in sync.
-export const EDITOR_SUB_ROLES = ['Long Form Editor', 'Short Form Editor', 'Podcast Editor'];
+export const EDITOR_SUB_ROLES = ['Editor', ...LEGACY_EDITOR_SUB_ROLES];
 
 export function isEditorSubRole(subRole) {
   return EDITOR_SUB_ROLES.includes(subRole);

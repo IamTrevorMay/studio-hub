@@ -393,7 +393,7 @@ export const MIN_HOURS_SAMPLE = 10;
 export function hasHourMatching(product) {
   return Boolean(
     product.match_content_type || product.match_assignment_type ||
-    product.match_sub_role || product.match_client_work !== null ||
+    product.match_sub_role || product.match_specialty || product.match_client_work !== null ||
     product.match_task_keyword
   );
 }
@@ -404,6 +404,12 @@ export function matchesAssignment(product, a, profilesById) {
   if (product.match_sub_role) {
     const sub = profilesById?.[a.contractor_id]?.sub_role;
     if (sub !== product.match_sub_role) return false;
+  }
+  // Editor titles condensed to one sub-role (2026-09-18); the long-form vs
+  // social distinction now rides on the contractor's specialties.
+  if (product.match_specialty) {
+    const specs = profilesById?.[a.contractor_id]?.specialties;
+    if (!Array.isArray(specs) || !specs.includes(product.match_specialty)) return false;
   }
   if (product.match_client_work !== null && product.match_client_work !== undefined) {
     const isClient = profilesById?.[a.created_by]?.role === 'client';

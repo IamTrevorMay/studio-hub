@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
-import { isDirectorRole, MEMBER_SUB_ROLES } from '../lib/rolePermissions';
+import { isDirectorRole, MEMBER_SUB_ROLES, CONTRACTOR_SUB_ROLES } from '../lib/rolePermissions';
+import SpecialtyPicker from './SpecialtyPicker';
 
 // Admin-only detail drawer for a team member, opened from Admin Panel → Team.
 // Everything here is editable by an admin.
@@ -14,10 +15,6 @@ import { isDirectorRole, MEMBER_SUB_ROLES } from '../lib/rolePermissions';
 // profile_admin_notes is a separate table because `profiles` is readable by
 // every authenticated user — notes there would not be admin-only.
 
-const CONTRACTOR_SUB_ROLES = [
-  'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
-  'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
-];
 const DIRECTOR_SUB_ROLES = [
   { value: 'communications', label: 'Director of Communication' },
   { value: 'production', label: 'Director of Production' },
@@ -90,6 +87,7 @@ export default function UserDetailModal({ open, user, currentUserId, onClose, on
         title: user.title || '',
         role: user.role,
         sub_role: user.sub_role || '',
+        specialties: Array.isArray(user.specialties) ? user.specialties : [],
         avatar_url: user.avatar_url || '',
         // contact
         email: user.email || '',
@@ -188,6 +186,7 @@ export default function UserDetailModal({ open, user, currentUserId, onClose, on
         nickname: form.nickname.trim() || null,
         title: form.title.trim() || null,
         sub_role: form.sub_role || null,
+        specialties: contractor ? (form.specialties || []) : [],
         avatar_url: form.avatar_url || null,
         drive_email: form.drive_email.trim() || null,
         pay_method: form.pay_method || null,
@@ -344,6 +343,11 @@ export default function UserDetailModal({ open, user, currentUserId, onClose, on
                   <div style={styles.readonlyNote}>No sub-roles for this role</div>
                 )}
               </Field>
+              {contractor && (
+                <Field label="Specialties" wide>
+                  <SpecialtyPicker value={form.specialties} onChange={v => set('specialties', v)} />
+                </Field>
+              )}
             </div>
 
             {/* ── Contact ── */}
@@ -477,9 +481,9 @@ export default function UserDetailModal({ open, user, currentUserId, onClose, on
   );
 }
 
-function Field({ label, children }) {
+function Field({ label, children, wide = false }) {
   return (
-    <div style={styles.field}>
+    <div style={{ ...styles.field, ...(wide ? { gridColumn: '1 / -1' } : {}) }}>
       <div style={styles.fieldLabel}>{label}</div>
       {children}
     </div>

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { colors } from '../lib/styleTokens';
+import { CONTRACTOR_SUB_ROLES, formatSpecialties } from '../lib/rolePermissions';
+import SpecialtyPicker from '../components/SpecialtyPicker';
 
 // Full-page, admin-editable contractor profile. Opened from Contractor Mode →
 // Team by clicking a contractor. Self-contained: fetches the profile,
@@ -10,10 +12,7 @@ import { colors } from '../lib/styleTokens';
 // (read-only) · Admin notes & folders. sub_role is the canonical contractor
 // specialization; `title` is kept mirrored for back-compat.
 
-const CONTRACTOR_TITLES = [
-  'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
-  'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
-];
+const CONTRACTOR_TITLES = CONTRACTOR_SUB_ROLES;
 
 const STATUS_LABELS = {
   assigned: 'Assigned', in_progress: 'In Progress', submitted: 'Submitted',
@@ -66,6 +65,7 @@ export default function ContractorProfileDetail({ contractorId, onBack, onChange
     setForm({
       full_name: profile?.full_name || '',
       sub_role: profile?.sub_role || profile?.title || '',
+      specialties: Array.isArray(profile?.specialties) ? profile.specialties : [],
       payment_type: cp?.payment_type || 'hourly',
       rate: cp?.rate != null ? String(cp.rate) : '',
       retainer_enabled: !!cp?.retainer_enabled,
@@ -85,6 +85,7 @@ export default function ContractorProfileDetail({ contractorId, onBack, onChange
         full_name: form.full_name.trim(),
         sub_role: form.sub_role || null,
         title: form.sub_role || null,
+        specialties: form.specialties || [],
       }).eq('id', contractorId);
       await supabase.from('contractor_profiles').upsert({
         id: contractorId,
@@ -136,6 +137,9 @@ export default function ContractorProfileDetail({ contractorId, onBack, onChange
           <div style={styles.email}>{profile.email}</div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             {subRoleLabel && <span style={styles.badge}>{subRoleLabel}</span>}
+            {Array.isArray(profile.specialties) && profile.specialties.map(s => (
+              <span key={s} style={{ ...styles.badge, background: colors.accentA12, color: colors.accentFg }}>{formatSpecialties([s])}</span>
+            ))}
             <span style={{ ...styles.badge, background: activeCount > 0 ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.06)', color: activeCount > 0 ? '#fbbf24' : 'rgba(255,255,255,0.4)' }}>{activeCount} active</span>
             {profile.created_at && <span style={{ ...styles.badge }}>Joined {fmtDate(profile.created_at)}</span>}
           </div>
@@ -161,6 +165,11 @@ export default function ContractorProfileDetail({ contractorId, onBack, onChange
                   {CONTRACTOR_TITLES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </Field>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <Field label="Specialties">
+                  <SpecialtyPicker value={form.specialties} onChange={v => setForm(p => ({ ...p, specialties: v }))} />
+                </Field>
+              </div>
               <Field label="Payment type">
                 <select style={styles.input} value={form.payment_type} onChange={e => setForm(p => ({ ...p, payment_type: e.target.value }))}>
                   <option value="hourly">Hourly</option>
@@ -205,6 +214,7 @@ export default function ContractorProfileDetail({ contractorId, onBack, onChange
           <div style={styles.grid}>
             <ReadField label="Email" value={profile.email} />
             <ReadField label="Sub-role" value={subRoleLabel} />
+            <ReadField label="Specialties" value={formatSpecialties(profile.specialties, ', ') || '--'} />
             <ReadField label="Payment type" value={cp?.payment_type ? (cp.payment_type === 'hourly' ? 'Hourly' : 'By Project') : '--'} />
             <ReadField label="Rate" value={cp?.rate != null ? `$${Number(cp.rate).toFixed(2)}${cp.payment_type === 'hourly' ? '/hr' : '/proj'}` : '--'} />
             {cp?.payment_type === 'hourly' && (cp?.retainer_enabled || cp?.overtime_enabled) && (
