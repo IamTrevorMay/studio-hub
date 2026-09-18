@@ -6,6 +6,7 @@ import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 import { extractVideoId } from '../components/reviews/ReviewPlayer';
+import StyleGuidePanel from '../components/StyleGuidePanel';
 
 // Finished-project links must be real URLs — the DB gate only checks non-blank.
 const isValidUrl = (v) => /^https?:\/\/\S+$/i.test((v || '').trim());
@@ -105,6 +106,10 @@ export default function ContractorDashboard({ onNavigate }) {
 
   // Client-created assignments: delivery folder URLs + review-room links
   const [clientFolders, setClientFolders] = useState({}); // { [clientId]: url|null }
+  // Client style guides — RLS returns the guides of clients this editor is
+  // linked to via client_editors; read-only here.
+  const [clientGuides, setClientGuides] = useState({}); // { [clientId]: { id, title } }
+  const [openGuide, setOpenGuide] = useState(null); // { id, title } | null
   const [assignmentReviews, setAssignmentReviews] = useState({}); // { [assignmentId]: reviewId }
   const [reviewModalAssignment, setReviewModalAssignment] = useState(null);
 
@@ -228,8 +233,13 @@ export default function ContractorDashboard({ onNavigate }) {
     })).then(entries => {
       if (!cancelled) setClientFolders(Object.fromEntries(entries));
     });
+    supabase.from('style_guides').select('id, title, client_id').in('client_id', clientIds)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setClientGuides(Object.fromEntries((data || []).map(g => [g.client_id, { id: g.id, title: g.title }])));
+      });
     return () => { cancelled = true; };
-  }, [assignments]);
+  }, [assignments, supabase]);
 
   useEffect(() => {
     if (selectedId) {
@@ -848,6 +858,16 @@ export default function ContractorDashboard({ onNavigate }) {
                           Project folder ↗
                         </a>
                       )}
+                      {clientGuides[a.created_by] && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setOpenGuide(clientGuides[a.created_by]); }}
+                          style={styles.guideLink}
+                          title="This client's editing rules"
+                        >
+                          Style Guide
+                        </button>
+                      )}
                       {a.delivery_url && (
                         <a
                           href={a.delivery_url}
@@ -1090,6 +1110,24 @@ export default function ContractorDashboard({ onNavigate }) {
           );
         })}
       </div>
+
+      {/* Client style guide (read-only) */}
+      {openGuide && (
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setOpenGuide(null))}>
+          <div style={styles.guideModal} onClick={e => e.stopPropagation()}>
+            <div style={styles.guideModalHead}>
+              <div>
+                <h2 style={styles.guideModalTitle}>{openGuide.title}</h2>
+                <p style={styles.guideModalSub}>The rules this client expects on every cut.</p>
+              </div>
+              <button onClick={() => setOpenGuide(null)} style={styles.guideModalClose}>✕</button>
+            </div>
+            <div style={styles.guideModalBody}>
+              <StyleGuidePanel guideId={openGuide.id} mode="readonly" embedded />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Review Version Modal (client review loop) */}
       {reviewModalAssignment && (
@@ -2062,6 +2100,43 @@ const styles = {
     justifyContent: 'center',
     zIndex: 9999,
   },
+  guideLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 12px',
+    background: 'rgba(255,255,255,0.05)',
+    color: 'rgba(255,255,255,0.8)',
+    borderRadius: 8,
+    fontSize: 13,
+    fontWeight: 500,
+    border: '1px solid rgba(255,255,255,0.1)',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  guideModal: {
+    background: colors.bgHover,
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 16,
+    width: 720,
+    maxWidth: '94vw',
+    maxHeight: '86vh',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  guideModalHead: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: '20px 24px 14px',
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
+  },
+  guideModalTitle: { fontSize: 18, fontWeight: 700, color: '#fff', margin: 0 },
+  guideModalSub: { fontSize: 13, color: 'rgba(255,255,255,0.45)', margin: '4px 0 0' },
+  guideModalClose: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 16, cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px' },
+  guideModalBody: { padding: '18px 24px 24px', overflowY: 'auto' },
   modalContent: {
     background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)',

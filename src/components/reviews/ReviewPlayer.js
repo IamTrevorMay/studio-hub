@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { colors, zIndex } from '../../lib/styleTokens';
+import { callEdgeFn } from '../../lib/edgeFn';
+import StyleGuidePanel from '../StyleGuidePanel';
+
+const GUIDE_OPEN_KEY = 'review-guide-open';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -154,7 +158,7 @@ function VerdictChip({ verdict }) {
 // compact: stack the video/comments columns vertically for narrow (mobile)
 //          viewports instead of the side-by-side desktop layout.
 
-function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo = false, compact = false }) {
+function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo = false, compact = false, onOpenGuide }) {
   const isClient = mode === 'client';
   const isStaffMode = mode === 'staff';
   const canAddVersion = !isClient;
@@ -201,6 +205,54 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
   const [shareLoading, setShareLoading] = useState(false);
   const [sharePending, setSharePending] = useState(null); // client id mid-write
   const [shareSearch, setShareSearch] = useState('');
+
+  // Update Style Guide (staff mode, admin-tier only). Runs the style-guide
+  // edge function over this review's unprocessed comments; the result banner
+  // links to the guide it fed.
+  const canUpdateGuide = isStaffMode && !demo && !!isAdmin;
+  const [guideRunning, setGuideRunning] = useState(false);
+  const [guideResult, setGuideResult] = useState(null); // { ok, text, guideId } | { ok:false, text }
+
+  // Style guide side panel: the guide this review feeds (client's, else
+  // Mayday's), shown read-only beside the notes. RLS decides whether the
+  // viewer can see it at all — a contractor on a non-client review, or on a
+  // client they aren't linked to, simply gets no guide and no button.
+  const [reviewGuide, setReviewGuide] = useState(null); // { id, title } | null
+  const [guideOpen, setGuideOpen] = useState(() => {
+    try { return localStorage.getItem(GUIDE_OPEN_KEY) === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(GUIDE_OPEN_KEY, guideOpen ? '1' : '0'); } catch { /* ignore */ }
+  }, [guideOpen]);
+  useEffect(() => {
+    if (demo || !review?.id) { setReviewGuide(null); return undefined; }
+    let cancelled = false;
+    (async () => {
+      const { data: clientId } = await supabase.rpc('style_guide_client_for_review', { p_review: review.id });
+      let q = supabase.from('style_guides').select('id, title');
+      q = clientId ? q.eq('client_id', clientId) : q.eq('scope', 'mayday');
+      const { data } = await q.maybeSingle();
+      if (!cancelled) setReviewGuide(data || null);
+    })();
+    return () => { cancelled = true; };
+  }, [review?.id, demo, guideResult]); // re-resolve after an Update creates the guide
+
+  async function updateStyleGuide() {
+    if (guideRunning) return;
+    setGuideRunning(true);
+    setGuideResult(null);
+    try {
+      const r = await callEdgeFn('style-guide', { action: 'update_from_review', review_id: review.id });
+      const text = r.up_to_date
+        ? `${r.guide_title} is up to date — no new notes since the last update.`
+        : `${r.guide_title}: ${r.new_rules} new suggestion${r.new_rules !== 1 ? 's' : ''} · ${r.refs_added} note${r.refs_added !== 1 ? 's' : ''} linked · ${r.comments_processed} comment${r.comments_processed !== 1 ? 's' : ''} read`;
+      setGuideResult({ ok: true, text, guideId: r.guide_id });
+    } catch (err) {
+      setGuideResult({ ok: false, text: err.message || 'Style guide update failed.' });
+    } finally {
+      setGuideRunning(false);
+    }
+  }
 
   useEffect(() => {
     fetchVersions();
@@ -635,10 +687,43 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
             </span>
           )}
         </div>
-        {canShare && (
-          <button onClick={openShare} style={styles.shareBtn}>Share</button>
-        )}
+        <div style={styles.topActions}>
+          {reviewGuide && (
+            <button
+              onClick={() => setGuideOpen(v => !v)}
+              style={{ ...styles.guideBtn, ...(guideOpen ? styles.guideBtnOn : {}) }}
+              title={guideOpen ? 'Hide the style guide' : `Show ${reviewGuide.title}`}
+            >
+              {guideOpen ? 'Hide Style Guide' : 'Style Guide'}
+            </button>
+          )}
+          {canUpdateGuide && (
+            <button
+              onClick={updateStyleGuide}
+              disabled={guideRunning}
+              style={{ ...styles.guideBtn, ...(guideRunning ? styles.guideBtnBusy : {}) }}
+              title="Pull reusable rules from this review's notes into the style guide"
+            >
+              {guideRunning ? 'Updating…' : 'Update Style Guide'}
+            </button>
+          )}
+          {canShare && (
+            <button onClick={openShare} style={styles.shareBtn}>Share</button>
+          )}
+        </div>
       </div>
+
+      {guideResult && (
+        <div style={{ ...styles.guideBanner, ...(guideResult.ok ? {} : styles.guideBannerErr) }}>
+          <span style={styles.guideBannerText}>{guideResult.text}</span>
+          <span style={styles.guideBannerActions}>
+            {guideResult.ok && guideResult.guideId && onOpenGuide && (
+              <button style={styles.guideBannerLink} onClick={() => onOpenGuide(guideResult.guideId)}>Open guide →</button>
+            )}
+            <button style={styles.guideBannerClose} onClick={() => setGuideResult(null)}>✕</button>
+          </span>
+        </div>
+      )}
 
       {showShare && (
         <ShareModal
@@ -807,6 +892,19 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
             )}
           </div>
         </div>
+
+        {/* Style guide side panel (read-only; the guide this review feeds) */}
+        {reviewGuide && guideOpen && (
+          <div style={{ ...styles.guideCol, ...(compact ? styles.guideColCompact : {}), ...(videoColHeight && !compact ? { height: videoColHeight } : {}) }}>
+            <div style={styles.guideColHead}>
+              <span style={styles.guideColTitle}>{reviewGuide.title}</span>
+              <button onClick={() => setGuideOpen(false)} style={styles.guideColClose} title="Hide">✕</button>
+            </div>
+            <div style={styles.guideColBody}>
+              <StyleGuidePanel key={reviewGuide.id} guideId={reviewGuide.id} mode="readonly" embedded />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Timeline + Comment Input (below video+notes row) */}
@@ -1192,6 +1290,24 @@ const styles = {
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexShrink: 0 },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   backBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: '13px', cursor: 'pointer', padding: '0 0 8px 0', fontFamily: 'inherit', fontWeight: 500 },
+
+  // Top-bar actions (Update Style Guide + Share)
+  topActions: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 },
+  guideBtn: { padding: '8px 16px', background: colors.whiteA05, border: `1px solid ${colors.border}`, borderRadius: '10px', color: colors.textMuted, fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  guideBtnBusy: { opacity: 0.6, cursor: 'default' },
+  guideBtnOn: { background: colors.accentA12, border: `1px solid ${colors.accentA30}`, color: colors.accentFg },
+  guideCol: { width: '320px', minWidth: '320px', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 },
+  guideColCompact: { width: '100%', minWidth: 0, maxHeight: '60vh' },
+  guideColHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 },
+  guideColTitle: { fontSize: '13px', fontWeight: 700, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  guideColClose: { background: 'none', border: 'none', color: colors.textDim, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', padding: '0 2px', flexShrink: 0 },
+  guideColBody: { padding: '12px 14px', overflowY: 'auto', flex: 1, minHeight: 0 },
+  guideBanner: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 14px', marginBottom: '14px', background: colors.success.bg, border: `1px solid ${colors.success.border}`, borderRadius: '10px' },
+  guideBannerErr: { background: colors.danger.bg, border: `1px solid ${colors.danger.border}` },
+  guideBannerText: { fontSize: '13px', color: colors.text, fontWeight: 500 },
+  guideBannerActions: { display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 },
+  guideBannerLink: { background: 'none', border: 'none', color: colors.accentFg, fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 },
+  guideBannerClose: { background: 'none', border: 'none', color: colors.textDim, fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', padding: '0 2px' },
 
   // Share with client
   shareBtn: { padding: '8px 18px', background: colors.accentA12, border: `1px solid ${colors.accentA30}`, borderRadius: '10px', color: colors.accentFg, fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 },

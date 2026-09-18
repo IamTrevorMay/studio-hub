@@ -7,7 +7,9 @@ import { fetchAllRows } from './analytics/utils';
 
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
+import usePersistedTab from '../hooks/usePersistedTab';
 import ReviewPlayer, { extractVideoId } from '../components/reviews/ReviewPlayer';
+import StyleGuidePanel from '../components/StyleGuidePanel';
 
 // ─── Review List ─────────────────────────────────────────────────────────────
 
@@ -16,6 +18,79 @@ const SOURCE_FILTERS = [
   { key: 'studio', label: 'Studio' },
   { key: 'client', label: 'Client' },
 ];
+
+const VIEWS = [
+  { key: 'reviews', label: 'Reviews' },
+  { key: 'guides', label: 'Style Guides' },
+];
+
+// ─── Style Guides tab ────────────────────────────────────────────────────────
+// Admin-tier: every guide, full controls. Other staff: the Mayday guide only,
+// read-only (RLS hands them nothing else). `initialGuideId` comes from the
+// player's "Open guide →" banner after an Update press.
+
+function StyleGuidesTab({ isAdmin, initialGuideId, onOpenReview }) {
+  const [guides, setGuides] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState(initialGuideId || null);
+
+  const fetchGuides = useCallback(async () => {
+    const { data } = await supabase
+      .from('style_guides')
+      .select('id, scope, title, client_id, last_run_at, updated_at')
+      .order('scope', { ascending: false }) // mayday first
+      .order('title', { ascending: true });
+    setGuides(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchGuides(); }, [fetchGuides]);
+  useVisibilityRefresh(fetchGuides);
+
+  useEffect(() => {
+    if (initialGuideId) setSelectedId(initialGuideId);
+  }, [initialGuideId]);
+
+  useEffect(() => {
+    if (!selectedId && guides.length > 0) setSelectedId(guides[0].id);
+    if (selectedId && guides.length > 0 && !guides.some(g => g.id === selectedId)) setSelectedId(guides[0].id);
+  }, [guides, selectedId]);
+
+  if (loading) return <p style={styles.emptyText}>Loading…</p>;
+  if (guides.length === 0) {
+    return (
+      <div style={styles.emptyCard}>
+        <p style={styles.emptyText}>
+          {isAdmin
+            ? 'No style guides yet. Open a review and press “Update Style Guide” to build the first one from its notes.'
+            : 'No style guide has been published yet.'}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={styles.filterPills}>
+        {guides.map(g => (
+          <button
+            key={g.id}
+            onClick={() => setSelectedId(g.id)}
+            style={{ ...styles.filterPill, ...(selectedId === g.id ? styles.filterPillActive : {}) }}
+          >{g.title}</button>
+        ))}
+      </div>
+      {selectedId && (
+        <StyleGuidePanel
+          key={selectedId}
+          guideId={selectedId}
+          mode={isAdmin ? 'admin' : 'readonly'}
+          onOpenReview={onOpenReview}
+        />
+      )}
+    </div>
+  );
+}
 
 export default function Reviews({ initialReviewId, onOpened, compact = false }) {
   const { profile, isAdmin, refreshKey } = useAuth();
@@ -26,6 +101,23 @@ export default function Reviews({ initialReviewId, onOpened, compact = false }) 
   const [createForm, setCreateForm] = useState({ title: '', url: '' });
   const [activeReview, setActiveReview] = useState(null);
   const [sourceFilter, setSourceFilter] = useState('all'); // all | studio | client
+  const [view, setView] = usePersistedTab('reviews-view', 'reviews', VIEWS.map(v => v.key));
+  const [guideToOpen, setGuideToOpen] = useState(null);
+
+  // From the player's post-update banner: close the player, jump to the guide.
+  function openGuide(guideId) {
+    setGuideToOpen(guideId);
+    setActiveReview(null);
+    setView('guides');
+  }
+
+  // From a guide's evidence drawer: open the review that produced the note.
+  function openReviewFromGuide(reviewId) {
+    const target = reviews.find(r => r.id === reviewId);
+    if (!target) return;
+    setView('reviews');
+    setActiveReview(target);
+  }
 
   // Consume the deep-link prop exactly once per incoming id.
   const openedInitialRef = useRef(null);
@@ -137,7 +229,27 @@ export default function Reviews({ initialReviewId, onOpened, compact = false }) 
         profile={profile}
         isAdmin={isAdmin}
         compact={compact}
+        onOpenGuide={openGuide}
       />
+    );
+  }
+
+  if (view === 'guides') {
+    return (
+      <div style={{ ...styles.page, ...(compact ? styles.pageCompact : {}) }}>
+        <div style={styles.topBar}>
+          <div>
+            <h1 style={styles.pageTitle}>Style Guides</h1>
+            <p style={styles.pageSubtitle}>Editing rules distilled from review notes</p>
+          </div>
+        </div>
+        <div style={styles.viewSwitch}>
+          {VIEWS.map(v => (
+            <button key={v.key} onClick={() => setView(v.key)} style={{ ...styles.viewBtn, ...(view === v.key ? styles.viewBtnActive : {}) }}>{v.label}</button>
+          ))}
+        </div>
+        <StyleGuidesTab isAdmin={isAdmin} initialGuideId={guideToOpen} onOpenReview={openReviewFromGuide} />
+      </div>
     );
   }
 
@@ -189,6 +301,12 @@ export default function Reviews({ initialReviewId, onOpened, compact = false }) 
           <button type="submit" style={styles.submitBtn}>Create Review</button>
         </form>
       )}
+
+      <div style={styles.viewSwitch}>
+        {VIEWS.map(v => (
+          <button key={v.key} onClick={() => setView(v.key)} style={{ ...styles.viewBtn, ...(view === v.key ? styles.viewBtnActive : {}) }}>{v.label}</button>
+        ))}
+      </div>
 
       {/* Source filter pills: All | Studio | Client */}
       <div style={styles.filterPills}>
@@ -289,8 +407,13 @@ const styles = {
   previewLabel: { fontSize: '13px', color: '#22c55e', fontWeight: 500 },
   submitBtn: { padding: '10px 20px', background: colors.accent, border: 'none', borderRadius: '8px', color: colors.white, fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', alignSelf: 'flex-start' },
 
+  // Reviews | Style Guides
+  viewSwitch: { display: 'inline-flex', gap: '2px', padding: '3px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', marginBottom: '16px' },
+  viewBtn: { padding: '6px 14px', background: 'transparent', border: 'none', borderRadius: '8px', color: 'rgba(255,255,255,0.45)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  viewBtnActive: { background: colors.accentA15, color: colors.accentFg },
+
   // Source filter pills
-  filterPills: { display: 'flex', gap: '6px', marginBottom: '16px' },
+  filterPills: { display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' },
   filterPill: { padding: '5px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   filterPillActive: { background: colors.accentA12, borderColor: colors.accentA30, color: colors.accentFg },
 
