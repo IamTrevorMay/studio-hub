@@ -179,18 +179,18 @@ Replaces single-step "code" workflows (payroll reminders, clip video) with admin
 Freelancer-facing portal with locked sidebar nav. Accessible when `profile.role === 'freelancer'`.
 
 ### Pages
-- `fl_dashboard` → `FreelancerDashboard.js` — assignments, status updates, hours logging, blockers
+- `fl_dashboard` → `ContractorDashboard.js` — titled "Dashboard": assignments (status filter is a single dropdown, no type emoji), status updates, hours logging, blockers, and an **Earnings** section (2026-09-18) below the cards: current pay period + any past period Payroll hasn't marked paid, with a collapsible paid history. Amounts come from the `contractor_earnings(p_start, p_end)` RPC (hourly → `compute_freelancer_pay`, project → completed assignments' `pay_amount`; PT-day attribution; one-offs excluded since `payroll_one_offs.payee` is free text). Migration `20260918160000_contractor_earnings.sql`. Mobile shows the current period only.
 - `fl_assignments` → opens assigned Google Drive folder (external link)
-- `fl_submit` → file upload modal (drag-drop to shared Drive folder via `drive-upload-init`)
+- ~~`fl_submit`~~ removed 2026-09-18 (sidebar upload modal + tour step). The per-card Submit button stays; it's driven by the assignment's `submit_folder_id`, set by whoever creates the assignment.
 - `fl_documents` → `FreelancerDocuments.js` — document signing and reference docs
 - `fl_hours` → `FreelancerHours.js` — bi-weekly hour tracking (1st–15th, 16th–end of month)
 - `fl_profile` → `FreelancerProfile.js` — payment method, contact info, avatar, Morty toggle
-- `fl_notifications` → `FreelancerNotifications.js` — alerts with type icons
+- ~~`fl_notifications`~~ removed from the contractor sidebar 2026-09-18, along with the Notifications block that sat atop the dashboard; contractors use the bell. (`ContractorNotifications.js` still serves the client `cl_notifications` tab.)
 - Also: `resources`, `assets` (external), `channels`, `messages`
 
 ### Onboarding
 - `FreelancerTour` component auto-triggers when `freelancer_profiles.tour_completed_at` is null
-- 7-step tour: Dashboard, Assignments, Submit, Documents, Hours, Assets, Profile
+- 6-step tour: Dashboard, Assignments, Documents, Hours, Assets, Profile
 - `AppLayout.js` auto-creates `freelancer_profiles` row if missing during tour check
 
 ### Invite Flow

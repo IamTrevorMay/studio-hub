@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens } from '../utils/mobileTokens';
 import { colors } from '../lib/styleTokens';
+import { getCurrentPayPeriod } from '../lib/payPeriods';
 
 // Studio owner (Trevor) — sole recipient of contractor-comment notifications.
 const STUDIO_OWNER_ID = 'c3290048-436b-46c6-b3f0-fdf7923d0c3b';
@@ -11,7 +12,6 @@ const STUDIO_OWNER_ID = 'c3290048-436b-46c6-b3f0-fdf7923d0c3b';
 const STATUS_LABELS = { assigned: 'Assigned', in_progress: 'In Progress', completed: 'Completed' };
 const STATUS_COLORS = { assigned: '#60a5fa', in_progress: '#fbbf24', completed: '#34d399' };
 
-const TYPE_ICONS = { edit: '✂️', design: '🎨', write: '✍️', other: '📋' };
 
 function fmtDue(iso, time) {
   if (!iso) return null;
@@ -53,6 +53,16 @@ export default function ContractorDashboardMobile() {
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('open'); // open | all | completed
+  // This pay period's earnings, computed server-side like Payroll (contractor_earnings RPC).
+  const [earnings, setEarnings] = useState(null);
+  useEffect(() => {
+    if (!profile?.id) return undefined;
+    let cancelled = false;
+    const period = getCurrentPayPeriod();
+    supabase.rpc('contractor_earnings', { p_start: period.start, p_end: period.end })
+      .then(({ data, error }) => { if (!cancelled) setEarnings(error ? null : { period, data }); });
+    return () => { cancelled = true; };
+  }, [profile?.id, assignments]);
   const [selectedId, setSelectedId] = useState(null);
 
   const fetchAssignments = useCallback(async () => {
@@ -106,9 +116,11 @@ export default function ContractorDashboardMobile() {
       </div>
 
       <div style={styles.filterBar}>
-        <FilterChip label="Open" count={counts.open} active={filter === 'open'} onClick={() => setFilter('open')} />
-        <FilterChip label="Completed" count={counts.completed} active={filter === 'completed'} onClick={() => setFilter('completed')} />
-        <FilterChip label="All" count={assignments.length} active={filter === 'all'} onClick={() => setFilter('all')} />
+        <select value={filter} onChange={(e) => setFilter(e.target.value)} style={styles.filterSelect} aria-label="Filter assignments">
+          <option value="open">Open · {counts.open}</option>
+          <option value="completed">Completed · {counts.completed}</option>
+          <option value="all">All · {assignments.length}</option>
+        </select>
       </div>
 
       {loading ? (
@@ -129,7 +141,6 @@ export default function ContractorDashboardMobile() {
                   <div style={{ ...styles.statusBar, background: accent }} />
                   <div style={styles.cardBody}>
                     <div style={styles.cardHeader}>
-                      <span style={styles.cardIcon}>{TYPE_ICONS[a.type] || '📋'}</span>
                       <span style={styles.cardTitle}>{a.title}</span>
                       <span style={{ ...styles.statusPill, background: `${accent}22`, color: accent, borderColor: `${accent}55` }}>
                         {STATUS_LABELS[a.status] || a.status}
@@ -148,6 +159,24 @@ export default function ContractorDashboardMobile() {
             );
           })}
         </ul>
+      )}
+
+      {earnings?.data && (
+        <section style={styles.earnCard}>
+          <div style={styles.earnTop}>
+            <div>
+              <div style={styles.statLabel}>Earnings · {earnings.period.label}</div>
+              <div style={styles.earnDetail}>
+                {earnings.data.completed_count} completed
+                {earnings.data.payment_type === 'hourly' ? ` · ${Number(earnings.data.hours || 0).toFixed(1)} hrs` : ''}
+                {earnings.data.paid ? ' · Paid' : ''}
+              </div>
+            </div>
+            <div style={styles.earnAmount}>
+              ${((earnings.data.amount_cents || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          </div>
+        </section>
       )}
 
       <FullScreenSheet
@@ -174,18 +203,6 @@ function Stat({ label, value, accent }) {
       <div style={styles.statLabel}>{label}</div>
       <div style={{ ...styles.statValue, color: accent }}>{value}</div>
     </div>
-  );
-}
-
-function FilterChip({ label, count, active, onClick }) {
-  return (
-    <button onClick={onClick} style={{
-      ...styles.chip,
-      background: active ? 'rgba(91, 143, 199,0.16)' : 'rgba(255,255,255,0.05)',
-      color: active ? '#8fb4d8' : 'rgba(255,255,255,0.7)',
-      borderColor: active ? 'rgba(91, 143, 199,0.4)' : 'rgba(255,255,255,0.1)',
-      fontWeight: active ? 600 : 500,
-    }}>{label} <span style={{ color: 'rgba(255,255,255,0.4)' }}>· {count}</span></button>
   );
 }
 
@@ -427,6 +444,20 @@ const styles = {
     padding: `0 ${mobileTokens.space.lg}px`,
     flexWrap: 'wrap',
   },
+  filterSelect: {
+    minHeight: 40, padding: `0 ${mobileTokens.space.md}px`,
+    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: mobileTokens.radius.md, color: '#fff',
+    fontSize: mobileTokens.font.sm, fontFamily: 'inherit', outline: 'none', width: '100%',
+  },
+  earnCard: {
+    margin: `${mobileTokens.space.lg}px ${mobileTokens.space.lg}px 0`,
+    padding: mobileTokens.space.lg, background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)', borderRadius: mobileTokens.radius.lg,
+  },
+  earnTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: mobileTokens.space.md },
+  earnDetail: { fontSize: mobileTokens.font.sm, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
+  earnAmount: { fontSize: 22, fontWeight: 700, color: '#86efac' },
   chip: {
     minHeight: 36, padding: `${mobileTokens.space.sm}px ${mobileTokens.space.md}px`,
     border: '1px solid', borderRadius: mobileTokens.radius.pill,

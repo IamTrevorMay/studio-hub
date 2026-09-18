@@ -80,7 +80,6 @@ export default function useNavConfig() {
       if (profile?.assigned_drive_folder_id) {
         items.push({ type: 'item', key: 'fl_assignments', label: 'Assignments' });
       }
-      items.push({ type: 'item', key: 'fl_submit', label: 'Submit' });
       // Editor sub-roles get the client-review feedback tab.
       if (isEditorSubRole(profile?.sub_role)) {
         items.push({ type: 'item', key: 'fl_reviews', label: 'Reviews' });
@@ -91,7 +90,6 @@ export default function useNavConfig() {
         { type: 'item', key: 'channels', label: 'Channels' },
         { type: 'item', key: 'messages', label: 'Messages' },
         { type: 'item', key: 'fl_profile', label: 'Profile' },
-        { type: 'item', key: 'fl_notifications', label: 'Notifications' },
       );
       return items;
     }

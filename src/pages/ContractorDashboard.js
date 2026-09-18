@@ -7,6 +7,7 @@ import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
 import { extractVideoId } from '../components/reviews/ReviewPlayer';
 import StyleGuidePanel from '../components/StyleGuidePanel';
+import { getPayPeriods } from '../lib/payPeriods';
 
 // Finished-project links must be real URLs — the DB gate only checks non-blank.
 const isValidUrl = (v) => /^https?:\/\/\S+$/i.test((v || '').trim());
@@ -23,13 +24,6 @@ const STATUS_BADGE_COLORS = {
   assigned: { bg: 'rgba(96,165,250,0.15)', color: '#60a5fa' },
   in_progress: { bg: 'rgba(251,191,36,0.15)', color: '#fbbf24' },
   completed: { bg: 'rgba(52,211,153,0.15)', color: '#34d399' },
-};
-
-const TYPE_ICONS = {
-  edit: '\u2702\uFE0F',
-  design: '\uD83C\uDFA8',
-  write: '\u270D\uFE0F',
-  other: '\uD83D\uDCCB',
 };
 
 function formatRelativeTime(dateString) {
@@ -110,14 +104,14 @@ export default function ContractorDashboard({ onNavigate }) {
   // linked to via client_editors; read-only here.
   const [clientGuides, setClientGuides] = useState({}); // { [clientId]: { id, title } }
   const [openGuide, setOpenGuide] = useState(null); // { id, title } | null
+
+  // Earnings: the current pay period plus recent ones, computed server-side by
+  // contractor_earnings() the same way Payroll does (hourly via
+  // compute_freelancer_pay, project-rate via completed assignments' pay).
+  const [earnings, setEarnings] = useState([]); // [{ period, data }] newest first
+  const [showPaidHistory, setShowPaidHistory] = useState(false);
   const [assignmentReviews, setAssignmentReviews] = useState({}); // { [assignmentId]: reviewId }
   const [reviewModalAssignment, setReviewModalAssignment] = useState(null);
-
-  // Notifications + announcements
-  const [notifications, setNotifications] = useState([]);
-  const [announcements, setAnnouncements] = useState([]);
-  const [dismissedAnnouncementIds, setDismissedAnnouncementIds] = useState(new Set());
-  const [notifsExpanded, setNotifsExpanded] = useState(false);
 
   // In-flight guard so double-clicking Submit/Start doesn't double-fire notifications
   const statusChangingRef = useRef(new Set());
@@ -162,38 +156,22 @@ export default function ContractorDashboard({ onNavigate }) {
     setComments(data || []);
   }, []);
 
-  const fetchNotifications = useCallback(async () => {
-    if (!profile?.id) return;
-    const { data } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', profile.id)
-      .order('created_at', { ascending: false })
-      .limit(20);
-    setNotifications(data || []);
-  }, [profile?.id]);
-
-  const fetchAnnouncements = useCallback(async () => {
-    if (!profile?.id) return;
-    const [{ data: anns }, { data: reads }] = await Promise.all([
-      supabase.from('announcements')
-        .select('*, author:profiles!created_by(full_name)')
-        .order('target_date', { ascending: false })
-        .limit(10),
-      supabase.from('announcement_reads')
-        .select('announcement_id')
-        .eq('user_id', profile.id),
-    ]);
-    const readIds = new Set((reads || []).map(r => r.announcement_id));
-    setDismissedAnnouncementIds(readIds);
-    setAnnouncements(anns || []);
-  }, [profile?.id]);
-
   useEffect(() => {
     fetchAssignments();
-    fetchNotifications();
-    fetchAnnouncements();
-  }, [fetchAssignments, fetchNotifications, fetchAnnouncements]);
+  }, [fetchAssignments]);
+
+  const fetchEarnings = useCallback(async () => {
+    if (!profile?.id) return;
+    const periods = getPayPeriods(6);
+    const rows = await Promise.all(periods.map(async (period) => {
+      const { data, error } = await supabase.rpc('contractor_earnings', { p_start: period.start, p_end: period.end });
+      return { period, data: error ? null : data };
+    }));
+    setEarnings(rows);
+  }, [profile?.id, supabase]);
+
+  // Re-run whenever the assignment list changes (a completion moves money).
+  useEffect(() => { fetchEarnings(); }, [fetchEarnings, assignments]);
 
   // Deep-link: ?assignment=<id> from notification emails auto-selects that assignment
   useEffect(() => {
@@ -269,19 +247,6 @@ export default function ContractorDashboard({ onNavigate }) {
     filter: selectedId ? `assignment_id=eq.${selectedId}` : undefined,
     onAny: refetchComments,
     enabled: !!profile?.id && !!selectedId,
-  });
-
-  useRealtimeTable('fl-notifications', {
-    table: 'notifications',
-    filter: profile?.id ? `user_id=eq.${profile.id}` : undefined,
-    onAny: fetchNotifications,
-    enabled: !!profile?.id,
-  });
-
-  useRealtimeTable('fl-announcements', {
-    table: 'announcements',
-    onAny: fetchAnnouncements,
-    enabled: !!profile?.id,
   });
 
   // ── Handlers ───────────────────────────────────────────────────
@@ -498,44 +463,6 @@ export default function ContractorDashboard({ onNavigate }) {
     fetchAssignments();
   }
 
-  async function handleMarkNotifRead(notifId) {
-    await supabase.from('notifications').update({ is_read: true }).eq('id', notifId);
-    fetchNotifications();
-  }
-
-  async function handleMarkAllNotifsRead() {
-    await supabase.from('notifications').update({ is_read: true }).eq('user_id', profile.id).eq('is_read', false);
-    fetchNotifications();
-  }
-
-  async function handleDismissNotif(notifId) {
-    await supabase.from('notifications').delete().eq('id', notifId);
-    fetchNotifications();
-  }
-
-  async function handleClearAllNotifs() {
-    // Clear notifications
-    await supabase.from('notifications').delete().eq('user_id', profile.id);
-    // Dismiss all visible announcements
-    const undismissed = announcements.filter(a => !dismissedAnnouncementIds.has(a.id));
-    if (undismissed.length > 0) {
-      await supabase.from('announcement_reads').upsert(
-        undismissed.map(a => ({ user_id: profile.id, announcement_id: a.id })),
-        { onConflict: 'user_id,announcement_id' }
-      );
-    }
-    fetchNotifications();
-    fetchAnnouncements();
-  }
-
-  async function handleDismissAnnouncement(announcementId) {
-    await supabase.from('announcement_reads').upsert(
-      { user_id: profile.id, announcement_id: announcementId },
-      { onConflict: 'user_id,announcement_id' }
-    );
-    setDismissedAnnouncementIds(prev => new Set([...prev, announcementId]));
-  }
-
   // ── Derived ────────────────────────────────────────────────────
 
   const visibleAssignments = assignments.filter(a => !archivedIds.has(a.id) && !a.declined_at);
@@ -553,170 +480,28 @@ export default function ContractorDashboard({ onNavigate }) {
     );
   }
 
-  const unreadNotifs = notifications.filter(n => !n.read);
-  const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000;
-  const visibleAnnouncements = announcements.filter(a => {
-    if (dismissedAnnouncementIds.has(a.id)) return false;
-    const when = a.target_date || a.created_at;
-    if (!when) return false;
-    return new Date(when).getTime() >= threeDaysAgo;
-  });
-  const allUpdates = [
-    ...visibleAnnouncements.map(a => {
-      // Strip HTML tags from content for plain text display
-      const plainText = a.content ? a.content.replace(/<[^>]*>/g, '').trim() : '';
-      return {
-        id: `ann-${a.id}`,
-        annId: a.id,
-        type: 'announcement',
-        title: 'Announcement',
-        body: plainText || null,
-        time: a.target_date || a.created_at,
-        read: false,
-        author: a.author?.full_name,
-      };
-    }),
-    ...notifications.map(n => ({
-      id: n.id,
-      type: n.type || 'notification',
-      title: n.title,
-      body: n.body,
-      time: n.created_at,
-      read: n.read,
-      notifId: n.id,
-    })),
-  ].sort((a, b) => new Date(b.time) - new Date(a.time));
-
   return (
     <div style={styles.page}>
-      {/* Notifications & Announcements */}
-      {allUpdates.length > 0 && (
-        <div style={styles.notifsSection}>
-          <div
-            style={styles.notifsSectionHeader}
-            onClick={() => setNotifsExpanded(!notifsExpanded)}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
-                Notifications
-              </span>
-              {unreadNotifs.length > 0 && (
-                <span style={styles.notifsUnreadBadge}>{unreadNotifs.length}</span>
-              )}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {notifsExpanded && unreadNotifs.length > 0 && (
-                <button
-                  onClick={e => { e.stopPropagation(); handleMarkAllNotifsRead(); }}
-                  style={styles.markAllReadBtn}
-                >
-                  Mark All Read
-                </button>
-              )}
-              {notifsExpanded && notifications.length > 0 && (
-                <button
-                  onClick={e => { e.stopPropagation(); handleClearAllNotifs(); }}
-                  style={styles.clearAllBtn}
-                >
-                  Clear All
-                </button>
-              )}
-              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
-                {notifsExpanded ? '\u25B2' : '\u25BC'}
-              </span>
-            </div>
-          </div>
-          {notifsExpanded && (
-            <div style={styles.notifsList}>
-              {allUpdates.slice(0, 10).map(item => (
-                <div
-                  key={item.id}
-                  style={{
-                    ...styles.notifItem,
-                    ...(item.read ? {} : styles.notifItemUnread),
-                  }}
-                  onClick={() => {
-                    if (item.notifId && !item.read) handleMarkNotifRead(item.notifId);
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {item.type === 'announcement' && (
-                          <span style={styles.announcementTag}>Announcement</span>
-                        )}
-                        <span style={{
-                          fontSize: 13,
-                          fontWeight: item.read ? 500 : 600,
-                          color: item.read ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.9)',
-                        }}>
-                          {item.title}
-                        </span>
-                      </div>
-                      {item.body && (
-                        <p style={{
-                          fontSize: 12,
-                          color: item.read ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.55)',
-                          margin: '4px 0 0',
-                          lineHeight: 1.4,
-                        }}>
-                          {item.body}
-                        </p>
-                      )}
-                      {item.author && (
-                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2, display: 'block' }}>
-                          — {item.author}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>
-                        {formatRelativeTime(item.time)}
-                      </span>
-                      {(item.notifId || item.annId) && (
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            if (item.notifId) handleDismissNotif(item.notifId);
-                            else if (item.annId) handleDismissAnnouncement(item.annId);
-                          }}
-                          style={styles.dismissBtn}
-                          title="Dismiss"
-                        >
-                          &times;
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Header */}
       <div style={styles.header}>
-        <h1 style={styles.title}>My Assignments</h1>
+        <h1 style={styles.title}>Dashboard</h1>
         <p style={styles.subtitle}>
           {visibleAssignments.length} total &middot; {visibleAssignments.filter(a => a.status === 'in_progress').length} in progress
         </p>
       </div>
 
-      {/* Status Filter Pills */}
+      {/* Status filter */}
       <div style={styles.filterRow}>
-        {['all', 'assigned', 'in_progress', 'completed'].map(f => (
-          <button
-            key={f}
-            onClick={() => setStatusFilter(f)}
-            style={{
-              ...styles.filterPill,
-              ...(statusFilter === f ? styles.filterPillActive : {}),
-            }}
-          >
-            {f === 'all' ? 'All' : STATUS_LABELS[f]}
-          </button>
-        ))}
+        <select
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value)}
+          style={styles.filterSelect}
+          aria-label="Filter assignments by status"
+        >
+          {['all', 'assigned', 'in_progress', 'completed'].map(f => (
+            <option key={f} value={f}>{f === 'all' ? 'All assignments' : STATUS_LABELS[f]}</option>
+          ))}
+        </select>
       </div>
 
       {/* Assignment Cards */}
@@ -731,7 +516,6 @@ export default function ContractorDashboard({ onNavigate }) {
           const isExpanded = selectedId === a.id;
           const dueDateStatus = getDueDateStatus(a.due_date);
           const badge = STATUS_BADGE_COLORS[a.status] || STATUS_BADGE_COLORS.assigned;
-          const typeIcon = TYPE_ICONS[a.type] || TYPE_ICONS.other;
           const isClientCreated = a.created_by_profile?.role === 'client';
 
           return (
@@ -747,7 +531,6 @@ export default function ContractorDashboard({ onNavigate }) {
                 <div style={styles.cardRow}>
                   {/* Left: icon + title + due */}
                   <div style={styles.cardLeft}>
-                    <span style={styles.typeIcon}>{typeIcon}</span>
                     <div>
                       <span style={styles.cardTitle}>{a.title}</span>
                       {a.due_date && (
@@ -1110,6 +893,62 @@ export default function ContractorDashboard({ onNavigate }) {
           );
         })}
       </div>
+
+      {/* Earnings — this pay period + anything Payroll hasn't marked paid */}
+      {earnings.length > 0 && earnings[0].data && (() => {
+        const fmtMoney = (cents) => `$${((cents || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const current = earnings[0];
+        const past = earnings.slice(1).filter(e => e.data);
+        const unpaidPast = past.filter(e => !e.data.paid && (e.data.amount_cents > 0 || e.data.completed_count > 0));
+        const paidPast = past.filter(e => e.data.paid);
+        const owedCents = (current.data.amount_cents || 0) + unpaidPast.reduce((n, e) => n + (e.data.amount_cents || 0), 0);
+        const isHourly = current.data.payment_type === 'hourly';
+        const detailFor = (d) => {
+          if (d.payment_type !== 'hourly') return `${d.completed_count} completed`;
+          const bits = [`${d.completed_count} completed`, `${Number(d.hours || 0).toFixed(1)} hrs`];
+          if (d.floor_applied) bits.push('retainer floor applied');
+          if (d.overtime_applied) bits.push('overtime included');
+          return bits.join(' · ');
+        };
+        const renderRow = (e, tag, tagStyle) => (
+          <div key={e.period.start} style={styles.earnRow}>
+            <div style={styles.earnRowMain}>
+              <span style={styles.earnPeriod}>{e.period.label}</span>
+              <span style={styles.earnDetail}>{detailFor(e.data)}</span>
+            </div>
+            <div style={styles.earnRowRight}>
+              <span style={{ ...styles.earnTag, ...tagStyle }}>{tag}</span>
+              <span style={styles.earnAmount}>{fmtMoney(e.data.amount_cents)}</span>
+            </div>
+          </div>
+        );
+        return (
+          <section style={styles.earnSection}>
+            <div style={styles.earnHead}>
+              <div>
+                <h2 style={styles.earnTitle}>Earnings</h2>
+                <p style={styles.earnSub}>
+                  {isHourly
+                    ? 'Hours are paid by Mon–Sun week, in the pay period that holds the week’s Sunday.'
+                    : 'Project-rate assignments count in the pay period they’re completed.'}
+                </p>
+              </div>
+              <div style={styles.earnOwed}>
+                <span style={styles.earnOwedLabel}>Owed to you</span>
+                <span style={styles.earnOwedValue}>{fmtMoney(owedCents)}</span>
+              </div>
+            </div>
+            {renderRow(current, 'Current period', styles.earnTagCurrent)}
+            {unpaidPast.map(e => renderRow(e, 'Awaiting payment', styles.earnTagOwed))}
+            {paidPast.length > 0 && (
+              <button type="button" style={styles.earnHistoryBtn} onClick={() => setShowPaidHistory(v => !v)}>
+                {showPaidHistory ? '▾' : '▸'} Paid periods ({paidPast.length})
+              </button>
+            )}
+            {showPaidHistory && paidPast.map(e => renderRow(e, 'Paid', styles.earnTagPaid))}
+          </section>
+        );
+      })()}
 
       {/* Client style guide (read-only) */}
       {openGuide && (
@@ -1703,6 +1542,18 @@ const styles = {
     marginBottom: 24,
     flexWrap: 'wrap',
   },
+  filterSelect: {
+    padding: '8px 36px 8px 12px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 500,
+    fontFamily: 'inherit',
+    outline: 'none',
+    cursor: 'pointer',
+  },
   filterPill: {
     padding: '6px 16px',
     borderRadius: 20,
@@ -1765,6 +1616,31 @@ const styles = {
     flex: 1,
     minWidth: 0,
   },
+  // Earnings
+  earnSection: {
+    marginTop: 32,
+    padding: '18px 20px 16px',
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 14,
+  },
+  earnHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 12 },
+  earnTitle: { fontSize: 18, fontWeight: 700, color: '#fff', margin: 0 },
+  earnSub: { fontSize: 12, color: 'rgba(255,255,255,0.4)', margin: '4px 0 0' },
+  earnOwed: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end' },
+  earnOwedLabel: { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.4)' },
+  earnOwedValue: { fontSize: 24, fontWeight: 700, color: '#86efac', letterSpacing: '-0.3px' },
+  earnRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, marginTop: 6 },
+  earnRowMain: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 },
+  earnPeriod: { fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.9)' },
+  earnDetail: { fontSize: 12, color: 'rgba(255,255,255,0.45)' },
+  earnRowRight: { display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 },
+  earnAmount: { fontSize: 15, fontWeight: 700, color: '#fff', minWidth: 80, textAlign: 'right' },
+  earnTag: { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', padding: '3px 8px', borderRadius: 6 },
+  earnTagCurrent: { background: 'rgba(96,165,250,0.15)', color: '#60a5fa' },
+  earnTagOwed: { background: 'rgba(251,191,36,0.15)', color: '#fbbf24' },
+  earnTagPaid: { background: 'rgba(52,211,153,0.15)', color: '#34d399' },
+  earnHistoryBtn: { marginTop: 10, background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: 'inherit' },
   typeIcon: {
     fontSize: 20,
     flexShrink: 0,

@@ -32,8 +32,8 @@ describe('useNavConfig – getResolvedNav', () => {
 
     const nav = result.current.getResolvedNav(NAV_ITEMS, false, false, true, { sub_role: 'Writer' });
     expect(nav.map((i) => i.key)).toEqual([
-      'fl_dashboard', 'fl_submit', 'pitch_videos', 'fl_documents',
-      'channels', 'messages', 'fl_profile', 'fl_notifications',
+      'fl_dashboard', 'pitch_videos', 'fl_documents',
+      'channels', 'messages', 'fl_profile',
     ]);
   });
 
