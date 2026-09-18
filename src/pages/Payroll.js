@@ -108,8 +108,35 @@ function daysUntil(dateStr) {
   return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
 }
 
+// Shift a 'YYYY-MM-DD' by N days, staying on calendar dates (no TZ math).
+function shiftYmd(ymd, days) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return dt.toISOString().slice(0, 10);
+}
+
+// PT calendar date of a timestamp, for bucketing a task into a retainer week.
+function ptDateOf(ts) {
+  return new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+}
+
 function formatCents(cents) {
   return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// contractor_profiles.rate is dollars, and means different things by pay type:
+// an hourly contractor's hourly rate, or a per-project contractor's standard
+// project rate (the same figure client_assignment_sanitize stamps onto a
+// client-created assignment). Null/0 = nothing on file yet.
+function contractorRateCents(fp) {
+  const rate = Number(fp?.rate);
+  return Number.isFinite(rate) && rate > 0 ? Math.round(rate * 100) : null;
+}
+
+function formatContractorRate(fp) {
+  const cents = contractorRateCents(fp);
+  if (cents == null) return null;
+  return fp?.payment_type === 'hourly' ? `${formatCents(cents)}/hr` : `${formatCents(cents)}/project`;
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -177,16 +204,21 @@ export default function Payroll() {
       // Drive uploads with attribution but no assignment row this period — the
       // safety net for the "batch never entered" gap (see drive-watch-poll).
       supabase.rpc('unbilled_drive_uploads', { p_start: selectedPeriod.start, p_end: selectedPeriod.end }),
-      // Tasks flagged "Report Hours to Complete" and closed this period. These
-      // are what an hourly member's pay is built from; for salaried members
-      // they're shown for visibility only.
+      // Tasks flagged "Report Hours to Complete". These are what an hourly
+      // member's pay is built from; for salaried members they're shown for
+      // visibility only.
+      //
+      // Fetched a week wider than the pay period on both sides: retainer weeks
+      // are Mon-Sun and a week is paid in the period holding its Sunday, so the
+      // weeks this period pays for can reach up to 6 days outside it. Each list
+      // is narrowed back down per member below.
       supabase.from('tasks')
         .select('id, title, assignee_id, hours_spent, completed_at')
         .eq('requires_hours', true)
         .eq('status', 'complete')
         .not('hours_spent', 'is', null)
-        .gte('completed_at', ptDateToUtcISO(selectedPeriod.start))
-        .lt('completed_at', ptDateToUtcISO(selectedPeriod.end, true))
+        .gte('completed_at', ptDateToUtcISO(shiftYmd(selectedPeriod.start, -7)))
+        .lt('completed_at', ptDateToUtcISO(shiftYmd(selectedPeriod.end, 7), true))
         .order('completed_at', { ascending: true }),
     ]);
     const HIDDEN = ['Test1', 'Test2'];
@@ -245,6 +277,7 @@ export default function Payroll() {
   // Group assignments by contractor
   const contractorPayroll = contractors.map(c => {
     const fp = fpMap[c.id] || {};
+    const rateCents = contractorRateCents(fp);
     const myAssignments = assignments.filter(a => a.contractor_id === c.id);
     let total = 0;
     const rows = myAssignments.map(a => {
@@ -257,7 +290,7 @@ export default function Payroll() {
       total += amount;
       return { ...a, amount };
     });
-    return { ...c, fp, assignments: rows, total };
+    return { ...c, fp, rateCents, assignments: rows, total };
   });
 
   const hourTasksByAssignee = {};
@@ -271,6 +304,13 @@ export default function Payroll() {
   const memberPayroll = salariedMembers.map(m => {
     const salary = salaryMap[m.id];
     const isHourly = salary?.salary_type === 'hourly';
+    const breakdownForSpan = isHourly ? memberPayBreakdowns[m.id] : null;
+    // An hourly member is paid by Mon-Sun week, and a week belongs to the pay
+    // period holding its Sunday — so the tasks behind their pay run from the
+    // first paid Monday to the last paid Sunday, not period start to end. A
+    // salaried member has no windows, so their tracked hours stay on the period.
+    const spanStart = breakdownForSpan?.covered_start || selectedPeriod.start;
+    const spanEnd = breakdownForSpan?.covered_end || selectedPeriod.end;
     let salaryPay = 0;
     if (salary && !isHourly) {
       if (salary.salary_type === 'per_period') {
@@ -282,7 +322,10 @@ export default function Payroll() {
       }
     }
     const rateCents = isHourly ? salary.amount_cents : null;
-    const myHourTasks = hourTasksByAssignee[m.id] || [];
+    const myHourTasks = (hourTasksByAssignee[m.id] || []).filter(t => {
+      const d = ptDateOf(t.completed_at);
+      return d >= spanStart && d <= spanEnd;
+    });
     const hoursTotal = myHourTasks.reduce((sum, t) => sum + Number(t.hours_spent || 0), 0);
     // Salaried members' hours are tracked but don't move their pay — only an
     // hourly member's period total is built from them.
@@ -297,7 +340,11 @@ export default function Payroll() {
     return {
       ...m, salary, salaryPay, rateCents, isHourly,
       hourTasks: myHourTasks, hoursTotal, hoursPay,
-      payBreakdown: breakdown,
+      payBreakdown: breakdown, spanStart, spanEnd,
+      // True when the paid weeks reach outside the pay period — the UI says so
+      // rather than letting the hours look like they don't add up.
+      spanOutsidePeriod: isHourly
+        && (spanStart < selectedPeriod.start || spanEnd > selectedPeriod.end),
       periodPay: salaryPay + hoursPay,
     };
   });
@@ -305,7 +352,15 @@ export default function Payroll() {
   // Hours reported by contractors are logged but NOT paid here — contractors
   // bill through their own assignments, and paying both would double up.
   const contractorHourTasks = contractors
-    .map(c => ({ contractor: c, tasks: hourTasksByAssignee[c.id] || [] }))
+    .map(c => ({
+      contractor: c,
+      // Pay-period bound, not week bound: these are shown for visibility and
+      // are never paid here, so the widened fetch must be trimmed back.
+      tasks: (hourTasksByAssignee[c.id] || []).filter(t => {
+        const d = ptDateOf(t.completed_at);
+        return d >= selectedPeriod.start && d <= selectedPeriod.end;
+      }),
+    }))
     .filter(r => r.tasks.length > 0);
 
   const contractorTotal = contractorPayroll.reduce((sum, c) => sum + c.total, 0);
@@ -699,6 +754,13 @@ export default function Payroll() {
                     }}>
                       {c.fp.payment_type === 'hourly' ? 'Hourly' : 'Per Project'}
                     </span>
+                    {c.rateCents != null ? (
+                      <span style={styles.salaryInfo}>{formatContractorRate(c.fp)}</span>
+                    ) : (
+                      <span style={styles.rateMissing} title="No rate on this contractor's profile">
+                        No rate set
+                      </span>
+                    )}
                   </div>
                   <div style={styles.cardRight}>
                     {renderPayControls(c)}
@@ -721,7 +783,9 @@ export default function Payroll() {
                           </span>
                         )}
                         {c.fp.payment_type === 'hourly' && a.hours_spent && (
-                          <span style={styles.assignmentHours}>{a.hours_spent}h</span>
+                          <span style={styles.assignmentHours}>
+                            {a.hours_spent}h{c.rateCents != null ? ` × ${formatCents(c.rateCents)}` : ''}
+                          </span>
                         )}
                         <span style={styles.assignmentAmount}>{formatCents(a.amount)}</span>
                       </div>
@@ -793,6 +857,11 @@ export default function Payroll() {
                     <div style={styles.hoursHeader}>
                       <span style={styles.hoursHeaderLabel}>
                         REPORTED TASK HOURS · {m.hoursTotal}h
+                        {m.spanOutsidePeriod && (
+                          <span style={styles.spanNote}>
+                            {' '}· weeks of {formatPeriodShort(m.spanStart)}–{formatPeriodShort(m.spanEnd)}
+                          </span>
+                        )}
                       </span>
                       <span style={styles.hoursHeaderTotal}>
                         {m.isHourly
@@ -1407,9 +1476,24 @@ const styles = {
   },
 
   // Salary
+  // Why an hourly member's hours can sit outside the pay period: retainer
+  // weeks are Mon-Sun and are paid in the period holding their Sunday.
+  spanNote: {
+    fontWeight: 400,
+    color: 'rgba(255,255,255,0.4)',
+    textTransform: 'none',
+    letterSpacing: 0,
+  },
   salaryInfo: {
     fontSize: 11,
     color: 'rgba(255,255,255,0.4)',
+    flexShrink: 0,
+  },
+  // A contractor with no rate on file: their hourly work computes to $0, so
+  // this is a real gap rather than a cosmetic blank.
+  rateMissing: {
+    fontSize: 11,
+    color: '#fbbf24',
     flexShrink: 0,
   },
   // Reported task hours (tasks.requires_hours)
