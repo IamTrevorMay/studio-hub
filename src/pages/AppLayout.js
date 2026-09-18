@@ -48,7 +48,6 @@ import ContractorReviews from './ContractorReviews';
 import Contractors from './Contractors';
 import Clients from './Clients';
 import ClientDashboard from './ClientDashboard';
-import ClientCalendar from './ClientCalendar';
 import ClientReview from './ClientReview';
 import ClientDocuments from './ClientDocuments';
 import ClientProfile from './ClientProfile';
@@ -104,7 +103,7 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'fl_reviews', 'ct_assignments', 'ct_hours', 'ct_documents', 'ct_team', 'clients', 'cl_dashboard', 'cl_calendar', 'cl_review', 'cl_documents', 'cl_profile', 'cl_notifications'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'fl_reviews', 'ct_assignments', 'ct_hours', 'ct_documents', 'ct_team', 'clients', 'cl_dashboard', 'cl_review', 'cl_documents', 'cl_profile', 'cl_notifications'));
 
 // ─── Modes ──────────────────────────────────────────────────
 // Beta pages: still under refinement. Grouped in a "Beta" folder at the bottom
@@ -303,7 +302,6 @@ const NAV_ICON_MAP = {
   fl_reviews: ReviewsIcon,
   clients: ContractorsIcon,
   cl_dashboard: DashboardIcon,
-  cl_calendar: CalendarIcon,
   cl_review: ReviewsIcon,
   cl_documents: DocumentsIcon,
   cl_profile: ProfileIcon,
@@ -1322,7 +1320,6 @@ export default function AppLayout() {
           {asContractor && activeTab === 'fl_reviews' && <PageErrorBoundary key="fl_reviews"><ContractorReviews initialReviewId={navTarget} onOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {isAdmin && canManageClients(profile?.role, profile?.sub_role) && activeTab === 'clients' && <PageErrorBoundary key="clients"><Clients /></PageErrorBoundary>}
           {asClient && activeTab === 'cl_dashboard' && <PageErrorBoundary key="cl_dashboard"><ClientDashboard onNavigate={navigateTo} initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
-          {asClient && activeTab === 'cl_calendar' && <PageErrorBoundary key="cl_calendar"><ClientCalendar onNavigate={navigateTo} demo={previewingClient} /></PageErrorBoundary>}
           {asClient && activeTab === 'cl_review' && <PageErrorBoundary key="cl_review"><ClientReview initialReviewId={navTarget} onOpened={() => setNavTarget(null)} demo={previewingClient} /></PageErrorBoundary>}
           {asClient && activeTab === 'cl_documents' && <PageErrorBoundary key="cl_documents"><ClientDocuments /></PageErrorBoundary>}
           {asClient && activeTab === 'cl_profile' && <PageErrorBoundary key="cl_profile"><ClientProfile /></PageErrorBoundary>}

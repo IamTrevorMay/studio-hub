@@ -63,7 +63,9 @@ function buildDemoEvents() {
   ];
 }
 
-export default function ClientCalendar({ onNavigate, demo = false }) {
+// embedded: rendered as a section inside ClientDashboard — no page padding, a
+// section-sized heading instead of the page title.
+export default function ClientCalendar({ onNavigate, demo = false, embedded = false }) {
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -234,9 +236,11 @@ export default function ClientCalendar({ onNavigate, demo = false }) {
   }
 
   return (
-    <div style={styles.page}>
+    <div style={embedded ? styles.pageEmbedded : styles.page}>
       <div style={styles.header}>
-        <h1 style={styles.title}>Calendar</h1>
+        {embedded
+          ? <h2 style={styles.titleEmbedded}>Calendar</h2>
+          : <h1 style={styles.title}>Calendar</h1>}
         <div style={styles.nav}>
           <button type="button" onClick={() => shiftMonth(-1)} style={styles.navBtn} aria-label="Previous month">
             <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -342,11 +346,20 @@ const styles = {
     gap: spacing.md,
     marginBottom: spacing.lg,
   },
+  pageEmbedded: {
+    color: colors.text,
+  },
   title: {
     fontSize: fontSizes.display,
     fontWeight: fontWeights.bold,
     margin: 0,
     color: colors.text,
+  },
+  titleEmbedded: {
+    fontSize: 20,
+    fontWeight: fontWeights.bold,
+    margin: 0,
+    color: '#fff',
   },
   nav: {
     display: 'flex',

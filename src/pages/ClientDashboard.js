@@ -5,6 +5,8 @@ import useRealtimeTable from '../hooks/useRealtimeTable';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { colors } from '../lib/styleTokens';
+import StyleGuidePanel from '../components/StyleGuidePanel';
+import ClientCalendar from './ClientCalendar';
 
 // Client portal home: the client's own projects (contractor_assignments rows
 // they created), comment threads, and links out to the review room. All writes
@@ -22,6 +24,8 @@ const STATUS_COLORS = {
   in_progress: { bg: 'rgba(251,191,36,0.15)', color: '#fbbf24' },
   completed: { bg: 'rgba(52,211,153,0.15)', color: '#34d399' },
 };
+
+const NO_EDITOR_HINT = 'The studio hasn’t linked an editor to your account yet. Once they do, you can assign projects here.';
 
 const FILTERS = [
   { key: 'active', label: 'Active' },
@@ -64,6 +68,10 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
 
   const [editors, setEditors] = useState([]);
   const [driveFolderUrl, setDriveFolderUrl] = useState(null);
+  // This client's style guide (RLS returns only their own). Null until the
+  // studio has run "Update Style Guide" on one of their reviews.
+  const [styleGuide, setStyleGuide] = useState(null);
+  const [showGuide, setShowGuide] = useState(false);
   const [assignments, setAssignments] = useState([]);
   const [reviewsByAssignment, setReviewsByAssignment] = useState({});
   const [loading, setLoading] = useState(true);
@@ -92,6 +100,17 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
   // Consume the deep-link prop exactly once per incoming id.
   const openedInitialRef = useRef(null);
 
+  // Calendar pill → the matching card above (the calendar used to be its own
+  // tab and deep-linked here through AppLayout; now it's on this page).
+  const jumpToAssignment = useCallback((tab, id) => {
+    if (tab !== 'cl_dashboard' || !id) { if (onNavigate) onNavigate(tab, id); return; }
+    setFilter('all');
+    setSelectedId(id);
+    requestAnimationFrame(() => {
+      document.getElementById(`assignment-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [onNavigate]);
+
   // ── Data fetching ──────────────────────────────────────────────
 
   const fetchEditors = useCallback(async () => {
@@ -108,6 +127,18 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
       .maybeSingle();
     setDriveFolderUrl(data?.drive_folder_url || null);
   }, [profile?.id]);
+
+  const fetchStyleGuide = useCallback(async () => {
+    if (!profile?.id) return;
+    const { data } = await supabase
+      .from('style_guides')
+      .select('id, title, updated_at')
+      .eq('client_id', profile.id)
+      .maybeSingle();
+    setStyleGuide(data || null);
+  }, [profile?.id]);
+
+  useEffect(() => { fetchStyleGuide(); }, [fetchStyleGuide]);
 
   const fetchAssignments = useCallback(async () => {
     if (!profile?.id) return;
@@ -222,6 +253,10 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
 
   // ── Render ─────────────────────────────────────────────────────
 
+  // The only real prerequisite for assigning a project is a linked editor
+  // (client_editors, set by the studio). The assets folder is optional.
+  const noEditors = editors.length === 0;
+
   if (loading) {
     return (
       <div style={styles.page}>
@@ -241,23 +276,54 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
           </p>
         </div>
         <div style={styles.headerActions}>
+          {styleGuide && (
+            <button
+              type="button"
+              onClick={() => setShowGuide(v => !v)}
+              style={{ ...styles.folderLink, ...(showGuide ? styles.guideBtnActive : {}) }}
+            >
+              {showGuide ? 'Hide Style Guide' : 'Style Guide'}
+            </button>
+          )}
           {driveFolderUrl ? (
             <a href={driveFolderUrl} target="_blank" rel="noopener noreferrer" style={styles.folderLink}>
               Assets folder ↗
             </a>
           ) : (
-            <span style={styles.folderMissing}>Set your assets folder in Profile</span>
+            // Optional: a shared branding-assets folder. Never a prerequisite
+            // for assigning a project — keep it quiet so it doesn't read as one.
+            <button
+              type="button"
+              onClick={() => onNavigate && onNavigate('cl_profile')}
+              style={styles.folderOptional}
+              title="Optional — a shared folder of branding assets your editors can pull from. Set it in Profile."
+            >
+              Add assets folder <span style={styles.folderOptionalTag}>optional</span>
+            </button>
           )}
           <button
-            style={{ ...styles.newBtn, ...(editors.length === 0 ? styles.newBtnDisabled : {}) }}
-            disabled={editors.length === 0}
-            title={editors.length === 0 ? 'No editors assigned yet — contact the studio' : undefined}
+            style={{ ...styles.newBtn, ...(noEditors ? styles.newBtnDisabled : {}) }}
+            disabled={noEditors}
+            title={noEditors ? NO_EDITOR_HINT : undefined}
             onClick={() => { setEditingAssignment(null); setModalOpen(true); }}
           >
-            + New Assignment
+            {noEditors ? 'Waiting for the studio to link an editor' : '+ New Assignment'}
           </button>
         </div>
       </div>
+
+      {/* Style guide — the rules your editors follow. You can edit them. */}
+      {styleGuide && showGuide && (
+        <section style={styles.guideSection}>
+          <div style={styles.guideHead}>
+            <div>
+              <h2 style={styles.guideTitle}>{styleGuide.title}</h2>
+              <p style={styles.guideSub}>The editing rules your editors follow. Edit, delete, or add to them any time.</p>
+            </div>
+          </div>
+          <StyleGuidePanel guideId={styleGuide.id} mode="client" embedded onOpenReview={(reviewId) => onNavigate && onNavigate('cl_review', reviewId)} />
+        </section>
+      )}
 
       {/* Filter chips */}
       <div style={styles.filterRow}>
@@ -277,14 +343,18 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
         {assignments.length === 0 && (
           <div style={styles.emptyCard}>
             <p style={styles.emptyTitle}>No projects yet</p>
-            <p style={styles.emptyBody}>Assign your first project to an editor.</p>
+            <p style={styles.emptyBody}>
+              {noEditors
+                ? 'The studio is linking an editor to your account. As soon as that’s done you can assign your first project right here.'
+                : 'Assign your first project to an editor.'}
+            </p>
             <button
-              style={{ ...styles.newBtn, ...(editors.length === 0 ? styles.newBtnDisabled : {}) }}
-              disabled={editors.length === 0}
-              title={editors.length === 0 ? 'No editors assigned yet — contact the studio' : undefined}
+              style={{ ...styles.newBtn, ...(noEditors ? styles.newBtnDisabled : {}) }}
+              disabled={noEditors}
+              title={noEditors ? NO_EDITOR_HINT : undefined}
               onClick={() => { setEditingAssignment(null); setModalOpen(true); }}
             >
-              + New Assignment
+              {noEditors ? 'Waiting for the studio to link an editor' : '+ New Assignment'}
             </button>
           </div>
         )}
@@ -304,6 +374,7 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
           return (
             <div
               key={a.id}
+              id={`assignment-${a.id}`}
               style={{ ...styles.card, ...(isSelected ? styles.cardSelected : {}) }}
             >
               <div
@@ -435,6 +506,11 @@ export default function ClientDashboard({ onNavigate, initialAssignmentId, onAss
         })}
       </div>
 
+      {/* Calendar — own assignments + editors' busy blocks (client_calendar_events RPC) */}
+      <section style={styles.calendarSection}>
+        <ClientCalendar embedded onNavigate={jumpToAssignment} />
+      </section>
+
       {/* Modal */}
       <ContractorAssignmentModal
         open={modalOpen}
@@ -515,9 +591,60 @@ const styles = {
     border: `1px solid ${colors.accentBorder}`,
     background: colors.accentA08,
   },
-  folderMissing: {
+  calendarSection: {
+    marginTop: 36,
+    paddingTop: 28,
+    borderTop: `1px solid ${colors.border}`,
+  },
+  guideBtnActive: {
+    background: colors.accentA20,
+    borderColor: colors.accentA45,
+  },
+  guideSection: {
+    background: 'rgba(255,255,255,0.025)',
+    border: `1px solid ${colors.border}`,
+    borderRadius: 14,
+    padding: '18px 18px 20px',
+    marginBottom: 24,
+  },
+  guideHead: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 14,
+  },
+  guideTitle: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: '#fff',
+    margin: 0,
+  },
+  guideSub: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.45)',
+    margin: '4px 0 0',
+  },
+  folderOptional: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    background: 'none',
+    border: `1px dashed ${colors.border}`,
+    borderRadius: 8,
+    padding: '7px 12px',
+    color: 'rgba(255,255,255,0.5)',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  folderOptionalTag: {
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.4px',
+    color: 'rgba(255,255,255,0.3)',
   },
   newBtn: {
     background: colors.accent,

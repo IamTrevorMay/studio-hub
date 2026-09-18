@@ -100,7 +100,6 @@ export default function useNavConfig() {
     if (isClient) {
       return [
         { type: 'item', key: 'cl_dashboard', label: 'Dashboard' },
-        { type: 'item', key: 'cl_calendar', label: 'Calendar' },
         { type: 'item', key: 'cl_review', label: 'Review' },
         { type: 'item', key: 'messages', label: 'Messages' },
         { type: 'item', key: 'cl_documents', label: 'Documents' },
