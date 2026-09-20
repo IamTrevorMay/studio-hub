@@ -576,7 +576,7 @@ function TaskDetailModal({
 }
 
 // ─── SprintBoard (main export) ──────────────────────────────────
-export default function SprintBoard({ profile, onNavigate, onBoardChange, sprintVersion }) {
+export default function SprintBoard({ profile, onNavigate, onBoardChange, sprintVersion, capture, onCaptureResolved }) {
   const { refreshKey } = useAuth();
   const [tasks, _setTasks] = useState([]);
   const tasksRef = useRef(tasks);
@@ -595,6 +595,10 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
   const [hoursPrompt, setHoursPrompt] = useState(null);
   const [hoursSubmitting, setHoursSubmitting] = useState(false);
   const isNewTaskRef = useRef(false);
+  // A Scratch Pad item the Dashboard asked us to turn into a task:
+  // { token, scratchId, taskId, saved }. The note it came from is only deleted
+  // once the modal is actually saved, so a cancel leaves the pad untouched.
+  const captureRef = useRef(null);
   const [projects, setProjects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [userOptions, setUserOptions] = useState({ category: [], subcategory: [], bucket: [] });
@@ -979,16 +983,16 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
   }
 
   // ── Quick capture — create + open detail modal ──
-  async function addTask() {
-    if (!profile?.id) return;
+  async function addTask(prefillContent = '') {
+    if (!profile?.id) return null;
 
-    const inboxTasks = tasks.filter(t => t.status === 'inbox');
+    const inboxTasks = tasksRef.current.filter(t => t.status === 'inbox');
     const minPos = inboxTasks.length > 0 ? Math.min(...inboxTasks.map(t => t.position)) : 10;
 
     try {
       const { data, error } = await supabase.from('personal_tasks').insert({
         created_by: profile.id,
-        content: '',
+        content: prefillContent,
         status: 'inbox',
         position: minPos - 10,
       }).select().single();
@@ -996,10 +1000,30 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
       setTasks(prev => [...prev, data]);
       setEditingTask(data);
       isNewTaskRef.current = true;
+      return data;
     } catch (err) {
       console.error('Error creating task:', err);
+      return null;
     }
   }
+
+  // Dashboard Scratch Pad handoff. Each request carries a fresh token, so the
+  // same note can be sent again after a cancel. We wait for the first load so
+  // the new card's position lands above the existing inbox.
+  useEffect(() => {
+    if (!capture?.token || loading) return;
+    if (captureRef.current?.token === capture.token) return;
+    captureRef.current = { token: capture.token, scratchId: capture.scratchId, taskId: null, saved: false };
+    (async () => {
+      const created = await addTask(capture.text || '');
+      if (!created) {
+        captureRef.current = null;
+        if (onCaptureResolved) onCaptureResolved(capture.scratchId, false);
+        return;
+      }
+      captureRef.current = { ...captureRef.current, taskId: created.id };
+    })();
+  }, [capture, loading]); // eslint-disable-line
 
   // ── Update task ──
   async function updateTask(id, updates) {
@@ -1481,7 +1505,7 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
 
         {/* Quick capture (below Plan a Sprint) */}
         <div style={captureRowStyle}>
-          <button onClick={addTask} style={captureButtonStyle}>
+          <button onClick={() => addTask()} style={captureButtonStyle}>
             + New Task
           </button>
         </div>
@@ -1556,6 +1580,19 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
         <TaskDetailModal
           task={editingTask}
           onClose={() => {
+            // A Scratch Pad capture that was closed without saving takes its
+            // pre-created card with it — the note stays on the pad instead.
+            const cap = captureRef.current;
+            if (cap && cap.taskId === editingTask.id) {
+              captureRef.current = null;
+              if (!cap.saved) {
+                isNewTaskRef.current = false;
+                deleteTask(editingTask.id);
+                if (onCaptureResolved) onCaptureResolved(cap.scratchId, false);
+                setEditingTask(null);
+                return;
+              }
+            }
             // If this was a newly created task and content is still empty, delete it
             if (isNewTaskRef.current) {
               isNewTaskRef.current = false;
@@ -1569,9 +1606,19 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
           onSave={(id, updates) => {
             isNewTaskRef.current = false;
             updateTask(id, updates);
+            const cap = captureRef.current;
+            if (cap && cap.taskId === id) {
+              cap.saved = true;
+              if (onCaptureResolved) onCaptureResolved(cap.scratchId, true);
+            }
           }}
           onDelete={(id) => {
             isNewTaskRef.current = false;
+            const cap = captureRef.current;
+            if (cap && cap.taskId === id) {
+              captureRef.current = null;
+              if (onCaptureResolved) onCaptureResolved(cap.scratchId, false);
+            }
             deleteTask(id);
           }}
           projects={projects}

@@ -39,7 +39,7 @@ export const WIDGETS = [
   { key: 'announcements', label: 'Announcements',      caption: 'Team announcements',                    sizes: ['s', 'm', 'l'], defaultSize: 'm' },
   { key: 'tasks',         label: 'My Tasks',           caption: 'Tasks assigned to you',                 sizes: ['s', 'm', 'l'], defaultSize: 'm' },
   { key: 'today',         label: "Today's Schedule",   caption: "Today's calendar events",               sizes: ['s', 'm'],      defaultSize: 'm' },
-  { key: 'todo',          label: 'To Do',              caption: 'Personal to-do list',                   sizes: ['s', 'm'],      defaultSize: 's' },
+  { key: 'todo',          label: 'Scratch Pad',        caption: 'Quick personal scratch pad',            sizes: ['s', 'm'],      defaultSize: 's' },
   { key: 'team',          label: 'Team',               caption: 'Who is around and their status',        sizes: ['s', 'm', 'l'], defaultSize: 'm' },
   { key: 'checkin',       label: 'Check In',           caption: 'Daily check-in and its trend',          sizes: ['s', 'm', 'l'], defaultSize: 'm' },
   { key: 'sprint_panel',  label: 'Sprint Panel',       caption: 'Sprint goals and progress',             sizes: ['m', 'l'],      defaultSize: 'l' },
@@ -51,7 +51,7 @@ export const WIDGETS = [
 export const WIDGET_BY_KEY = Object.fromEntries(WIDGETS.map(w => [w.key, w]));
 
 // Reproduces the pre-grid page: the old left column down x:0, the sprint stack
-// (plus To Do) down x:2. Compaction turns that back into the two-column read
+// (plus the Scratch Pad) down x:2. Compaction turns that back into the two-column read
 // people already have.
 export const DEFAULT_LAYOUT = [
   { k: 'profile',       x: 0, w: 2 },

@@ -45,7 +45,7 @@ function greet() {
 const ALL_TABS = [
   { key: 'tasks', label: 'Sprint' },
   { key: 'mytasks', label: 'My Tasks' },
-  { key: 'todo', label: 'To-do' },
+  { key: 'todo', label: 'Scratch' },
   { key: 'today', label: 'Today' },
   { key: 'checkin', label: 'Check-in' },
 ];

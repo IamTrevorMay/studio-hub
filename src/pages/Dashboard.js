@@ -116,6 +116,19 @@ function formatPeriod(row) {
   return `${month} ${d1}\u2013${d2}`;
 }
 
+// Age stamp on a Scratch Pad item. `created_at` is a full timestamp, so the
+// first two days read as words and anything older falls back to a short date.
+function formatScratchDate(iso) {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return '';
+  const startOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(then)) / 86400000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  const sameYear = then.getFullYear() === new Date().getFullYear();
+  return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
 export default function Dashboard({ onNavigate }) {
   const { profile, updateProfile, isAdmin, isAssistant, isPartner, refreshKey } = useAuth();
 
@@ -247,6 +260,10 @@ export default function Dashboard({ onNavigate }) {
   const [editingTodoText, setEditingTodoText] = useState('');
   const [newTodoPriority, setNewTodoPriority] = useState(null);
   const [editingTodoPriority, setEditingTodoPriority] = useState(null);
+  // Scratch Pad → Sprint Board handoff. The "+" on an item asks SprintBoard to
+  // open its New Task modal prefilled with the item's text; the item is only
+  // deleted once that task is actually saved (see `handleScratchCaptured`).
+  const [scratchCapture, setScratchCapture] = useState(null); // { token, scratchId, text }
 
   // Today's schedule state
   const [todayEvents, setTodayEvents] = useState([]);
@@ -377,8 +394,8 @@ export default function Dashboard({ onNavigate }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [statusMenuOpen]);
 
-  // Load todo items from Supabase on mount (drop any previously-checked items
-  // on refresh, mirroring the old localStorage behavior).
+  // Load Scratch Pad items on mount. The checkbox is gone, but the purge stays
+  // so rows checked before it was removed don't linger forever.
   useEffect(() => {
     if (!profile?.id) return;
     let cancelled = false;
@@ -1095,11 +1112,11 @@ export default function Dashboard({ onNavigate }) {
   const completedAssignments = assignments
     .filter(a => a.project && a.project.status === 'published');
 
-  // ── Todo list functions ──
+  // ── Scratch Pad functions ──
   const addTodoItem = async () => {
     const text = newTodoText.trim();
     if (!text || newTodoPriority === null) return;
-    if (!profile?.id) { alert('Cannot add todo: not signed in yet.'); return; }
+    if (!profile?.id) { alert('Cannot add item: not signed in yet.'); return; }
     const nextPosition = todoItems.length > 0
       ? Math.max(...todoItems.map(i => i.position || 0)) + 1
       : 0;
@@ -1109,33 +1126,18 @@ export default function Dashboard({ onNavigate }) {
       .select()
       .single();
     if (error) {
-      console.error('Error adding todo:', error);
-      alert(`Could not save todo: ${error.message || 'unknown error'}`);
+      console.error('Error adding scratch pad item:', error);
+      alert(`Could not save item: ${error.message || 'unknown error'}`);
       return;
     }
     if (!data) {
-      alert('Todo saved but no row came back — check RLS / network tab.');
+      alert('Item saved but no row came back — check RLS / network tab.');
       return;
     }
     setTodoItems(prev => sortByPriority([...prev, data]));
     setNewTodoText('');
     setNewTodoPriority(null);
     setShowTodoInput(false);
-  };
-
-  const toggleTodoItem = async (id) => {
-    const current = todoItems.find(i => i.id === id);
-    if (!current) return;
-    const nextChecked = !current.checked;
-    setTodoItems(prev => sortByPriority(prev.map(item => item.id === id ? { ...item, checked: nextChecked } : item)));
-    const { error } = await supabase
-      .from('dashboard_todos')
-      .update({ checked: nextChecked, updated_at: new Date().toISOString() })
-      .eq('id', id);
-    if (error) {
-      console.error('Error toggling todo:', error);
-      setTodoItems(prev => sortByPriority(prev.map(item => item.id === id ? { ...item, checked: current.checked } : item)));
-    }
   };
 
   const deleteTodoItem = async (id) => {
@@ -1172,7 +1174,26 @@ export default function Dashboard({ onNavigate }) {
     }
   };
 
-  // ── Todo list renderer ──
+  // The Sprint Board owns the New Task modal (and everything it needs —
+  // projects, taxonomy options, templates), so the handoff is a request sent
+  // down to that widget rather than a second copy of the modal here. If the
+  // widget isn't on the dashboard there's nothing to hand off to.
+  const sendScratchToSprint = (item) => {
+    if (!placedKeys.has('sprint_board')) {
+      toast.error('Add the Sprint Board widget to your dashboard to send items there');
+      return;
+    }
+    setScratchCapture({ token: `${item.id}:${Date.now()}`, scratchId: item.id, text: item.text });
+  };
+
+  // Saved on the board → the scratch note has served its purpose. Cancelled →
+  // the note stays put and the board row is cleaned up on SprintBoard's side.
+  const handleScratchCaptured = (scratchId, saved) => {
+    setScratchCapture(null);
+    if (saved && scratchId) deleteTodoItem(scratchId);
+  };
+
+  // ── Scratch Pad renderer ──
   function renderTodoList() {
     return (
       <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
@@ -1181,7 +1202,7 @@ export default function Dashboard({ onNavigate }) {
             onClick={() => setTodoCollapsed(prev => !prev)}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            <span style={{ ...styles.subSectionTitle, margin: 0 }}>To Do</span>
+            <span style={{ ...styles.subSectionTitle, margin: 0 }}>Scratch Pad</span>
             <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)' }}>{todoCollapsed ? '▶' : '▼'}</span>
           </button>
           {!todoCollapsed && !showTodoInput && (
@@ -1200,7 +1221,7 @@ export default function Dashboard({ onNavigate }) {
                       if (e.key === 'Enter' && newTodoPriority !== null) addTodoItem();
                       if (e.key === 'Escape') { setShowTodoInput(false); setNewTodoText(''); setNewTodoPriority(null); }
                     }}
-                    placeholder="Add a to-do item..."
+                    placeholder="Add an item..."
                     style={styles.itineraryInput}
                     autoFocus
                   />
@@ -1239,13 +1260,7 @@ export default function Dashboard({ onNavigate }) {
                 const borderColor = item.priority ? PRIORITY_COLORS[item.priority] : undefined;
                 return (
                   <div key={item.id} style={{ ...styles.itineraryItemWrapper, ...(borderColor ? { borderLeft: `3px solid ${borderColor}` } : {}) }}>
-                    <div style={styles.itineraryItem}>
-                      <input
-                        type="checkbox"
-                        checked={item.checked}
-                        onChange={() => toggleTodoItem(item.id)}
-                        style={styles.itineraryCheckbox}
-                      />
+                    <div style={{ ...styles.itineraryItem, gap: '8px' }}>
                       {editingTodoId === item.id ? (
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
                           <input
@@ -1274,17 +1289,27 @@ export default function Dashboard({ onNavigate }) {
                           </div>
                         </div>
                       ) : (
-                        <span
-                          style={{ ...styles.itineraryContent, flex: 1, textDecoration: item.checked ? 'line-through' : 'none', opacity: item.checked ? 0.45 : 1, cursor: 'text' }}
+                        <div
+                          style={{ flex: 1, minWidth: 0, cursor: 'text' }}
                           onDoubleClick={() => { setEditingTodoId(item.id); setEditingTodoText(item.text); setEditingTodoPriority(item.priority || null); }}
                           title="Double-click to edit"
                         >
-                          {item.text}
-                        </span>
+                          <span style={styles.itineraryContent}>{item.text}</span>
+                          {item.created_at && (
+                            <span style={styles.scratchDate}>{formatScratchDate(item.created_at)}</span>
+                          )}
+                        </div>
                       )}
                       <button
+                        onClick={() => sendScratchToSprint(item)}
+                        style={styles.scratchIconBtn}
+                        title="Make this a sprint task"
+                      >
+                        +
+                      </button>
+                      <button
                         onClick={() => deleteTodoItem(item.id)}
-                        style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
+                        style={{ ...styles.scratchIconBtn, color: '#ef4444' }}
                         title="Delete"
                       >
                         ✕
@@ -1294,7 +1319,7 @@ export default function Dashboard({ onNavigate }) {
                 );
               })}
               {todoItems.length === 0 && (
-                <p style={{ ...styles.emptyText, marginTop: '8px' }}>No items yet</p>
+                <p style={{ ...styles.emptyText, marginTop: '8px' }}>Nothing on the pad yet</p>
               )}
             </div>
           </>
@@ -2177,6 +2202,8 @@ export default function Dashboard({ onNavigate }) {
             todayEvents={todayEvents}
             onBoardChange={() => setBoardVersion(v => v + 1)}
             sprintVersion={sprintVersion}
+            capture={scratchCapture}
+            onCaptureResolved={handleScratchCaptured}
           />
         );
 
@@ -2716,13 +2743,6 @@ const styles = {
     padding: '10px 14px',
     transition: 'background 0.1s',
   },
-  itineraryCheckbox: {
-    width: '18px',
-    height: '18px',
-    accentColor: '#5b8fc7',
-    cursor: 'pointer',
-    flexShrink: 0,
-  },
   itineraryContent: {
     fontSize: '14px',
     color: '#e2e8f0',
@@ -2759,6 +2779,31 @@ const styles = {
     padding: '4px 6px',
     borderRadius: '4px',
     lineHeight: 1,
+  },
+  // Scratch Pad row controls. Square and bordered so they read as buttons now
+  // that the checkbox is gone and they're the only affordances on the row.
+  scratchIconBtn: {
+    width: '22px',
+    height: '22px',
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '5px',
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontFamily: 'inherit',
+    lineHeight: 1,
+    padding: 0,
+  },
+  scratchDate: {
+    display: 'block',
+    marginTop: '2px',
+    fontSize: '10px',
+    color: 'rgba(255,255,255,0.3)',
   },
   // Admin comment styles
   commentSection: {
