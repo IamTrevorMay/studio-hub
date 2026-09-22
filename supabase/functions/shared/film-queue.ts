@@ -211,6 +211,45 @@ export function compilePrompterSession(
 
 // ── Task pipeline ───────────────────────────────────────────────────────────
 
+// One fq_* task row + its notification. Used by film-queue (enqueue_ideas'
+// fq_write) and by createReviewerStepTask below.
+export async function createFilmQueueTask(
+  admin: SupabaseClient,
+  opts: {
+    stepKey: string;
+    title: string;
+    description: string;
+    assigneeId: string;
+    itemId: string;
+    linkUrl?: string | null;
+    createdBy?: string | null;
+    notifyTitle: string;
+    notifyBody: string;
+  },
+): Promise<{ id: string } | null> {
+  const { data: task, error } = await admin
+    .from("tasks")
+    .insert({
+      step_key: opts.stepKey,
+      title: opts.title,
+      description: opts.description,
+      assignee_id: opts.assigneeId,
+      status: "pending",
+      related_entity_type: "film_queue_item",
+      related_entity_id: opts.itemId,
+      link_url: opts.linkUrl || null,
+      created_by: opts.createdBy || null,
+    })
+    .select("id")
+    .single();
+  if (error || !task) {
+    console.error("film-queue task insert failed:", error?.message);
+    return null;
+  }
+  await notifyUser(admin, opts.assigneeId, opts.notifyTitle, opts.notifyBody, task.id);
+  return task as { id: string };
+}
+
 // The reviewer's task. Shared by the task-completion advance below and
 // film-queue's sync_sheet_status (a manual status flip on the sheet), so both
 // paths hand Trevor the same task.
