@@ -101,6 +101,10 @@ export default function Messages({ onNavigate, simulateClient = false, initialCo
   const [replyingTo, setReplyingTo] = useState(null); // message being replied to
   const [renamingConvo, setRenamingConvo] = useState(null); // convo being renamed
   const [renameValue, setRenameValue] = useState('');
+  const [addingToConvo, setAddingToConvo] = useState(null); // group getting new members
+  const [addSearch, setAddSearch] = useState('');
+  const [addSelected, setAddSelected] = useState([]);
+  const [addingMembers, setAddingMembers] = useState(false);
   const groupImageInputRef = useRef(null);
   const groupImageConvoRef = useRef(null); // convo whose photo is being set
   // Pending image attachments for the composer: [{ key, file, url }].
@@ -575,6 +579,61 @@ export default function Messages({ onNavigate, simulateClient = false, initialCo
     setRenamingConvo(null);
   }
 
+  function startAddMembers(convo) {
+    setContextMenu(null);
+    setAddingToConvo(convo);
+    setAddSearch('');
+    setAddSelected([]);
+  }
+
+  function closeAddMembers() {
+    setAddingToConvo(null);
+    setAddSearch('');
+    setAddSelected([]);
+  }
+
+  function toggleAddSelection(userId) {
+    setAddSelected(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  }
+
+  // Any participant can grow a group after the fact. Rows go straight into
+  // conversation_participants (the INSERT policy already allows staff to add
+  // any non-client); the list refetch picks up the new roster.
+  async function handleAddMembersSubmit(e) {
+    e.preventDefault();
+    const convo = addingToConvo;
+    if (!convo || addSelected.length === 0 || addingMembers) return;
+    setAddingMembers(true);
+    try {
+      const existing = new Set((convo.participants || []).map(p => p.user_id));
+      const rows = addSelected
+        .filter(id => !existing.has(id))
+        .map(user_id => ({ conversation_id: convo.id, user_id }));
+      if (rows.length) {
+        const { error } = await supabase.from('conversation_participants').insert(rows);
+        if (error) throw error;
+      }
+      // Re-read the roster so an unnamed group's header (built from
+      // participant names) reflects the new members right away.
+      const { data: participants } = await supabase
+        .from('conversation_participants')
+        .select('user_id, last_read_at, profile:profiles(id, full_name, nickname, title, avatar_url)')
+        .eq('conversation_id', convo.id);
+      if (participants) {
+        setConversations(prev => prev.map(c => (c.id === convo.id ? { ...c, participants } : c)));
+        if (activeConversation?.id === convo.id) setActiveConversation(prev => ({ ...prev, participants }));
+      }
+      closeAddMembers();
+    } catch (err) {
+      console.error('Error adding members:', err);
+      alert('Could not add members: ' + (err?.message || 'unknown error'));
+    } finally {
+      setAddingMembers(false);
+    }
+  }
+
   // Group creator picks a custom photo shown as the conversation icon. The
   // context-menu item stores the convo and opens this hidden file input.
   function startGroupImage(convo) {
@@ -737,6 +796,13 @@ export default function Messages({ onNavigate, simulateClient = false, initialCo
       prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
     );
   }
+
+  const addCandidates = addingToConvo
+    ? teamMembers.filter(m =>
+        !(addingToConvo.participants || []).some(p => p.user_id === m.id)
+        && ((m.nickname || '').toLowerCase().includes(addSearch.toLowerCase())
+          || (m.full_name || '').toLowerCase().includes(addSearch.toLowerCase())))
+    : [];
 
   const filteredTeam = teamMembers.filter(m =>
     (m.nickname || '').toLowerCase().includes(searchUsers.toLowerCase())
@@ -1084,6 +1150,11 @@ export default function Messages({ onNavigate, simulateClient = false, initialCo
         <>
           <div style={styles.contextOverlay} onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />
           <div style={{ ...styles.contextMenu, top: contextMenu.y, left: contextMenu.x }}>
+            {contextMenu.convo.is_group && !effIsClient && (
+              <button style={styles.contextItem} onClick={() => startAddMembers(contextMenu.convo)}>
+                Add members
+              </button>
+            )}
             {contextMenu.convo.is_group && contextMenu.convo.created_by === profile?.id && (
               <>
                 <button style={styles.contextItem} onClick={() => startRename(contextMenu.convo)}>
@@ -1121,6 +1192,56 @@ export default function Messages({ onNavigate, simulateClient = false, initialCo
               </button>
               <button type="submit" style={styles.renameSave} disabled={!renameValue.trim()}>
                 Save
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {addingToConvo && (
+        <div style={styles.modalOverlay} {...backdropDismiss(closeAddMembers)}>
+          <form style={styles.renameModal} onClick={(e) => e.stopPropagation()} onSubmit={handleAddMembersSubmit}>
+            <h3 style={styles.renameTitle}>Add members to "{getConvoDisplayName(addingToConvo)}"</h3>
+            <input
+              autoFocus
+              value={addSearch}
+              onChange={(e) => setAddSearch(e.target.value)}
+              placeholder="Search people..."
+              style={styles.searchInput}
+            />
+            <div style={styles.userList}>
+              {addCandidates.length === 0 && (
+                <div style={styles.userItemTitle}>
+                  {addSearch ? 'No one matches that search.' : 'Everyone you can message is already in this group.'}
+                </div>
+              )}
+              {addCandidates.map(m => (
+                <button
+                  type="button"
+                  key={m.id}
+                  onClick={() => toggleAddSelection(m.id)}
+                  style={{
+                    ...styles.userItem,
+                    ...(addSelected.includes(m.id) ? styles.userItemSelected : {}),
+                  }}
+                >
+                  <div style={styles.userAvatar}>
+                    {m.avatar_url ? <img src={m.avatar_url} alt="" style={styles.avatarImg32} /> : getDisplayInitial(m)}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={styles.userItemName}>{getDisplayName(m)}</div>
+                    <div style={styles.userItemTitle}>{m.title || 'Team Member'}</div>
+                  </div>
+                  {addSelected.includes(m.id) && <span style={styles.checkMark}>✓</span>}
+                </button>
+              ))}
+            </div>
+            <div style={styles.renameActions}>
+              <button type="button" style={styles.renameCancel} onClick={closeAddMembers}>
+                Cancel
+              </button>
+              <button type="submit" style={styles.renameSave} disabled={addSelected.length === 0 || addingMembers}>
+                {addingMembers ? 'Adding…' : `Add${addSelected.length ? ` (${addSelected.length})` : ''}`}
               </button>
             </div>
           </form>
