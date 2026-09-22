@@ -5,7 +5,7 @@
 // unprefixed), Harbor (podcast & remote recording) at '/harbor'
 // (+ '/harbor/room/<id>'; the PUBLIC '/harbor/join/<token>' guest route is
 // served by App.js before the auth gate and never reaches the layouts), and
-// the coming-soon teasers at '/anchor' and '/radar'. External apps (Cast,
+// the coming-soon teasers at '/anchor' and '/flightline'. External apps (Cast,
 // Drift, Fathom) are separate deployments — plain links, never routed here.
 // The launcher lives at bare '/' and explicitly at '/launcher'.
 //
@@ -24,7 +24,7 @@ export const SUITE_VIEW_SEGMENTS = new Set(['launcher', ...SUITE_APP_SEGMENTS]);
 // on first login (the original suite behavior).
 const BARE_PATH_LANDING = 'bridge';
 
-// First URL segment → suite view: 'launcher' | 'harbor' | 'anchor' | 'radar'
+// First URL segment → suite view: 'launcher' | 'harbor' | 'anchor' | 'flightline'
 // | null (null = Bridge; normal tab resolution takes over). Explicit
 // '/launcher' always wins.
 export function getSuiteViewFromPath() {

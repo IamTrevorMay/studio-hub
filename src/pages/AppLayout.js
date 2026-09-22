@@ -322,7 +322,7 @@ export default function AppLayout() {
   // Suite gating: the app launcher + Bridge branding + Harbor are ADMIN-ONLY
   // for now (Trevor's call at merge time, 2026-07-24). This single flag gates
   // the launcher landing, the suite URL deep-links (/launcher, /harbor,
-  // /anchor, /radar), the Bridge brand mark, and the Apps button. Non-admins
+  // /anchor, /flightline), the Bridge brand mark, and the Apps button. Non-admins
   // — including non-admin staff and the freelancer/partner portal roles —
   // keep the classic "Mayday Studio" tab app exactly as it was pre-suite:
   // bare '/' resolves to Bridge (see src/lib/suite.js) so they land on their
@@ -630,7 +630,7 @@ export default function AppLayout() {
   }, [isSuiteUser, suiteView]);
 
   // Handle browser back/forward. Suite segments ('launcher' / 'harbor' /
-  // 'anchor' / 'radar' / bare '/') resolve before tab resolution so history
+  // 'anchor' / 'flightline' / bare '/') resolve before tab resolution so history
   // works across launcher ↔ Bridge ↔ Harbor ↔ teasers.
   useEffect(() => {
     function handlePopState() {
@@ -802,7 +802,7 @@ export default function AppLayout() {
   // ── Mayday Studio suite pages (staff only; full-screen, no sidebar) ──
   // Rendered after all hooks. Portal roles never reach these (isSuiteUser),
   // so their locked-portal behavior keeps precedence over /launcher,
-  // /harbor, /anchor, /radar. Only Bridge writes suite_last_app (via
+  // /harbor, /anchor, /flightline. Only Bridge writes suite_last_app (via
   // rememberBridge here + the render effect above); Harbor and the
   // coming-soon teasers never do. External apps (Cast/Drift/Fathom) are
   // plain links on the launcher cards — they never set suiteView.

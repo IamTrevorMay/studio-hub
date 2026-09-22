@@ -3,7 +3,7 @@ import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../l
 import { pill, button } from '../lib/styleRecipes';
 
 // Generic branded coming-soon teaser for suite apps that only have a route so
-// far (Anchor at '/anchor', Radar at '/radar'). Parameterized by the app's
+// far (Anchor at '/anchor', Flightline at '/flightline'). Parameterized by the app's
 // registry entry from src/lib/suiteApps.js — monogram tile in the app's tint,
 // name, tagline, one-line blurb, back to launcher. Rendered full-screen by
 // AppLayout / AppLayoutMobile (staff only).

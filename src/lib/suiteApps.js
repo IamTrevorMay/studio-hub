@@ -52,7 +52,7 @@ const TINTS = {
   drift:  toneTint(colors.violet),  // violet — creative / graphics
   fathom: toneTint(colors.emerald), // teal — cloud storage
   anchor: toneTint(colors.warning), // amber — editor timeline
-  radar:  toneTint(colors.success), // scope green — tracking
+  flightline: toneTint(colors.success), // scope green — tracking
   gerald: toneTint(colors.pink),    // pink — Mayday Assistant
 };
 
@@ -130,15 +130,15 @@ export const SUITE_APPS = [
     tint: TINTS.anchor,
   },
   {
-    key: 'radar',
-    name: 'Radar',
-    monogram: 'R',
-    tagline: 'Pitch tracer & creator assets',
-    description: 'Ball tracking, pitch tracers, and creator assets. In development.',
-    kind: 'coming-soon',
-    segment: 'radar',
-    href: '/radar',
-    tint: TINTS.radar,
+    key: 'flightline',
+    name: 'Flightline',
+    monogram: 'F',
+    tagline: 'Tracer production',
+    description: 'Shared projects, footage processing, and editing Terminals.',
+    kind: 'internal',
+    segment: 'flightline',
+    href: '/flightline',
+    tint: TINTS.flightline,
   },
   {
     // Gerald — the Mayday Assistant (a separate deployment). Strict-admin only;
@@ -156,7 +156,7 @@ export const SUITE_APPS = [
   },
 ];
 
-// URL segments owned by suite views ('harbor', 'anchor', 'radar' — Bridge has
+// URL segments owned by suite views ('harbor', 'anchor', 'flightline' — Bridge has
 // none). Consumed by src/lib/suite.js to build SUITE_VIEW_SEGMENTS.
 export const SUITE_APP_SEGMENTS = SUITE_APPS.filter((a) => a.segment).map((a) => a.segment);
 
