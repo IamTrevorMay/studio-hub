@@ -337,6 +337,13 @@ Review timeline comments distilled into editable rule cards, one guide per clien
 - Decided 2026-09-18 after ship: conflicts between suggestions are resolved by hand (no detection), the guide updates ONLY from the button (no verdict hook, no cron), and there are NO style-guide notifications.
 - Backfill of the pre-existing 301 comments was run at ship; to re-run for new history use `{ action: 'backfill' }` (safe, skips processed comments). Run reviews for the SAME guide sequentially — parallel runs can't see each other's new cards and would duplicate.
 
+## Flightline (suite app, live 2026-09-22)
+
+Pitch-tracer production app owned by the separate Flightline repo (`../Flightline`; its `docs/MAYDAY_STUDIO.md` holds the auth contract). Mayday only hosts the shared Dashboard at `/flightline` (`src/pages/flightline/FlightlineDashboard.js`, intercepted in `App.js` before the layout; `/radar` still aliases) and the Mac package under `public/downloads/flightline/`. Calls go straight from the browser to `REACT_APP_FLIGHTLINE_SERVICE_URL` with the Mayday bearer token (`src/lib/flightline.js`); **access is the Flightline service's own grant, not a Mayday role** — no migration, no RLS.
+
+- **Launcher card** uses Flightline's own brand, not a Mayday tone: palette + logo path live in `FLIGHTLINE` in `src/lib/suiteApps.js` (mirror of the Flightline repo's `web/src/styles.css` `:root` and `public/flightline.svg`, copied to `public/flightline-logo.svg`). The `flightline` tint carries card-level overrides (`cardBg`, `nameColor`, `descriptionColor`, `taglineFont`) that `AppCard` honours when present; `icon` on a registry entry replaces the monogram.
+- **Mobile progress sheet** (`src/pages/flightline/FlightlineMobile.js`): read-only. Drawer row "Flightline" (above Apps, `MobileDrawer.onOpenFlightline`) for every non-client account → `FullScreenSheet` with projects (finished-clip bar from `projects[].counts.approved + rendered` over `clip_count`, per-state chips) → tap into clips (`/api/jobs`, live % while analyzing/rendering, reviewer, message). Polls every 10s while open. No approve/upload/create on the phone by decision. Ungranted accounts see the service's own error.
+
 ## Admin Mode / Work Mode
 
 Two sidebar modes toggled via button at bottom of sidebar (`AppLayout.js`).

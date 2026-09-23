@@ -25,6 +25,7 @@
 //   REACT_APP_FATHOM_URL  (default https://cloud.maydaystudio.net)
 
 import { colors } from './styleTokens';
+import { FLIGHTLINE_ORIGIN } from './flightline';
 
 // Per-app monogram tints — a distinct hue per app, all sourced from tokens.
 // Bridge keeps the flagship steel-blue gradient; every other app maps to a
@@ -163,15 +164,22 @@ export const SUITE_APPS = [
     tint: TINTS.anchor,
   },
   {
+    // Live as of 2026-09-22. The card goes STRAIGHT to Flightline's own web
+    // app (its production desk + editing Terminal, in Flightline's styling);
+    // `?signin=mayday` starts the PKCE handoff, which bounces through Mayday's
+    // /flightline?connect=flightline route using the current session and
+    // lands back in Flightline. Mayday's own /flightline page is only that
+    // handoff + the Mac download; it's the fallback href when no service
+    // origin is configured. Access is the Flightline service's own grant.
     key: 'flightline',
     name: 'Flightline',
     monogram: 'F',
     icon: FLIGHTLINE.logo, // shown in place of the monogram
     tagline: 'Tracer production',
     description: 'Shared projects, footage processing, and editing Terminals.',
-    kind: 'internal',
+    kind: FLIGHTLINE_ORIGIN ? 'external' : 'internal',
     segment: 'flightline',
-    href: '/flightline',
+    href: FLIGHTLINE_ORIGIN ? `${FLIGHTLINE_ORIGIN}/?signin=mayday` : '/flightline',
     tint: TINTS.flightline,
   },
   {
