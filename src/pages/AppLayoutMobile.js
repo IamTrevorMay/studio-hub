@@ -40,6 +40,8 @@ import Tracking from './TrackingMobile';
 import Reviews from './ReviewsMobile';
 import SuiteLauncher from './SuiteLauncher';
 import SuiteComingSoon from './SuiteComingSoon';
+import FlightlineDashboard from './flightline/FlightlineDashboard';
+import FlightlineMobile from './flightline/FlightlineMobile';
 import HarborApp from './harbor/HarborApp';
 import { getSuiteViewFromPath, rememberBridge } from '../lib/suite';
 import { getSuiteAppForSegment } from '../lib/suiteApps';
@@ -178,12 +180,13 @@ export default function AppLayoutMobile() {
   const { unreadNotificationCount, markDashboardSeen, refreshNotifications } = useNotifications();
   const { getResolvedNav } = useNavConfig();
   // Suite gating (mirror desktop AppLayout): the launcher + Bridge branding +
-  // Harbor are ADMIN-ONLY for now (Trevor's call at merge time, 2026-07-24).
+  // Harbor are ADMIN-TIER (admin + every Director role; `isAdmin` is
+  // isAdminTier(), confirmed 2026-09-22).
   // This single flag gates the launcher landing, the suite URL deep-links, the
   // Bridge brand mark, and the Apps row. Non-admins keep the classic
   // "Mayday Studio" tab app; bare '/' resolves to Bridge (src/lib/suite.js).
   // Widen back to `!isContractor && !isPartner` to reopen the suite to staff.
-  const isSuiteUser = isAdmin;
+  const isSuiteUser = isAdmin; // admin-tier: admin + director
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   // 'launcher' | 'harbor' | null (null = Bridge, the classic tab world).
   const [suiteView, setSuiteView] = useState(() => (isSuiteUser ? getSuiteViewFromPath() : null));
@@ -196,6 +199,10 @@ export default function AppLayoutMobile() {
   });
   const [navTarget, setNavTarget] = useState(() => getSubPathFromURL());
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Read-only Flightline progress sheet (drawer → Flightline). Not a suite
+  // view: it's open to every non-client account, and the Flightline service
+  // decides who actually has a grant.
+  const [flightlineOpen, setFlightlineOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notifLoading, setNotifLoading] = useState(false);
@@ -434,6 +441,7 @@ export default function AppLayoutMobile() {
   if (isSuiteUser && suiteView === 'harbor') {
     return <HarborApp onBackToLauncher={() => setSuiteView('launcher')} />;
   }
+  if (isSuiteUser && suiteView === 'flightline') return <FlightlineDashboard />;
   const comingSoonApp = isSuiteUser && suiteView ? getSuiteAppForSegment(suiteView) : null;
   if (comingSoonApp && comingSoonApp.kind === 'coming-soon') {
     return <SuiteComingSoon app={comingSoonApp} onBackToLauncher={() => setSuiteView('launcher')} />;
@@ -479,7 +487,10 @@ export default function AppLayoutMobile() {
         onSelectMode={selectMode}
         suiteBrand={isSuiteUser}
         onOpenLauncher={isAdmin ? () => { setDrawerOpen(false); setSuiteView('launcher'); } : undefined}
+        onOpenFlightline={!isClient ? () => { setDrawerOpen(false); setFlightlineOpen(true); } : undefined}
       />
+
+      <FlightlineMobile open={flightlineOpen} onClose={() => setFlightlineOpen(false)} />
 
       <BottomSheet
         open={notifOpen}

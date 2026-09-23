@@ -1,0 +1,7 @@
+{
+  "version": "0.1.2",
+  "build": 3,
+  "url": "https://www.maydaystudio.app/downloads/flightline/0.1.2/Flightline-macos-universal.zip",
+  "sha256": "a7a992e60e3b6698d292a0e4c7aeda3cd588efa8c0d59eff9f91ee48290f8bf4",
+  "minimum_macos": "15.0"
+}

@@ -1,0 +1,17 @@
+/.git
+/node_modules
+/build
+/.playwright-mcp
+/.claude
+/.env*
+**/.env*
+/google-drive-account.json
+**/*-service-account.json
+**/node_modules
+**/.session
+/tools/tiktok-scraper/output
+# Supabase functions and separate apps have their own deployment pipelines.
+/supabase
+/mobile
+/MaydayDocs
+/streamdeck-plugin

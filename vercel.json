@@ -1,8 +1,56 @@
 {
   "rewrites": [
-    { "source": "/careers", "destination": "/api/careers" },
-    { "source": "/careers/(.*)", "destination": "/api/careers" },
-    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
-    { "source": "/((?!api/|static/|.*\\.[a-zA-Z0-9]+$).*)", "destination": "/index.html" }
+    {
+      "source": "/careers",
+      "destination": "/api/careers"
+    },
+    {
+      "source": "/careers/(.*)",
+      "destination": "/api/careers"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "/api/sitemap"
+    },
+    {
+      "source": "/((?!api/|static/|.*\\.[a-zA-Z0-9]+$).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/downloads/flightline/latest/Flightline-macos-universal.zip",
+      "destination": "/downloads/flightline/0.1.2/Flightline-macos-universal.zip",
+      "permanent": false
+    }
+  ],
+  "headers": [
+    {
+      "source": "/downloads/flightline/latest/Flightline-macos-universal.zip",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    },
+    {
+      "source": "/downloads/flightline/appcast.xml",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    },
+    {
+      "source": "/downloads/flightline/latest.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    }
   ]
 }

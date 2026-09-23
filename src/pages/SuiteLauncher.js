@@ -72,18 +72,34 @@ function AppCard({ app, onOpenApp }) {
       onMouseLeave={() => setHovered(false)}
       style={{
         ...styles.card,
+        ...(t.cardBg ? { background: t.cardBg } : null),
         borderColor: hovered ? t.hoverBorder : t.restBorder,
         transform: hovered ? 'translateY(-4px)' : 'none',
         boxShadow: hovered ? shadows.lg : shadows.md,
       }}
     >
-      <div style={{ ...styles.tile, background: t.tileBg, color: t.tileFg }}>{app.monogram}</div>
+      {/* Apps with their own mark (Flightline) show it in place of the
+          monogram; the tile keeps the same footprint either way. */}
+      <div style={{ ...styles.tile, background: t.tileBg, color: t.tileFg }}>
+        {app.icon
+          ? <img src={app.icon} alt="" width="52" height="52" style={styles.tileIcon} draggable={false} />
+          : app.monogram}
+      </div>
       <div style={styles.nameRow}>
-        <span style={styles.name}>{app.name}</span>
+        <span style={{ ...styles.name, ...(t.nameColor ? { color: t.nameColor } : null) }}>{app.name}</span>
         {comingSoon && <span style={styles.soonPill}>Coming soon</span>}
       </div>
-      <div style={{ ...styles.tagline, color: t.tagline }}>{app.tagline}</div>
-      <div style={{ ...styles.description, color: comingSoon ? colors.textSubtle : colors.textMuted }}>
+      <div style={{
+        ...styles.tagline,
+        color: t.tagline,
+        ...(t.taglineFont ? { ...styles.taglineMono, fontFamily: t.taglineFont } : null),
+      }}>
+        {app.tagline}
+      </div>
+      <div style={{
+        ...styles.description,
+        color: t.descriptionColor || (comingSoon ? colors.textSubtle : colors.textMuted),
+      }}>
         {app.description}
       </div>
       {external && app.localDefault && (
@@ -171,6 +187,12 @@ const styles = {
     fontWeight: fontWeights.bold,
     marginBottom: spacing.xs,
   },
+  tileIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: radii.lg,
+    display: 'block',
+  },
   nameRow: {
     display: 'flex',
     alignItems: 'center',
@@ -189,6 +211,13 @@ const styles = {
   tagline: {
     fontSize: fontSizes.lg,
     fontWeight: fontWeights.semibold,
+  },
+  // Flightline's eyebrow treatment: small mono caps, tracked out.
+  taglineMono: {
+    fontSize: fontSizes.xs,
+    fontWeight: fontWeights.medium,
+    letterSpacing: '1.6px',
+    textTransform: 'uppercase',
   },
   description: {
     fontSize: fontSizes.md,

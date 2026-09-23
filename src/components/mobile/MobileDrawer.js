@@ -3,6 +3,7 @@ import { mobileTokens, mobileTapButton } from '../../utils/mobileTokens';
 import { getDisplayName, getDisplayInitial } from '../../lib/displayName';
 import backdropDismiss from '../../lib/backdropDismiss';
 import { colors } from '../../lib/styleTokens';
+import { FLIGHTLINE } from '../../lib/suiteApps';
 
 // Slide-in drawer with the full nav (already filtered for mobile by the caller),
 // plus user info + sign out at the bottom.
@@ -33,6 +34,7 @@ export default function MobileDrawer({
   onSelectMode,
   suiteBrand,      // staff only: show "Bridge" + Mayday Studio suite mark
   onOpenLauncher,  // staff only: "Apps" row → suite launcher
+  onOpenFlightline, // non-client: "Flightline" row → read-only job progress sheet
 }) {
   const [folderState, setFolderState] = useState(() =>
     JSON.parse(localStorage.getItem('nav-folder-state') || '{}')
@@ -138,8 +140,17 @@ export default function MobileDrawer({
 
         </nav>
 
-        {onOpenLauncher && (
+        {(onOpenFlightline || onOpenLauncher) && (
           <div style={styles.appsArea}>
+            {/* Flightline sits above Apps so operators can reach job progress
+                without going through the launcher (which is admin-tier only). */}
+            {onOpenFlightline && (
+              <button onClick={onOpenFlightline} style={styles.appsBtn}>
+                <img src={FLIGHTLINE.logo} alt="" width="18" height="18" style={styles.flightlineIcon} draggable={false} />
+                <span>Flightline</span>
+              </button>
+            )}
+            {onOpenLauncher && (
             <button onClick={onOpenLauncher} style={styles.appsBtn}>
               <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <rect x="3" y="3" width="6" height="6" rx="1.5" />
@@ -149,6 +160,7 @@ export default function MobileDrawer({
               </svg>
               <span>Apps</span>
             </button>
+            )}
           </div>
         )}
 
@@ -267,6 +279,7 @@ const styles = {
     borderTop: `1px solid ${colors.border}`,
     flexShrink: 0,
   },
+  flightlineIcon: { display: 'block', borderRadius: 5, flexShrink: 0 },
   appsBtn: {
     ...mobileTapButton,
     justifyContent: 'flex-start',

@@ -39,6 +39,23 @@ function toneTint(tone) {
   };
 }
 
+// Flightline brand palette — keep in sync with the Flightline repo's
+// web/src/styles.css `:root` block and public/flightline.svg.
+export const FLIGHTLINE = {
+  bg: '#131619',
+  panel: '#1c2023',
+  tile: '#171c1e',
+  line: '#2e3438',
+  text: '#c9ced0',
+  muted: '#7f8a91',
+  accent: '#d1e9ab',
+  accentBright: '#d5edab',
+  accentBorder: 'rgba(213,237,171,0.45)',
+  accentSoft: 'rgba(209,233,171,0.16)',
+  mono: "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+  logo: '/flightline-logo.svg', // copied from the Flightline repo's public/flightline.svg
+};
+
 const TINTS = {
   bridge: {
     tileBg: `linear-gradient(135deg, ${colors.accent}, ${colors.accentBright})`,
@@ -52,7 +69,23 @@ const TINTS = {
   drift:  toneTint(colors.violet),  // violet — creative / graphics
   fathom: toneTint(colors.emerald), // teal — cloud storage
   anchor: toneTint(colors.warning), // amber — editor timeline
-  flightline: toneTint(colors.success), // scope green — tracking
+  // Flightline ships its own look (the Mac app + web Terminal): slate panels,
+  // a lime tracer accent, DM Sans body + IBM Plex Mono eyebrows. The card
+  // borrows that palette wholesale so it reads as Flightline, not as a
+  // Mayday-tinted tile. Values mirror web/src/styles.css in the Flightline repo.
+  flightline: {
+    tileBg: FLIGHTLINE.tile,
+    tileFg: FLIGHTLINE.accent,
+    restBorder: FLIGHTLINE.line,
+    hoverBorder: FLIGHTLINE.accentBorder,
+    tagline: FLIGHTLINE.accent,
+    // Card-level overrides (only Flightline sets these; AppCard falls back to
+    // the launcher defaults when they're absent).
+    cardBg: FLIGHTLINE.panel,
+    nameColor: FLIGHTLINE.text,
+    descriptionColor: FLIGHTLINE.muted,
+    taglineFont: FLIGHTLINE.mono,
+  },
   gerald: toneTint(colors.pink),    // pink — Mayday Assistant
 };
 
@@ -133,6 +166,7 @@ export const SUITE_APPS = [
     key: 'flightline',
     name: 'Flightline',
     monogram: 'F',
+    icon: FLIGHTLINE.logo, // shown in place of the monogram
     tagline: 'Tracer production',
     description: 'Shared projects, footage processing, and editing Terminals.',
     kind: 'internal',

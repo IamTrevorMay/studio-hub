@@ -58,6 +58,7 @@ import ContractorTour from '../components/ContractorTour';
 import PageErrorBoundary from '../components/PageErrorBoundary';
 import SuiteLauncher from './SuiteLauncher';
 import SuiteComingSoon from './SuiteComingSoon';
+import FlightlineDashboard from './flightline/FlightlineDashboard';
 import HarborApp from './harbor/HarborApp';
 import { getSuiteViewFromPath, rememberBridge } from '../lib/suite';
 import { getSuiteAppForSegment } from '../lib/suiteApps';
@@ -319,8 +320,9 @@ const MODE_META = {
 
 export default function AppLayout() {
   const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isContractor, isClient, restrictedNavKeys } = useAuth();
-  // Suite gating: the app launcher + Bridge branding + Harbor are ADMIN-ONLY
-  // for now (Trevor's call at merge time, 2026-07-24). This single flag gates
+  // Suite gating: the app launcher + Bridge branding + Harbor are ADMIN-TIER
+  // (admin + every Director role — `isAdmin` is isAdminTier(); confirmed
+  // 2026-09-22). This single flag gates
   // the launcher landing, the suite URL deep-links (/launcher, /harbor,
   // /anchor, /flightline), the Bridge brand mark, and the Apps button. Non-admins
   // — including non-admin staff and the freelancer/partner portal roles —
@@ -328,7 +330,7 @@ export default function AppLayout() {
   // bare '/' resolves to Bridge (see src/lib/suite.js) so they land on their
   // usual page, never in the launcher. Widen this back to
   // `!isContractor && !isPartner` to reopen the suite to all staff.
-  const isSuiteUser = isAdmin;
+  const isSuiteUser = isAdmin; // admin-tier: admin + director
   const { unreadAnnouncementCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, newApplicationCount, refreshNotifications } = useNotifications();
   const { getResolvedNav } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => {
@@ -820,6 +822,7 @@ export default function AppLayout() {
   if (isSuiteUser && suiteView === 'harbor') {
     return <HarborApp onBackToLauncher={() => setSuiteView('launcher')} />;
   }
+  if (isSuiteUser && suiteView === 'flightline') return <FlightlineDashboard />;
   const comingSoonApp = isSuiteUser && suiteView ? getSuiteAppForSegment(suiteView) : null;
   if (comingSoonApp && comingSoonApp.kind === 'coming-soon') {
     return <SuiteComingSoon app={comingSoonApp} onBackToLauncher={() => setSuiteView('launcher')} />;

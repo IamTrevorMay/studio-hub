@@ -24,6 +24,8 @@ if (typeof window !== 'undefined') {
 const Layout = isMobileViewport()
   ? React.lazy(() => import('./pages/AppLayoutMobile'))
   : React.lazy(() => import('./pages/AppLayout'));
+const FlightlineDashboard = React.lazy(() => import('./pages/flightline/FlightlineDashboard'));
+
 const AuthPage = isMobileViewport()
   ? React.lazy(() => import('./pages/AuthPageMobile'))
   : React.lazy(() => import('./pages/AuthPage'));
@@ -78,6 +80,12 @@ function AppContent() {
         <AuthPage />
       </Suspense>
     );
+  }
+
+  // Flightline access is granted by its service, independent of suite admin access.
+  // Keep this after login/recovery/profile checks so the existing Mayday login is reused.
+  if (/^\/(flightline|radar)(\/|$)/.test(window.location.pathname)) {
+    return <Suspense fallback={<LayoutFallback />}><FlightlineDashboard /></Suspense>;
   }
 
   // Signed in on /triton-sso → hand off to Triton instead of the layout.

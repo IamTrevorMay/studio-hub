@@ -1,0 +1,48 @@
+<?xml version="1.0" standalone="yes"?>
+<!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Flightline</title>
+        <item>
+            <title>0.1.2</title>
+            <pubDate>Tue, 22 Sep 2026 17:06:52 -0700</pubDate>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[# Flightline 0.1.2
+
+- Export Locally or Export to Client without an approval-and-lock step. Client exports save to May Server; local exports have a 24-hour download window.
+- Dynamic allocation of the four workers between processing and active operator projects.
+- Exclusive project terminals with an explicit message identifying the operator already editing.
+- More responsive drawing, frame stepping, and scrubbing, plus Native frame and Render check views.
+- Targeted 3D camera recovery and tracer hold/fade coverage checks. Difficult lateral-motion shots can still require ground registration; this release does not eliminate drift on all footage.
+
+Existing footage and saved solves are preserved. Use Analyze again to apply the new camera analysis to an existing shot.
+]]></description>
+            <enclosure url="https://www.maydaystudio.app/downloads/flightline/0.1.2/Flightline-macos-universal.zip" length="2440532" type="application/octet-stream" sparkle:edSignature="4/vD5jGsTtS9zDWuwIcxYnG+aCcFn9U2lqnHBmF4VOryDWtjlD0nPTUOdNdtAZGpQDMqNSsST2u0E7kb7B4qCw=="/>
+        </item>
+        <item>
+            <title>0.1.1</title>
+            <pubDate>Tue, 22 Sep 2026 14:54:54 -0700</pubDate>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[# Flightline 0.1.1
+
+- Check for new releases with Flightline → Check for Updates.
+- Choose automatic update checks and automatic installation in Flightline → Settings.
+- Updates are signed and verified before installation.
+
+This first updater-enabled release must be installed manually over 0.1.0.
+Future releases can be installed from inside Flightline.
+]]></description>
+            <enclosure url="https://www.maydaystudio.app/downloads/flightline/0.1.1/Flightline-macos-universal.zip" length="2440187" type="application/octet-stream" sparkle:edSignature="R8U+wVnymwEfCqQFo3iQd7xF4HC1othNEyJN/ybpUNi9E90M32++q3rbm9no7Fy9f0ReoZgwYKmfj7JvzC31Cw=="/>
+        </item>
+    </channel>
+</rss>
+<!-- sparkle-signatures:
+edSignature: 7Yz88XJEavCfc5jksCmk81Bab/hz94NvTrz02n+Q8FXuQ1CURsOWYUO0dVP0poDwC6/lxKKuALS0lQgq4NAKBg==
+length: 2937
+-->
