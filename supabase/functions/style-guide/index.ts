@@ -273,11 +273,14 @@ async function processReview(
 ): Promise<RunSummary | null> {
   const { data: review, error: revErr } = await admin
     .from("reviews")
-    .select("id, title")
+    .select("id, title, kind")
     .eq("id", reviewId)
     .maybeSingle();
   if (revErr) throw new Error(revErr.message);
   if (!review) throw new Error("Review not found");
+  // Resources walkthrough guides reuse the review tables but their notes are
+  // about the guide, not about how a cut should be made.
+  if (review.kind === "guide") return null;
 
   const { data: allComments, error: cErr } = await admin
     .from("review_comments")

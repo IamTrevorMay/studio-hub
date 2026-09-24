@@ -128,6 +128,8 @@ export default function Reviews({ initialReviewId, onOpened, compact = false }) 
       const data = await fetchAllRows(
         supabase.from('reviews')
           .select('*, creator:profiles!reviews_created_by_fkey(full_name), thumbs:review_thumbnails(file_path, created_at), versions:review_versions(version_number, client_verdict), shares:review_client_shares(client_id), assignment:contractor_assignments!reviews_assignment_id_fkey(id, title, contractor_id, created_by, creator:profiles!freelancer_assignments_created_by_fkey(full_name))')
+          // Walkthrough guides (kind = 'guide') live on the Resources page.
+          .eq('kind', 'review')
           .order('created_at', { ascending: false })
       );
       // For reviews with no video yet, surface an uploaded thumbnail (earliest) on the card.

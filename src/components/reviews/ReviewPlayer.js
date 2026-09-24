@@ -149,20 +149,25 @@ function VerdictChip({ verdict }) {
 }
 
 // ─── Review Player ───────────────────────────────────────────────────────────
-// mode: 'staff' (default) | 'contractor' | 'client'
+// mode: 'staff' (default) | 'contractor' | 'client' | 'guide'
 //  - staff:      full behavior + verdict chips on version tabs + Share with client
 //  - contractor: same as staff inside the player (details + add-version usable,
 //                verdict chips visible, no verdict buttons)
 //  - client:     no add-version form, details read-only (comments still usable),
 //                verdict bar under the player for the active version
+//  - guide:      a Resources walkthrough (reviews.kind = 'guide'). Video + timeline
+//                notes + Details only: no version tabs, no share, no verdict, no
+//                style guide. Details editable by admin-tier, notes by all staff.
+// backLabel: text of the back button (defaults to the Reviews page wording).
 // compact: stack the video/comments columns vertically for narrow (mobile)
 //          viewports instead of the side-by-side desktop layout.
 
-function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo = false, compact = false, onOpenGuide }) {
+function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo = false, compact = false, onOpenGuide, backLabel = '← Back to Reviews' }) {
   const isClient = mode === 'client';
   const isStaffMode = mode === 'staff';
-  const canAddVersion = !isClient;
-  const canEditDetails = !isClient;
+  const isGuide = mode === 'guide';
+  const canAddVersion = !isClient && !isGuide;
+  const canEditDetails = isGuide ? !!isAdmin : !isClient;
   const canShare = isStaffMode && !demo;
 
   const playerRef = useRef(null);
@@ -225,7 +230,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
     try { localStorage.setItem(GUIDE_OPEN_KEY, guideOpen ? '1' : '0'); } catch { /* ignore */ }
   }, [guideOpen]);
   useEffect(() => {
-    if (demo || !review?.id) { setReviewGuide(null); return undefined; }
+    if (demo || isGuide || !review?.id) { setReviewGuide(null); return undefined; }
     let cancelled = false;
     (async () => {
       const { data: clientId } = await supabase.rpc('style_guide_client_for_review', { p_review: review.id });
@@ -235,7 +240,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
       if (!cancelled) setReviewGuide(data || null);
     })();
     return () => { cancelled = true; };
-  }, [review?.id, demo, guideResult]); // re-resolve after an Update creates the guide
+  }, [review?.id, demo, isGuide, guideResult]); // re-resolve after an Update creates the guide
 
   async function updateStyleGuide() {
     if (guideRunning) return;
@@ -679,7 +684,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
     <div style={styles.page}>
       <div style={styles.topBar}>
         <div>
-          <button onClick={onBack} style={styles.backBtn}>← Back to Reviews</button>
+          <button onClick={onBack} style={styles.backBtn}>{backLabel}</button>
           <h1 style={styles.pageTitle}>{review.title}</h1>
           {canShare && sharedClientIds.length > 0 && (
             <span style={styles.sharedChip}>
@@ -738,8 +743,8 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
         />
       )}
 
-      {/* Version Tabs */}
-      {versions.length > 0 && (
+      {/* Version Tabs — a guide has exactly one video, so no tabs */}
+      {versions.length > 0 && !isGuide && (
       <div style={styles.versionBar}>
         <div style={styles.versionTabs}>
           {versions.map(v => (
@@ -872,7 +877,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin, mode = 'staff', demo =
           <div ref={commentsListRef} style={styles.commentsList}>
             {filteredComments.length === 0 ? (
               <p style={styles.emptyComments}>
-                {filterResolved === 'all' ? 'No comments yet. Play the video and add your first note.' :
+                {filterResolved === 'all' ? (isGuide ? 'No notes yet. Play the video and add a note at any moment worth flagging.' : 'No comments yet. Play the video and add your first note.') :
                   filterResolved === 'open' ? 'No open notes.' : 'No resolved notes.'}
               </p>
             ) : (

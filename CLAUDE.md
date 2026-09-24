@@ -337,6 +337,14 @@ Review timeline comments distilled into editable rule cards, one guide per clien
 - Decided 2026-09-18 after ship: conflicts between suggestions are resolved by hand (no detection), the guide updates ONLY from the button (no verdict hook, no cron), and there are NO style-guide notifications.
 - Backfill of the pre-existing 301 comments was run at ship; to re-run for new history use `{ action: 'backfill' }` (safe, skips processed comments). Run reviews for the SAME guide sequentially — parallel runs can't see each other's new cards and would duplicate.
 
+## Resources Guides (walkthroughs added 2026-09-24)
+
+Guides section at the top of Resources (`resource_guides`, staff read / admin-tier write). **+ New Guide** offers two kinds: **Video** (plain YouTube embed in a modal, the original) and **Walkthrough** (same link, but staff can leave timestamped notes on it).
+
+- A walkthrough is a real `reviews` row with `kind = 'guide'` plus one `review_versions` row, linked from `resource_guides.review_id`. It opens full-page in `ReviewPlayer` with `mode="guide"` (video + timeline notes + Details; no version tabs, share, verdict, or style guide; Details editable by admin-tier only, notes by any staff via the existing review RLS). The card shows a "Walkthrough" chip.
+- The Reviews page filters `.eq('kind', 'review')`, and the `style-guide` edge function skips guide-kind reviews, so walkthrough notes never feed a style guide.
+- Deleting the guide deletes the review (`resource_guides_delete_review` AFTER DELETE trigger); the FK is `ON DELETE CASCADE` the other way. Migration `20260924120000_resource_guide_walkthroughs.sql`.
+
 ## Flightline (suite app, live 2026-09-22)
 
 Pitch-tracer production app owned by the separate Flightline repo (`../Flightline`; its `docs/MAYDAY_STUDIO.md` holds the auth contract). Mayday only hosts the shared Dashboard at `/flightline` (`src/pages/flightline/FlightlineDashboard.js`, intercepted in `App.js` before the layout; `/radar` still aliases) and the Mac package under `public/downloads/flightline/`. Calls go straight from the browser to `REACT_APP_FLIGHTLINE_SERVICE_URL` with the Mayday bearer token (`src/lib/flightline.js`); **access is the Flightline service's own grant, not a Mayday role** — no migration, no RLS.

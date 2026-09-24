@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import CanvasBoard from './editors/CanvasBoard';
+import ReviewPlayer from '../components/reviews/ReviewPlayer';
 import { clickableKeyProps, modalOverlay, modal as modalShell } from '../lib/styleRecipes';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
@@ -64,12 +65,18 @@ export default function Resources() {
   const [openCanvas, setOpenCanvas] = useState(null); // { id, title }
 
   // Guides — admin-tier posts a titled YouTube link, all staff can watch.
+  // Two kinds: 'video' is a plain embed; 'walkthrough' is backed by a
+  // reviews row (kind = 'guide') so staff can leave timestamped notes on it
+  // with the Review player.
   const [guides, setGuides] = useState([]);
   const [showGuideModal, setShowGuideModal] = useState(false);
+  const [guideKind, setGuideKind] = useState('video');
   const [guideTitle, setGuideTitle] = useState('');
   const [guideUrl, setGuideUrl] = useState('');
   const [guideError, setGuideError] = useState(null);
-  const [playingGuide, setPlayingGuide] = useState(null); // the guide row being watched
+  const [playingGuide, setPlayingGuide] = useState(null); // plain guide row being watched
+  const [openWalkthrough, setOpenWalkthrough] = useState(null); // { guide, review } in the Review player
+  const [openingGuideId, setOpeningGuideId] = useState(null); // walkthrough review being fetched
   const [hoveredGuideId, setHoveredGuideId] = useState(null);
 
   const [contextMenu, setContextMenu] = useState(null); // { x, y, item }
@@ -153,7 +160,7 @@ export default function Resources() {
   const fetchGuides = useCallback(async () => {
     const { data, error: err } = await supabase
       .from('resource_guides')
-      .select('id, title, youtube_url, youtube_id, created_at')
+      .select('id, title, youtube_url, youtube_id, review_id, created_at')
       .order('position', { ascending: true })
       .order('created_at', { ascending: false });
     if (err) { console.error('Error fetching guides:', err); return; }
@@ -173,9 +180,38 @@ export default function Resources() {
     if (!youtubeId) { setGuideError("That doesn't look like a YouTube link."); return; }
     setBusy(true);
     setGuideError(null);
+    const url = guideUrl.trim();
+    let reviewId = null;
+    if (guideKind === 'walkthrough') {
+      // The review + its first version carry the video; the guide row only
+      // points at the review. If a later step fails, drop the review so no
+      // orphan hides behind the Reviews page's kind filter.
+      const { data: review, error: revErr } = await supabase
+        .from('reviews')
+        .insert({ title, kind: 'guide', youtube_url: url, youtube_video_id: youtubeId, created_by: profile.id })
+        .select('id')
+        .single();
+      if (revErr) { setBusy(false); setGuideError(revErr.message); return; }
+      reviewId = review.id;
+      const { error: verErr } = await supabase.from('review_versions').insert({
+        review_id: reviewId,
+        version_number: 1,
+        label: 'Guide',
+        youtube_url: url,
+        youtube_video_id: youtubeId,
+        created_by: profile.id,
+      });
+      if (verErr) {
+        await supabase.from('reviews').delete().eq('id', reviewId);
+        setBusy(false);
+        setGuideError(verErr.message);
+        return;
+      }
+    }
     const { error: err } = await supabase
       .from('resource_guides')
-      .insert({ title, youtube_url: guideUrl.trim(), youtube_id: youtubeId });
+      .insert({ title, youtube_url: url, youtube_id: youtubeId, review_id: reviewId });
+    if (err && reviewId) await supabase.from('reviews').delete().eq('id', reviewId);
     setBusy(false);
     if (err) { setGuideError(err.message); return; }
     closeGuideModal();
@@ -184,9 +220,26 @@ export default function Resources() {
 
   function closeGuideModal() {
     setShowGuideModal(false);
+    setGuideKind('video');
     setGuideTitle('');
     setGuideUrl('');
     setGuideError(null);
+  }
+
+  // A plain guide plays in the modal; a walkthrough opens the Review player
+  // full-page (same early return pattern as an open canvas).
+  async function openGuide(g) {
+    if (!g.review_id) { setPlayingGuide(g); return; }
+    if (openingGuideId) return;
+    setOpeningGuideId(g.id);
+    const { data: review, error: err } = await supabase
+      .from('reviews')
+      .select('*')
+      .eq('id', g.review_id)
+      .maybeSingle();
+    setOpeningGuideId(null);
+    if (err || !review) { alert('Could not open this guide: ' + (err?.message || 'its review is missing.')); return; }
+    setOpenWalkthrough({ guide: g, review });
   }
 
   async function handleDeleteGuide(guide) {
@@ -325,6 +378,20 @@ export default function Resources() {
   const folders = items.filter(i => i.type === 'folder');
   const docs = items.filter(i => i.type === 'doc');
 
+  if (openWalkthrough) {
+    return (
+      <ReviewPlayer
+        key={openWalkthrough.review.id}
+        review={openWalkthrough.review}
+        onBack={() => setOpenWalkthrough(null)}
+        profile={profile}
+        isAdmin={isAdmin}
+        mode="guide"
+        backLabel="← Back to Resources"
+      />
+    );
+  }
+
   if (openCanvas) {
     return (
       <CanvasBoard
@@ -436,8 +503,8 @@ export default function Resources() {
               {guides.map((g) => (
                 <div
                   key={g.id}
-                  {...clickableKeyProps(() => setPlayingGuide(g))}
-                  onClick={() => setPlayingGuide(g)}
+                  {...clickableKeyProps(() => openGuide(g))}
+                  onClick={() => openGuide(g)}
                   onMouseEnter={() => setHoveredGuideId(g.id)}
                   onMouseLeave={() => setHoveredGuideId(null)}
                   style={styles.guideCard}
@@ -464,6 +531,14 @@ export default function Resources() {
                         <path d="M5 3.5v9l7.5-4.5L5 3.5z" />
                       </svg>
                     </span>
+                    {g.review_id && (
+                      <span style={styles.guideChip} title="Walkthrough — open to leave timestamped notes">
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                          <path d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H6l-3 3v-3H3a1 1 0 0 1-1-1V3z" />
+                        </svg>
+                        Walkthrough
+                      </span>
+                    )}
                     {isAdmin && hoveredGuideId === g.id && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteGuide(g); }}
@@ -571,6 +646,24 @@ export default function Resources() {
         <div style={modalOverlay()} {...backdropDismiss(closeGuideModal)}>
           <form onSubmit={handleCreateGuide} style={styles.guideModal}>
             <h2 style={styles.guideModalTitle}>New Guide</h2>
+            <div style={styles.guideKindRow} role="radiogroup" aria-label="Guide type">
+              {[
+                ['video', 'Video', 'A titled YouTube embed. Watch only.'],
+                ['walkthrough', 'Walkthrough', 'Same video, plus timestamped notes anyone on staff can add — the Review player.'],
+              ].map(([kind, label, hint]) => (
+                <button
+                  key={kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={guideKind === kind}
+                  onClick={() => setGuideKind(kind)}
+                  style={{ ...styles.guideKindBtn, ...(guideKind === kind ? styles.guideKindBtnOn : {}) }}
+                >
+                  <span style={styles.guideKindLabel}>{label}</span>
+                  <span style={styles.guideKindHint}>{hint}</span>
+                </button>
+              ))}
+            </div>
             <label style={styles.guideLabel}>
               Title
               <input
@@ -611,7 +704,7 @@ export default function Resources() {
                   opacity: (busy || !guideTitle.trim() || !parseYouTubeId(guideUrl)) ? 0.45 : 1,
                 }}
               >
-                {busy ? 'Saving…' : 'Save Guide'}
+                {busy ? 'Saving…' : (guideKind === 'walkthrough' ? 'Save Walkthrough' : 'Save Guide')}
               </button>
             </div>
           </form>
@@ -802,6 +895,23 @@ const styles = {
     color: 'rgba(255,255,255,0.8)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
   },
   guideTitle: { fontSize: '14px', fontWeight: 600, color: '#e2e8f0', lineHeight: 1.35 },
+  guideChip: {
+    position: 'absolute', top: '6px', left: '6px',
+    display: 'inline-flex', alignItems: 'center', gap: '4px',
+    padding: '3px 7px', borderRadius: '6px',
+    background: 'rgba(15,15,26,0.78)', border: '1px solid rgba(99,102,241,0.55)',
+    color: '#c7d2fe', fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em',
+    pointerEvents: 'none',
+  },
+  guideKindRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' },
+  guideKindBtn: {
+    display: 'flex', flexDirection: 'column', gap: '4px', textAlign: 'left',
+    padding: '10px 12px', borderRadius: '10px', cursor: 'pointer', fontFamily: 'inherit',
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+  },
+  guideKindBtnOn: { background: 'rgba(99,102,241,0.14)', border: '1px solid rgba(99,102,241,0.7)' },
+  guideKindLabel: { fontSize: '13px', fontWeight: 700, color: '#ffffff' },
+  guideKindHint: { fontSize: '11px', lineHeight: 1.4, color: 'rgba(255,255,255,0.5)' },
   guideModal: {
     ...modalShell({ width: 460 }),
     display: 'flex', flexDirection: 'column', gap: '14px',
