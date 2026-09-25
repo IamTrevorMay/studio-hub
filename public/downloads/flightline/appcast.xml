@@ -6,6 +6,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Flightline</title>
         <item>
+            <title>0.1.3</title>
+            <pubDate>Fri, 25 Sep 2026 10:49:22 -0700</pubDate>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>0.1.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[# Flightline 0.1.3
+
+- Mark reviewed clips ready to export from the Review tab, with a green queue highlight and a saved status that can be undone. Flight and tracer style changes clear readiness.
+- Multi-shot ingest and source-window review improvements.
+- Camera repair and solver reliability updates, with opt-in experimental camera reconstruction tools.
+
+Existing footage and saved solves are retained. Analyze again to apply new analysis to an existing clip. Experimental reconstruction tools are not automatically applied to saved shots.
+]]></description>
+            <enclosure url="https://www.maydaystudio.app/downloads/flightline/0.1.3/Flightline-macos-universal.zip" length="2440569" type="application/octet-stream" sparkle:edSignature="r2HaxBX8VB31UcWLmNLJmz7pWcXxs8y0XWCubVQXGmogi+PpVWtDr8I/hZ83r6Ycpp8N9M5BOIEhYkjsXvmrAQ=="/>
+        </item>
+        <item>
             <title>0.1.2</title>
             <pubDate>Tue, 22 Sep 2026 17:06:52 -0700</pubDate>
             <sparkle:version>3</sparkle:version>
@@ -43,6 +59,6 @@ Future releases can be installed from inside Flightline.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: 7Yz88XJEavCfc5jksCmk81Bab/hz94NvTrz02n+Q8FXuQ1CURsOWYUO0dVP0poDwC6/lxKKuALS0lQgq4NAKBg==
-length: 2937
+edSignature: Cun0Bg9JSJ50vNLTdL43v5JJtX72dCV7cWRvG7TlNYwFlsTD4zmsrj80E4OdbmxicVByL/kzQLPPMZpwvyzGCw==
+length: 4165
 -->
