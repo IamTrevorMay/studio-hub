@@ -83,6 +83,23 @@ function flattenBeats(items) {
   return result;
 }
 
+// Indexes (into flattenBeats output) of the last beat of every group, where a
+// group is one segment or one run of loose top-level beats. The final group
+// is excluded — there's nothing after it to delineate.
+function segmentBreakIndexes(items) {
+  const breaks = [];
+  let count = 0;
+  let prevWasSegment = null;
+  for (const item of items || []) {
+    const seg = isSegment(item);
+    const size = seg ? (item.children || []).length : 1;
+    if (count > 0 && (seg || prevWasSegment)) breaks.push(count - 1);
+    count += size;
+    prevWasSegment = seg;
+  }
+  return [...new Set(breaks)].filter(i => i < count - 1);
+}
+
 function countBeats(items) {
   return flattenBeats(items).length;
 }
@@ -1970,7 +1987,10 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ folderId, title, beats: flattenBeats(beats) }),
+        // The sheet gets the flat beat list plus the 0-based indexes of the
+        // last beat in each segment (or run of loose beats), so it can draw a
+        // bold line between segments.
+        body: JSON.stringify({ folderId, title, beats: flattenBeats(beats), segmentBreaks: segmentBreakIndexes(beats) }),
       });
       if (!resp.ok) throw new Error(await resp.text());
       const data = await resp.json();

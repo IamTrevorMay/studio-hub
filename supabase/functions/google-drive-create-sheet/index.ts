@@ -74,7 +74,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { folderId, title, beats } = await req.json();
+    const { folderId, title, beats, segmentBreaks } = await req.json();
     if (!folderId) throw new Error("folderId is required");
     if (!title) throw new Error("title is required");
 
@@ -95,6 +95,11 @@ Deno.serve(async (req: Request) => {
     ]);
 
     const rows = [headerRow, ...dataRows];
+    const segmentBreakRows: number[] = Array.isArray(segmentBreaks)
+      ? segmentBreaks
+          .filter((i: unknown) => Number.isInteger(i) && (i as number) >= 0 && (i as number) < dataRows.length)
+          .map((i: number) => i + 1)
+      : [];
 
     // Create spreadsheet via Sheets API
     const createRes = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
@@ -169,6 +174,14 @@ Deno.serve(async (req: Request) => {
             },
             fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.textFormat.foregroundColorStyle,userEnteredFormat.backgroundColor",
           }},
+          // Bold line under the last beat of each segment. `segmentBreaks` are
+          // 0-based indexes into `beats`; +1 skips the header row.
+          ...segmentBreakRows.map((rowIndex: number) => ({
+            updateBorders: {
+              range: { sheetId: 0, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: headerRow.length },
+              bottom: { style: "SOLID_THICK", colorStyle: { rgbColor: { red: 0, green: 0, blue: 0 } } },
+            },
+          })),
         ],
       }),
     });
