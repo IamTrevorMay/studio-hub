@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -346,7 +347,10 @@ function TaskDetailModal({
     setAddError(null);
   }
 
-  return (
+  // Portaled to <body>: inside the Dashboard's widget grid the modal sits in
+  // the widget's own stacking context, so neighbouring widgets painted over it
+  // and it read as see-through. <body> never gets DM Sans, so set it here.
+  return createPortal(
     <div style={overlayStyle} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={modalStyle} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -380,7 +384,7 @@ function TaskDetailModal({
         )}
         {isNew && templates && templates.length === 0 && (
           <div style={{ marginBottom: '14px', fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' }}>
-            No templates yet \u2014 save this card's setup as one below.
+            No templates yet — save this card's setup as one below.
           </div>
         )}
 
@@ -571,7 +575,8 @@ function TaskDetailModal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1795,6 +1800,7 @@ const overlayStyle = {
   position: 'fixed',
   inset: 0,
   background: 'rgba(0,0,0,0.6)',
+  fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
