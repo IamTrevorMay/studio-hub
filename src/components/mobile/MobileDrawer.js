@@ -32,7 +32,7 @@ export default function MobileDrawer({
   mode,
   availableModes = [],
   onSelectMode,
-  suiteBrand,      // staff only: show "Bridge" + Mayday Studio suite mark
+  suiteBrand,      // staff only: show "Studio" + Mayday Studio suite mark
   onOpenLauncher,  // staff only: "Apps" row → suite launcher
   onOpenFlightline, // non-client: "Flightline" row → read-only job progress sheet
 }) {
@@ -96,7 +96,7 @@ export default function MobileDrawer({
           <img src="/logo.png" alt="Mayday Studio" width="28" height="28" />
           {suiteBrand ? (
             <div style={styles.logoStack}>
-              <span style={styles.logoText}>Bridge</span>
+              <span style={styles.logoText}>Studio</span>
               <span style={styles.logoSuiteMark}>Mayday Studio</span>
             </div>
           ) : (

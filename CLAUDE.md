@@ -325,6 +325,10 @@ Editing is handed out from the Dashboard's `+ Assignment` button (`AssignmentMen
 - RLS: staff read / admin write on `film_sessions`, `film_queue_items`, `call_sheets`; all pipeline writes go through service-role edge functions.
 - Migrations: `20260910120000_film_queue.sql`, `20260910130000_cron_film_session_lock.sql`, `20260910140000_call_sheets_nav.sql`, `20260917140000_slate_editing_assignments.sql`. Deploy: `film-queue`, `workflow-complete-task`, `assign-task`.
 
+## Ideas archive (added 2026-09-25)
+
+Checked ideas are swept off the Ideas board at midnight Pacific and land in the **Archived** drawer (right panel, `Archived` button beside Select / + Add Idea in `src/pages/Ideas.js`). Nothing is deleted: `write_ideas.archived_at` hides the row (desktop + mobile fetches filter `.is('archived_at', null)`), and the drawer's Restore clears it (unchecks, back to the end of the Ideas list); Delete is a hard delete behind a confirm. `write_ideas.checked_at` is stamped by the `write_ideas_stamp_checked` trigger whenever `checked` flips true (cleared on uncheck) and is what the drawer shows as the completion date. Sweep = `archive_checked_ideas(p_force)` (security definer, revoked from clients), cron `archive-checked-ideas-pdt` 07:02 UTC / `-pst` 08:02 UTC, gated on PT hour = 0 so one fires per day; pass `true` to run by hand. Migration `20260925120000_idea_archive.sql`.
+
 ## Style Guides (added 2026-09-18)
 
 Review timeline comments distilled into editable rule cards, one guide per client plus one Mayday guide. Rule cards are grouped into eight fixed categories (Pacing & Cuts, Audio & Music, Graphics & Text, Sponsor & Brand, Transitions & Effects, Story & Content, Color & Look, Delivery & Export).
@@ -351,6 +355,10 @@ Pitch-tracer production app owned by the separate Flightline repo (`../Flightlin
 
 - **Launcher card** uses Flightline's own brand, not a Mayday tone: palette + logo path live in `FLIGHTLINE` in `src/lib/suiteApps.js` (mirror of the Flightline repo's `web/src/styles.css` `:root` and `public/flightline.svg`, copied to `public/flightline-logo.svg`). The `flightline` tint carries card-level overrides (`cardBg`, `nameColor`, `descriptionColor`, `taglineFont`) that `AppCard` honours when present; `icon` on a registry entry replaces the monogram.
 - **Mobile progress sheet** (`src/pages/flightline/FlightlineMobile.js`): read-only. Drawer row "Flightline" (above Apps, `MobileDrawer.onOpenFlightline`) for every non-client account → `FullScreenSheet`. Polls `/api/dashboard` **plus `/api/jobs` for every project** every 10s while open (pilot-scale fan-out, deliberate). Projects view: strip (running / queued tasks, workers with a no-worker warning, media), then per project a finished-clip bar (`counts.approved + rendered` over `clip_count`), state chips, a **Processing** section (live clips with %, the `service_tasks` row behind each — analysis/render/refit/restore, running/queued/failed — and editing leases from `dashboard.leases`), and **Uploads · last 24h** (jobs with `origin='upload'`, `uploaded_by`, `created`). Tap in for every clip with task line, latest export status (`exports[]`), reviewer, uploader. **Uploads are only visible once they've landed** — the service keeps in-flight bytes in a `.partial` file it doesn't report. No approve/upload/create on the phone by decision. Ungranted accounts see the service's own error.
+
+## Suite app display names (2026-09-25)
+
+The classic tab-world app is branded **Studio** (was "Bridge") and the podcast/remote-recording app is **Video Chat** (was "Harbor"). Display names and monograms only — `src/lib/suiteApps.js` keys (`bridge`, `harbor`), URL segments (`/harbor`), `harbor_*` tables, `harbor-*` functions, folders, `rememberBridge`, and `TINTS.*` all keep the old identifiers. Mobile Calendar (2026-09-25) can now create/edit/delete events with team-member invites (`guests` id array, same as desktop; recurring events prompt this-one vs series; recurrence rules and the video-meeting toggle stay desktop-only and are preserved on edit). Mobile Deliverables can edit rows and close them via **Mark Delivered** (`video_url` + `delivered = true`, exactly desktop's Video button); card icons removed.
 
 ## Admin Mode / Work Mode
 

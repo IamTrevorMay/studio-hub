@@ -805,7 +805,7 @@ export default function CallStage({
       {/* Header: title, session status, channel status, producer controls */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <span style={styles.title}>{session?.title || 'Harbor session'}</span>
+          <span style={styles.title}>{session?.title || 'Video Chat session'}</span>
           {isMeeting && <span style={pill('default')}>Meeting</span>}
           <span style={pill(STATUS_TONES[sessionStatus] || 'info')}>
             {STATUS_LABELS[sessionStatus] || sessionStatus}

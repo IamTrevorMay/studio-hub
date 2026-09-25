@@ -66,7 +66,7 @@ export default function HarborJoin() {
   const handedOffRef = useRef(false); // stream ownership moved to CallStage's mesh
 
   useEffect(() => {
-    document.title = 'Join call · Harbor · Mayday Studio';
+    document.title = 'Join call · Video Chat · Mayday Studio';
   }, []);
 
   // Device check: request cam+mic on mount for the preview.
@@ -284,8 +284,8 @@ export default function HarborJoin() {
   return (
     <Shell wide>
       <div style={styles.brand}>
-        <div style={styles.tileMark}>H</div>
-        <span style={styles.brandText}>Harbor · Mayday Studio</span>
+        <div style={styles.tileMark}>V</div>
+        <span style={styles.brandText}>Video Chat · Mayday Studio</span>
       </div>
       <h1 style={styles.heading}>Join the session</h1>
 

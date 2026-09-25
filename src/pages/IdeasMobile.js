@@ -75,6 +75,7 @@ export default function IdeasMobile() {
       supabase
         .from('write_ideas')
         .select(IDEA_FIELDS)
+        .is('archived_at', null)
         .order('position', { ascending: true })
         .order('created_at', { ascending: true }),
       supabase

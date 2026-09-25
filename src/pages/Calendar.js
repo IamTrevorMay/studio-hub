@@ -2317,11 +2317,11 @@ export default function Calendar({ onNavigate }) {
                   onChange={(e) => setEventForm(prev => ({ ...prev, is_meeting: e.target.checked }))}
                   style={{ accentColor: '#5b8fc7' }}
                 />
-                Video meeting (Harbor)
+                Video meeting (Video Chat)
               </label>
               {eventForm.is_meeting && (
                 <span style={{ display: 'block', marginTop: '4px', fontSize: '12px', color: 'rgba(255,255,255,0.45)' }}>
-                  A Harbor room is created on save. Recording is off unless you enable it in the call.
+                  A Video Chat room is created on save. Recording is off unless you enable it in the call.
                 </span>
               )}
             </div>

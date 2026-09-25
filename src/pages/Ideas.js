@@ -38,7 +38,12 @@ const STAFF_PICKER_ROLES = ['admin', 'director', 'director_creative', 'director_
 
 const TAG_COLOR_CHOICES = ['#f87171', '#fb923c', '#fbbf24', '#34d399', '#22d3ee', '#8fb4d8', '#93c5fd', '#c084fc', '#f9a8d4'];
 
-const IDEA_FIELDS = 'id, text, checked, position, category, bucket, tag_ids, context, potential_titles, project_id, film_queue_item_id, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
+const IDEA_FIELDS = 'id, text, checked, checked_at, archived_at, position, category, bucket, tag_ids, context, potential_titles, project_id, film_queue_item_id, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
+
+function fmtFullDate(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 // Ratings: admins + directors only — RLS on idea_ratings enforces the same
 // set server-side, so other roles never receive rating rows at all.
@@ -99,6 +104,8 @@ export default function Ideas({ embedded = false }) {
       supabase
         .from('write_ideas')
         .select(IDEA_FIELDS)
+        // Archived ideas live in the drawer, not on the board.
+        .is('archived_at', null)
         // position is reindexed per-bucket, so add created_at as a deterministic
         // tiebreak — otherwise order can shuffle between reloads.
         .order('position', { ascending: true })
@@ -125,6 +132,66 @@ export default function Ideas({ embedded = false }) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
   useVisibilityRefresh(fetchAll);
+
+  // Archived drawer: checked ideas the midnight-PT sweep moved off the board.
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archived, setArchived] = useState([]);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveBusyId, setArchiveBusyId] = useState(null);
+
+  const fetchArchived = useCallback(async () => {
+    setArchiveLoading(true);
+    const { data, error } = await supabase
+      .from('write_ideas')
+      .select(IDEA_FIELDS)
+      .not('archived_at', 'is', null)
+      .order('archived_at', { ascending: false })
+      .order('checked_at', { ascending: false });
+    if (error) console.error('Error loading archived ideas:', error);
+    else setArchived(data || []);
+    setArchiveLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (!archiveOpen) return undefined;
+    fetchArchived();
+    const onKey = (e) => { if (e.key === 'Escape') setArchiveOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [archiveOpen, fetchArchived]);
+
+  // Restore = back onto the board, unchecked, at the end of the Ideas list.
+  async function restoreArchived(id) {
+    setArchiveBusyId(id);
+    const list = byBucket.list || [];
+    const nextPosition = list.length > 0 ? Math.max(...list.map((i) => i.position || 0)) + 1 : 0;
+    const { error } = await supabase
+      .from('write_ideas')
+      .update({ archived_at: null, checked: false, bucket: 'list', position: nextPosition, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      console.error('Error restoring idea:', error);
+      alert(`Could not restore idea: ${error.message || 'unknown error'}`);
+    } else {
+      setArchived((prev) => prev.filter((i) => i.id !== id));
+      fetchAll();
+    }
+    setArchiveBusyId(null);
+  }
+
+  async function deleteArchived(id) {
+    const ok = await confirm('Delete this archived idea for good?');
+    if (!ok) return;
+    setArchiveBusyId(id);
+    const { error } = await supabase.from('write_ideas').delete().eq('id', id);
+    if (error) {
+      console.error('Error deleting archived idea:', error);
+      alert(`Could not delete idea: ${error.message || 'unknown error'}`);
+    } else {
+      setArchived((prev) => prev.filter((i) => i.id !== id));
+    }
+    setArchiveBusyId(null);
+  }
 
   const tagById = useCallback((id) => tags.find((t) => t.id === id), [tags]);
 
@@ -779,6 +846,7 @@ export default function Ideas({ embedded = false }) {
         </>
       ) : (
         <>
+          <button onClick={() => setArchiveOpen(true)} style={styles.selectBtn} title="Ideas checked complete are archived nightly at midnight PT">Archived</button>
           <button onClick={() => setSelectMode(true)} style={styles.selectBtn}>Select</button>
           <button onClick={() => setShowAddModal(true)} style={styles.addIdeaBtn}>+ Add Idea</button>
         </>
@@ -866,6 +934,65 @@ export default function Ideas({ embedded = false }) {
           }}
           onClose={() => setShowAddModal(false)}
         />
+      )}
+
+      {archiveOpen && (
+        <>
+          <div style={styles.drawerOverlay} onClick={() => setArchiveOpen(false)} />
+          <aside style={styles.drawer} role="dialog" aria-label="Archived ideas">
+            <div style={styles.drawerHeader}>
+              <div>
+                <div style={styles.drawerTitle}>Archived</div>
+                <div style={styles.drawerHint}>Checked ideas are swept here nightly at midnight PT.</div>
+              </div>
+              <button onClick={() => setArchiveOpen(false)} style={styles.drawerClose} aria-label="Close">×</button>
+            </div>
+            <div style={styles.drawerBody}>
+              {archiveLoading && archived.length === 0 ? (
+                <div style={styles.drawerEmpty}>Loading…</div>
+              ) : archived.length === 0 ? (
+                <div style={styles.drawerEmpty}>Nothing archived yet.</div>
+              ) : (
+                archived.map((item) => {
+                  const busy = archiveBusyId === item.id;
+                  return (
+                    <div key={item.id} style={styles.archRow}>
+                      <div style={styles.archText}>{item.text}</div>
+                      {item.context && <div style={styles.archContext}>{item.context}</div>}
+                      {tagsForIdea(item).length > 0 && (
+                        <div style={styles.archTags}>
+                          {tagsForIdea(item).map((t) => (
+                            <span key={t.id} style={{ ...styles.tagChip, background: `${t.color}26`, color: t.color, borderColor: `${t.color}55` }}>{t.label}</span>
+                          ))}
+                        </div>
+                      )}
+                      <div style={styles.archMeta}>
+                        <span>Completed {fmtFullDate(item.checked_at || item.archived_at)}</span>
+                        {item.creator?.full_name && <span> · {item.creator.full_name}</span>}
+                      </div>
+                      <div style={styles.archActions}>
+                        <button
+                          onClick={() => restoreArchived(item.id)}
+                          disabled={busy}
+                          style={{ ...styles.archRestoreBtn, opacity: busy ? 0.4 : 1 }}
+                        >
+                          Restore
+                        </button>
+                        <button
+                          onClick={() => deleteArchived(item.id)}
+                          disabled={busy}
+                          style={{ ...styles.archDeleteBtn, opacity: busy ? 0.4 : 1 }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </aside>
+        </>
       )}
 
       {filmQueuePicker && (
@@ -1952,6 +2079,59 @@ const styles = {
     boxShadow: '0 16px 48px rgba(0,0,0,0.6)',
   },
   modalTitle: { fontSize: '16px', fontWeight: 700, color: '#fff', margin: '0 0 14px 0' },
+  drawerOverlay: {
+    position: 'fixed', inset: 0, zIndex: 1090,
+    background: 'rgba(0,0,0,0.45)',
+  },
+  drawer: {
+    position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 1095,
+    width: '440px', maxWidth: '92vw',
+    background: '#14141f',
+    borderLeft: '1px solid rgba(255,255,255,0.1)',
+    boxShadow: '-16px 0 48px rgba(0,0,0,0.5)',
+    display: 'flex', flexDirection: 'column',
+  },
+  drawerHeader: {
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px',
+    padding: '20px 20px 14px',
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
+  },
+  drawerTitle: { fontSize: '16px', fontWeight: 700, color: '#fff' },
+  drawerHint: { fontSize: '12px', color: 'rgba(255,255,255,0.45)', marginTop: '4px', lineHeight: 1.5 },
+  drawerClose: {
+    background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.5)',
+    fontSize: '22px', lineHeight: 1, cursor: 'pointer', padding: '0 4px', fontFamily: 'inherit',
+  },
+  drawerBody: { flex: 1, overflowY: 'auto', padding: '12px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' },
+  drawerEmpty: { fontSize: '13px', color: 'rgba(255,255,255,0.4)', padding: '24px 0', textAlign: 'center' },
+  archRow: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '10px',
+    padding: '12px 14px',
+    display: 'flex', flexDirection: 'column', gap: '6px',
+  },
+  archText: { fontSize: '13px', color: '#e2e8f0', wordBreak: 'break-word', lineHeight: 1.45 },
+  archContext: { fontSize: '12px', color: 'rgba(255,255,255,0.5)', wordBreak: 'break-word', lineHeight: 1.45 },
+  archTags: { display: 'flex', flexWrap: 'wrap', gap: '4px' },
+  archMeta: { fontSize: '11px', color: 'rgba(255,255,255,0.4)' },
+  archActions: { display: 'flex', gap: '6px', marginTop: '4px' },
+  archRestoreBtn: {
+    padding: '5px 12px',
+    background: colors.accentSoft,
+    border: `1px solid ${colors.accentBorder}`,
+    borderRadius: '6px',
+    color: colors.accentFg,
+    fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  archDeleteBtn: {
+    padding: '5px 12px',
+    background: 'transparent',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '6px',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
   modalHint: { fontSize: '12px', color: 'rgba(255,255,255,0.5)', margin: '-6px 0 12px 0', lineHeight: 1.5 },
   modalSectionLabel: {
     fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px',

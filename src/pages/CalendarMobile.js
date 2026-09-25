@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import usePersistedTab from '../hooks/usePersistedTab';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens } from '../utils/mobileTokens';
@@ -43,10 +44,14 @@ function fmtTime(iso, allDay) {
   return formatPTTime(new Date(iso));
 }
 
+const VIDEO_EVENT_TYPES = ['video_post', 'tmbb_video'];
+
 export default function CalendarMobile() {
-  const { profile } = useAuth();
+  const { profile, isAdmin } = useAuth();
+  const confirm = useConfirm();
   const [view, setView] = usePersistedTab('calendar-view-mobile', 'agenda', ['agenda', 'month']); // 'agenda' | 'month'
   const [events, setEvents] = useState([]);
+  const [hubUsers, setHubUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState(null);
 
@@ -64,14 +69,19 @@ export default function CalendarMobile() {
     return expandRecurringEvents(events, rangeStart, rangeEnd);
   }, [events, monthCursor]);
 
-  // Event create (mobile-friendly subset of the desktop modal — title/
-  // type/date/time/all-day/location). Recurrence + guests are desktop-
-  // only for now; the row inserts via supabase directly to mirror
-  // Calendar.js handleSaveEvent's payload shape.
-  const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState(null);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState(null);
+  // Event create / edit (mobile-friendly subset of the desktop modal — title/
+  // type/date/time/all-day/location/notes/team members). Recurrence rules and
+  // the video-meeting toggle are desktop-only: an edit here preserves whatever
+  // the row already has for those. Writes mirror Calendar.js handleSaveEvent.
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(null);
+  // null = creating; otherwise { id } for a series/plain edit, or
+  // { id: null, detachFrom: { parentId, dateKey } } for "this event only".
+  const [editTarget, setEditTarget] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState(null);
+  // Recurring events ask "this one or the whole series?" before edit/delete.
+  const [recurrencePrompt, setRecurrencePrompt] = useState(null); // { action: 'edit'|'delete', event }
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -96,7 +106,64 @@ export default function CalendarMobile() {
     }
   }, []);
 
-  useEffect(() => { fetchEvents(); }, [fetchEvents]);
+  // Team-member picker options + name lookup for guest ids. Dual-use (picker +
+  // historical attribution), so deactivated rows are kept and filtered at render.
+  const fetchHubUsers = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, title, deactivated_at')
+      .order('full_name', { ascending: true });
+    if (error) console.error('Calendar users fetch failed:', error);
+    else setHubUsers(data || []);
+  }, []);
+
+  useEffect(() => { fetchEvents(); fetchHubUsers(); }, [fetchEvents, fetchHubUsers]);
+
+  function getUserName(userId) {
+    const u = hubUsers.find((x) => x.id === userId);
+    return u?.full_name || 'Unknown';
+  }
+
+  async function syncToGoogleCalendar(action, eventId) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-calendar-sync`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+          apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ action, event_id: eventId }),
+      });
+    } catch (err) {
+      console.error('Google Calendar sync error:', err);
+    }
+  }
+
+  // Reverse sync (mirrors desktop): a video event linked to a project writes
+  // its new Post Date back onto that project.
+  async function syncVideoEventToProject(eventId, eventType, newStart) {
+    if (!VIDEO_EVENT_TYPES.includes(eventType)) return;
+    const { data: proj } = await supabase
+      .from('projects')
+      .select('id, deadline, post_time')
+      .eq('calendar_event_id', eventId)
+      .maybeSingle();
+    if (!proj) return;
+    const deadline = toPTDateKey(newStart);
+    const postTime = toPTTimeString(newStart);
+    if (proj.deadline === deadline && proj.post_time === postTime) return;
+    await supabase.from('projects').update({ deadline, post_time: postTime }).eq('id', proj.id);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setForm(null);
+    setEditTarget(null);
+    setFormError(null);
+  }
 
   function openCreate(day) {
     // `day` is a PT day anchor from the month grid — it carries no meaningful
@@ -107,8 +174,9 @@ export default function CalendarMobile() {
     const next = new Date(base.getTime() + 60 * 60 * 1000);
     const startTime = isAnchor ? '09:00' : hm(base);
     const endTime = isAnchor ? '10:00' : hm(next);
-    setCreateError(null);
-    setCreateForm({
+    setFormError(null);
+    setEditTarget(null);
+    setForm({
       title: '',
       event_type: 'meeting',
       start_date: ymd(base),
@@ -118,16 +186,126 @@ export default function CalendarMobile() {
       all_day: false,
       location: '',
       description: '',
+      guests: [],
     });
-    setShowCreate(true);
+    setShowForm(true);
   }
 
-  async function handleCreate() {
-    if (!createForm) return;
-    const f = createForm;
-    if (!f.title.trim() || !f.start_date) { setCreateError('Title + start date required.'); return; }
-    if (!profile?.id) { setCreateError('Not signed in.'); return; }
-    setCreating(true); setCreateError(null);
+  function formFromEvent(ev) {
+    const startD = new Date(ev.start_date);
+    const endD = new Date(ev.end_date || ev.start_date);
+    return {
+      title: ev.title || '',
+      event_type: ev.event_type || 'meeting',
+      start_date: toPTDateKey(startD),
+      start_time: toPTTimeString(startD),
+      end_date: toPTDateKey(endD),
+      end_time: toPTTimeString(endD),
+      all_day: ev.all_day || false,
+      location: ev.location || '',
+      description: ev.description || '',
+      guests: Array.isArray(ev.guests) ? ev.guests : [],
+    };
+  }
+
+  function isRecurring(ev) {
+    return !!(ev?.recurrence_rule && ev.recurrence_rule.type !== 'none');
+  }
+
+  function parentOf(ev) {
+    const parentId = ev._parentId || ev.id;
+    return events.find((e) => e.id === parentId) || ev;
+  }
+
+  // Edit the whole series (or a plain, non-recurring event).
+  function openEditSeries(ev) {
+    const parent = parentOf(ev);
+    setFormError(null);
+    setEditTarget({ id: parent.id });
+    setForm(formFromEvent(parent));
+    setSelectedEvent(null);
+    setRecurrencePrompt(null);
+    setShowForm(true);
+  }
+
+  // Edit one occurrence: it becomes a standalone event on save, and that date
+  // is excluded from the parent series (same shape as desktop, but the
+  // exclusion is written on save rather than on open, so Cancel is a no-op).
+  function openEditOccurrence(ev) {
+    const parent = parentOf(ev);
+    setFormError(null);
+    setEditTarget({ id: null, detachFrom: { parentId: parent.id, dateKey: toPTDateKey(new Date(ev.start_date)) } });
+    setForm(formFromEvent({ ...parent, start_date: ev.start_date, end_date: ev.end_date }));
+    setSelectedEvent(null);
+    setRecurrencePrompt(null);
+    setShowForm(true);
+  }
+
+  function requestEdit(ev) {
+    if (isRecurring(ev)) { setSelectedEvent(null); setTimeout(() => setRecurrencePrompt({ action: 'edit', event: ev }), 220); return; }
+    openEditSeries(ev);
+  }
+
+  function requestDelete(ev) {
+    if (isRecurring(ev)) { setSelectedEvent(null); setTimeout(() => setRecurrencePrompt({ action: 'delete', event: ev }), 220); return; }
+    deleteEvent(ev._parentId || ev.id);
+  }
+
+  async function excludeOccurrence(parentId, dateKey) {
+    const parent = events.find((e) => e.id === parentId);
+    const rule = { ...(parent?.recurrence_rule || {}) };
+    rule.excludedDates = [...new Set([...(rule.excludedDates || []), dateKey])];
+    const { error } = await supabase.from('calendar_events').update({ recurrence_rule: rule }).eq('id', parentId);
+    if (error) throw error;
+    // The exclusion goes to Google as an EXDATE on the series.
+    syncToGoogleCalendar('update', parentId);
+  }
+
+  async function deleteOccurrence(ev) {
+    setRecurrencePrompt(null);
+    if (!(await confirm('Remove this occurrence from the series?'))) return;
+    try {
+      await excludeOccurrence(ev._parentId || ev.id, toPTDateKey(new Date(ev.start_date)));
+      setSelectedEvent(null);
+      fetchEvents();
+    } catch (err) {
+      console.error('Error excluding occurrence:', err);
+      alert(`Could not remove occurrence: ${err.message}`);
+    }
+  }
+
+  async function deleteEvent(eventId) {
+    setRecurrencePrompt(null);
+    if (!(await confirm('Delete this event?'))) return;
+    try {
+      // A video event linked to a project clears that project's Post Date too
+      // (fully two-way, mirrors desktop). Capture the link before the row goes.
+      const delEvent = events.find((e) => e.id === eventId);
+      let linkedProjectId = null;
+      if (delEvent && VIDEO_EVENT_TYPES.includes(delEvent.event_type)) {
+        const { data: proj } = await supabase.from('projects').select('id').eq('calendar_event_id', eventId).maybeSingle();
+        linkedProjectId = proj?.id || null;
+      }
+      await syncToGoogleCalendar('delete', eventId);
+      const { error } = await supabase.from('calendar_events').delete().eq('id', eventId);
+      if (error) throw error;
+      if (linkedProjectId) {
+        await supabase.from('projects').update({ deadline: null, post_time: null, calendar_event_id: null }).eq('id', linkedProjectId);
+      }
+      setSelectedEvent(null);
+      fetchEvents();
+    } catch (err) {
+      console.error('Error deleting event:', err);
+      alert(`Could not delete event: ${err.message}`);
+    }
+  }
+
+  async function handleSave() {
+    if (!form) return;
+    const f = form;
+    if (!f.title.trim() || !f.start_date) { setFormError('Title + start date required.'); return; }
+    if (!profile?.id) { setFormError('Not signed in.'); return; }
+    setSaving(true); setFormError(null);
     try {
       // Wall-clock in the form is Pacific, matching desktop's handleSaveEvent.
       const startDate = f.all_day
@@ -137,7 +315,7 @@ export default function CalendarMobile() {
       const endDate = f.all_day
         ? ptToDate(endDateStr, '23:59')
         : ptToDate(endDateStr, f.end_time || '10:00');
-      const { error } = await supabase.from('calendar_events').insert({
+      const payload = {
         title: f.title.trim(),
         description: f.description.trim(),
         event_type: f.event_type,
@@ -145,20 +323,41 @@ export default function CalendarMobile() {
         end_date: endDate.toISOString(),
         all_day: f.all_day,
         location: f.location.trim(),
-        guests: [],
-        recurrence_rule: null,
-        created_by: profile.id,
-      });
-      if (error) throw error;
-      setShowCreate(false);
-      setCreateForm(null);
+        guests: f.guests || [],
+      };
+
+      if (editTarget?.id) {
+        // recurrence_rule and is_meeting are deliberately not in the payload:
+        // the mobile form doesn't expose them, so the row keeps what it has.
+        const { error } = await supabase.from('calendar_events').update(payload).eq('id', editTarget.id);
+        if (error) throw error;
+        await syncVideoEventToProject(editTarget.id, payload.event_type, startDate);
+        syncToGoogleCalendar('update', editTarget.id);
+      } else {
+        // A detached one-off doesn't inherit meeting-ness — the series keeps
+        // its room; a new event never has one from mobile.
+        const { data: inserted, error } = await supabase
+          .from('calendar_events')
+          .insert({ ...payload, is_meeting: false, recurrence_rule: null, created_by: profile.id })
+          .select('id')
+          .single();
+        if (error) throw error;
+        if (editTarget?.detachFrom) {
+          await excludeOccurrence(editTarget.detachFrom.parentId, editTarget.detachFrom.dateKey);
+        }
+        syncToGoogleCalendar('create', inserted.id);
+      }
+      closeForm();
       fetchEvents();
     } catch (e) {
-      setCreateError(e.message);
+      setFormError(e.message);
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   }
+
+  const canDelete = (ev) => !!ev && (ev.created_by === profile?.id || isAdmin);
+  const isEditing = !!editTarget;
 
   return (
     <div style={styles.root}>
@@ -185,7 +384,14 @@ export default function CalendarMobile() {
         onClose={() => setSelectedEvent(null)}
         title={selectedEvent?.title || 'Event'}
       >
-        {selectedEvent && <EventDetail event={selectedEvent} />}
+        {selectedEvent && (
+          <EventDetail
+            event={selectedEvent}
+            getUserName={getUserName}
+            onEdit={() => requestEdit(selectedEvent)}
+            onDelete={canDelete(selectedEvent) ? () => requestDelete(selectedEvent) : null}
+          />
+        )}
       </BottomSheet>
 
       <BottomSheet
@@ -208,20 +414,58 @@ export default function CalendarMobile() {
       </BottomSheet>
 
       <BottomSheet
-        open={showCreate}
-        onClose={() => { setShowCreate(false); setCreateForm(null); }}
-        title="New event"
+        open={showForm}
+        onClose={closeForm}
+        title={isEditing ? 'Edit event' : 'New event'}
         maxHeight="90vh"
       >
-        {createForm && (
-          <CreateEventForm
-            form={createForm}
-            onChange={(patch) => setCreateForm((f) => ({ ...f, ...patch }))}
-            onSave={handleCreate}
-            onCancel={() => { setShowCreate(false); setCreateForm(null); }}
-            saving={creating}
-            error={createError}
+        {form && (
+          <EventForm
+            form={form}
+            mode={isEditing ? 'edit' : 'create'}
+            onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+            onSave={handleSave}
+            onCancel={closeForm}
+            saving={saving}
+            error={formError}
+            members={hubUsers.filter((u) => u.id !== profile?.id && !u.deactivated_at)}
+            getUserName={getUserName}
           />
+        )}
+      </BottomSheet>
+
+      <BottomSheet
+        open={!!recurrencePrompt}
+        onClose={() => setRecurrencePrompt(null)}
+        title={recurrencePrompt?.action === 'delete' ? 'Delete recurring event' : 'Edit recurring event'}
+      >
+        {recurrencePrompt && (
+          <div style={createStyles.root}>
+            <p style={createStyles.promptText}>
+              This is a repeating event. What would you like to {recurrencePrompt.action}?
+            </p>
+            <button
+              style={createStyles.promptBtn}
+              onClick={() => {
+                const ev = recurrencePrompt.event;
+                if (recurrencePrompt.action === 'delete') deleteOccurrence(ev);
+                else openEditOccurrence(ev);
+              }}
+            >
+              This event only
+            </button>
+            <button
+              style={createStyles.promptBtn}
+              onClick={() => {
+                const ev = recurrencePrompt.event;
+                if (recurrencePrompt.action === 'delete') deleteEvent(ev._parentId || ev.id);
+                else openEditSeries(ev);
+              }}
+            >
+              All events in this series
+            </button>
+            <button style={createStyles.cancelBtn} onClick={() => setRecurrencePrompt(null)}>Cancel</button>
+          </div>
         )}
       </BottomSheet>
 
@@ -243,12 +487,20 @@ function hm(d) {
   return toPTTimeString(d);
 }
 
-function CreateEventForm({ form, onChange, onSave, onCancel, saving, error }) {
+function EventForm({ form, mode, onChange, onSave, onCancel, saving, error, members, getUserName }) {
+  const [showPicker, setShowPicker] = useState(false);
+  const guests = form.guests || [];
+  const disabled = saving || !form.title.trim() || !form.start_date;
+
+  function toggleGuest(id) {
+    onChange({ guests: guests.includes(id) ? guests.filter((g) => g !== id) : [...guests, id] });
+  }
+
   return (
     <div style={createStyles.root}>
       <Field label="Title">
         <input
-          autoFocus
+          autoFocus={mode === 'create'}
           value={form.title}
           onChange={(e) => onChange({ title: e.target.value })}
           placeholder="What's happening?"
@@ -337,16 +589,65 @@ function CreateEventForm({ form, onChange, onSave, onCancel, saving, error }) {
         />
       </Field>
 
+      {/* Team members — same `guests` id array desktop writes. */}
+      <div style={createStyles.field}>
+        <span style={createStyles.fieldLabel}>Team members</span>
+        <div style={createStyles.guestBox} onClick={() => setShowPicker((v) => !v)} role="button">
+          {guests.length === 0 ? (
+            <span style={createStyles.guestPlaceholder}>Invite team members…</span>
+          ) : (
+            <div style={createStyles.guestChips}>
+              {guests.map((gId) => (
+                <span key={gId} style={createStyles.guestChip}>
+                  {getUserName(gId)}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleGuest(gId); }}
+                    style={createStyles.guestChipRemove}
+                    aria-label={`Remove ${getUserName(gId)}`}
+                  >{'✕'}</button>
+                </span>
+              ))}
+            </div>
+          )}
+          <span style={createStyles.guestCaret}>{showPicker ? '▴' : '▾'}</span>
+        </div>
+        {showPicker && (
+          <div style={createStyles.guestList}>
+            {members.length === 0 ? (
+              <div style={createStyles.guestEmpty}>No one to invite.</div>
+            ) : members.map((u) => {
+              const on = guests.includes(u.id);
+              return (
+                <button
+                  key={u.id}
+                  type="button"
+                  onClick={() => toggleGuest(u.id)}
+                  style={{ ...createStyles.guestRow, background: on ? colors.accentA12 : 'transparent' }}
+                >
+                  <span style={createStyles.guestAvatar}>{u.full_name?.charAt(0)?.toUpperCase() || '?'}</span>
+                  <span style={createStyles.guestRowBody}>
+                    <span style={createStyles.guestRowName}>{u.full_name}</span>
+                    {u.title && <span style={createStyles.guestRowTitle}>{u.title}</span>}
+                  </span>
+                  {on && <span style={{ color: colors.accentFg, fontSize: 14 }}>{'✓'}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {error && <div style={createStyles.error}>{error}</div>}
 
       <div style={createStyles.actions}>
         <button onClick={onCancel} style={createStyles.cancelBtn}>Cancel</button>
         <button
           onClick={onSave}
-          disabled={saving || !form.title.trim() || !form.start_date}
-          style={{ ...createStyles.saveBtn, opacity: saving || !form.title.trim() || !form.start_date ? 0.5 : 1 }}
+          disabled={disabled}
+          style={{ ...createStyles.saveBtn, opacity: disabled ? 0.5 : 1 }}
         >
-          {saving ? 'Creating…' : 'Create'}
+          {saving ? 'Saving…' : mode === 'edit' ? 'Save' : 'Create'}
         </button>
       </div>
     </div>
@@ -542,14 +843,23 @@ function DayEvents({ events, onSelect, onAddForDay }) {
   );
 }
 
-function EventDetail({ event }) {
+function EventDetail({ event, getUserName, onEdit, onDelete }) {
   const accent = EVENT_TYPE_COLORS[event.event_type] || '#5b8fc7';
   const start = event.start_date && new Date(event.start_date);
   const end = event.end_date && new Date(event.end_date);
+  const guests = Array.isArray(event.guests) ? event.guests : [];
+  const repeating = event.recurrence_rule && event.recurrence_rule.type !== 'none';
   return (
     <div style={detailStyles.root}>
-      <div style={{ ...detailStyles.typePill, background: `${accent}20`, color: accent, borderColor: `${accent}50` }}>
-        {EVENT_TYPE_LABELS[event.event_type] || 'Event'}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ ...detailStyles.typePill, background: `${accent}20`, color: accent, borderColor: `${accent}50` }}>
+          {EVENT_TYPE_LABELS[event.event_type] || 'Event'}
+        </div>
+        {repeating && (
+          <div style={{ ...detailStyles.typePill, background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.6)', borderColor: 'rgba(255,255,255,0.12)' }}>
+            Repeats
+          </div>
+        )}
       </div>
       <h3 style={detailStyles.title}>{event.title || 'Untitled'}</h3>
       <DetailRow label="When" value={
@@ -559,8 +869,19 @@ function EventDetail({ event }) {
       } />
       {event.location && <DetailRow label="Location" value={event.location} />}
       {event.description && <DetailRow label="Notes" value={event.description} />}
+      {guests.length > 0 && (
+        <div style={detailStyles.row}>
+          <div style={detailStyles.label}>Team members</div>
+          <div style={detailStyles.guestChips}>
+            {guests.map((gId) => <span key={gId} style={detailStyles.guestChip}>{getUserName(gId)}</span>)}
+          </div>
+        </div>
+      )}
       {event.creator?.full_name && <DetailRow label="Created by" value={event.creator.full_name} />}
-      <p style={detailStyles.note}>To edit this event, open Mayday Studio on desktop.</p>
+      <div style={detailStyles.actions}>
+        <button onClick={onEdit} style={detailStyles.editBtn}>Edit</button>
+        {onDelete && <button onClick={onDelete} style={detailStyles.deleteBtn}>Delete</button>}
+      </div>
     </div>
   );
 }
@@ -787,6 +1108,63 @@ const createStyles = {
     fontSize: mobileTokens.font.md, fontWeight: 700,
     cursor: 'pointer', fontFamily: 'inherit',
   },
+  guestBox: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    minHeight: mobileTokens.tap,
+    background: 'rgba(0,0,0,0.25)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: mobileTokens.radius.sm,
+    padding: '8px 12px', cursor: 'pointer',
+  },
+  guestPlaceholder: { flex: 1, color: 'rgba(255,255,255,0.3)', fontSize: mobileTokens.font.md },
+  guestCaret: { color: 'rgba(255,255,255,0.4)', fontSize: 12 },
+  guestChips: { flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6 },
+  guestChip: {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '4px 8px 4px 10px',
+    background: colors.accentA12,
+    border: `1px solid ${colors.accentBorder}`,
+    borderRadius: mobileTokens.radius.pill,
+    color: colors.accentFg, fontSize: mobileTokens.font.sm, fontWeight: 600,
+  },
+  guestChipRemove: {
+    background: 'transparent', border: 'none', color: 'inherit',
+    fontSize: 11, cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit', lineHeight: 1,
+  },
+  guestList: {
+    marginTop: 6,
+    background: 'rgba(0,0,0,0.25)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: mobileTokens.radius.sm,
+    maxHeight: 220, overflowY: 'auto',
+    display: 'flex', flexDirection: 'column',
+  },
+  guestEmpty: { padding: 12, color: 'rgba(255,255,255,0.4)', fontSize: mobileTokens.font.sm },
+  guestRow: {
+    display: 'flex', alignItems: 'center', gap: 10,
+    width: '100%', minHeight: mobileTokens.tap,
+    padding: '8px 12px', border: 'none', textAlign: 'left',
+    color: '#fff', cursor: 'pointer', fontFamily: 'inherit',
+    borderBottom: '1px solid rgba(255,255,255,0.05)',
+  },
+  guestAvatar: {
+    width: 28, height: 28, borderRadius: '50%',
+    background: colors.accentSoft, color: colors.accentFg,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 12, fontWeight: 700, flexShrink: 0,
+  },
+  guestRowBody: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' },
+  guestRowName: { fontSize: mobileTokens.font.md, fontWeight: 500 },
+  guestRowTitle: { fontSize: mobileTokens.font.xs, color: 'rgba(255,255,255,0.4)' },
+  promptText: { margin: 0, fontSize: mobileTokens.font.md, color: 'rgba(255,255,255,0.6)', lineHeight: 1.45 },
+  promptBtn: {
+    minHeight: mobileTokens.tap, padding: '10px 16px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.12)', color: '#fff',
+    borderRadius: mobileTokens.radius.sm,
+    fontSize: mobileTokens.font.md, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+  },
 };
 
 const detailStyles = {
@@ -834,14 +1212,28 @@ const detailStyles = {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
   },
-  note: {
-    margin: `${mobileTokens.space.sm}px 0 0`,
-    padding: mobileTokens.space.md,
-    background: colors.accentA08,
-    border: '1px solid rgba(91, 143, 199,0.2)',
+  guestChips: { display: 'flex', flexWrap: 'wrap', gap: 6 },
+  guestChip: {
+    padding: '4px 10px',
+    background: colors.accentA12,
+    border: `1px solid ${colors.accentBorder}`,
+    borderRadius: mobileTokens.radius.pill,
+    color: colors.accentFg, fontSize: mobileTokens.font.sm, fontWeight: 600,
+  },
+  actions: { display: 'flex', gap: 8, marginTop: mobileTokens.space.sm },
+  editBtn: {
+    flex: 1, minHeight: mobileTokens.tap,
+    background: colors.accent, border: 'none', color: '#fff',
     borderRadius: mobileTokens.radius.sm,
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: mobileTokens.font.sm,
-    textAlign: 'center',
+    fontSize: mobileTokens.font.md, fontWeight: 700,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  deleteBtn: {
+    minHeight: mobileTokens.tap, padding: '0 16px',
+    background: 'rgba(239,68,68,0.1)',
+    border: '1px solid rgba(239,68,68,0.3)', color: '#f87171',
+    borderRadius: mobileTokens.radius.sm,
+    fontSize: mobileTokens.font.md, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
   },
 };

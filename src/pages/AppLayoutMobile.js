@@ -238,7 +238,7 @@ export default function AppLayoutMobile() {
     document.title = !isSuiteUser ? 'Mayday Studio'
       : suiteApp ? `${suiteApp.name} · Mayday Studio`
       : suiteView === 'launcher' ? 'Mayday Studio'
-      : 'Bridge · Mayday Studio';
+      : 'Studio · Mayday Studio';
   }, [isSuiteUser, suiteView]);
 
   // Back/forward: suite segments resolve before tab resolution so history

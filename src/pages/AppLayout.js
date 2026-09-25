@@ -620,7 +620,7 @@ export default function AppLayout() {
     if (isSuiteUser && !suiteView) rememberBridge();
   }, [isSuiteUser, suiteView]);
 
-  // Browser-tab title per suite surface ("Harbor · Mayday Studio",
+  // Browser-tab title per suite surface ("Video Chat · Mayday Studio",
   // "Anchor · Mayday Studio", …). Auth pages keep the index.html default;
   // portal roles stay plain "Mayday Studio".
   useEffect(() => {
@@ -628,7 +628,7 @@ export default function AppLayout() {
     document.title = !isSuiteUser ? 'Mayday Studio'
       : suiteApp ? `${suiteApp.name} · Mayday Studio`
       : suiteView === 'launcher' ? 'Mayday Studio'
-      : 'Bridge · Mayday Studio';
+      : 'Studio · Mayday Studio';
   }, [isSuiteUser, suiteView]);
 
   // Handle browser back/forward. Suite segments ('launcher' / 'harbor' /
@@ -842,7 +842,7 @@ export default function AppLayout() {
           </div>
           {!sidebarCollapsed && (isSuiteUser ? (
             <div style={styles.logoStack}>
-              <span style={styles.logoText}>Bridge</span>
+              <span style={styles.logoText}>Studio</span>
               <span style={styles.logoSuiteMark}>Mayday Studio</span>
             </div>
           ) : (

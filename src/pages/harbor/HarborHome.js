@@ -186,8 +186,8 @@ export default function HarborHome({ onOpenRoom, onOpenShow, onBackToLauncher })
             )}
           </div>
           <div style={styles.brandCenter}>
-            <div style={styles.tileMark}>H</div>
-            <h1 style={styles.title}>Harbor</h1>
+            <div style={styles.tileMark}>V</div>
+            <h1 style={styles.title}>Video Chat</h1>
           </div>
           <div style={styles.brandSide} aria-hidden="true" />
         </div>

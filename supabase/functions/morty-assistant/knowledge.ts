@@ -149,6 +149,6 @@ export const FEATURE_DOCS: FeatureDoc[] = [
     key: "admin_suite",
     title: "Suite apps (admin)",
     roles: ADMIN_ONLY,
-    content: `The Apps launcher switches between suite apps — Bridge (this app, Mayday Studio) plus companion apps like Harbor (remote recording: sessions, green room, producer controls, local recording with progressive upload, NAS archival). Login lands in Bridge; use the launcher to jump between apps.`,
+    content: `The Apps launcher switches between suite apps — Studio (this app, Mayday Studio) plus companion apps like Video Chat (remote recording: sessions, green room, producer controls, local recording with progressive upload, NAS archival). Login lands in Studio; use the launcher to jump between apps.`,
   },
 ];

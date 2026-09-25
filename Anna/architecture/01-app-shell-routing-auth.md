@@ -10,6 +10,8 @@ How Mayday Studio boots, decides which layout to render, gates on auth, and maps
 "page keys" to page components. There is **no react-router** — routing is a
 hand-rolled `activeTab` state machine synced to `window.history`.
 
+> **Rebrand 2026-09-25 (display names only):** the suite app keyed `bridge` now shows as **"Studio"** (monogram S) and `harbor` as **"Video Chat"** (monogram V). Every code identifier is unchanged — `harbor`/`bridge` keys and segments, `/harbor` routes, `harbor_*` tables, `harbor-*` edge functions, `src/lib/harbor/`, `src/pages/harbor/`, `TINTS.harbor`, `rememberBridge`. Grep for user-facing copy, not identifiers, when the names come up again. Morty's knowledge strings were updated too but NOT redeployed.
+
 ## Boot sequence (`src/index.js` → `src/App.js`)
 
 - `src/index.js` mounts `<App/>` into `#root`. That's it.

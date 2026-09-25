@@ -257,7 +257,7 @@ export default function HarborRoom({ sessionId, onExit }) {
           <h2 style={sectionHeader(2)}>Session not found</h2>
           <p style={styles.mutedText}>It may have been deleted, or the link is wrong.</p>
           <button type="button" style={button({ variant: 'ghost' })} onClick={onExit}>
-            &larr; Back to Harbor
+            &larr; Back to Video Chat
           </button>
         </div>
       </div>
@@ -344,7 +344,7 @@ export default function HarborRoom({ sessionId, onExit }) {
             </>
           )}
           <button type="button" style={styles.backBtn} onClick={onExit}>
-            &larr; Back to Harbor
+            &larr; Back to Video Chat
           </button>
         </div>
         <TracksPanel sessionId={session.id} sessionTitle={session.title} />

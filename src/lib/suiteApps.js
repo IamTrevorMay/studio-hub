@@ -97,8 +97,8 @@ const FATHOM_ENV = process.env.REACT_APP_FATHOM_URL;
 export const SUITE_APPS = [
   {
     key: 'bridge',
-    name: 'Bridge',
-    monogram: 'B',
+    name: 'Studio',
+    monogram: 'S',
     tagline: 'Organize & build',
     description: "Projects, sprints, calendar, deliverables, analytics — the team's operations hub.",
     kind: 'internal',
@@ -110,8 +110,8 @@ export const SUITE_APPS = [
   },
   {
     key: 'harbor',
-    name: 'Harbor',
-    monogram: 'H',
+    name: 'Video Chat',
+    monogram: 'V',
     tagline: 'Podcast & remote recording',
     description: 'Live calls with remote guests — sessions, tokenized guest links, up to 4 on a call.',
     kind: 'internal',
