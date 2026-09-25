@@ -6,6 +6,25 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Flightline</title>
         <item>
+            <title>0.1.4</title>
+            <pubDate>Fri, 25 Sep 2026 12:26:25 -0700</pubDate>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>0.1.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[# Flightline 0.1.4
+
+- Customize keyboard shortcuts with a full keyboard layout, command search, presets, and conflict detection. Add flight points, apply edits, mark clips ready for export, and switch viewer modes from the keyboard.
+- Tracers become thinner with distance while respecting the Width setting, in both preview and export.
+- Switch projects while clips process, remove waiting clips from the queue, and mark clips Ready for Export from the queue context menu.
+- Applied flight edits refresh correctly instead of leaving a stale draft warning.
+- Camera repair keeps the selected frame when using Correct here, provides a separate Jump to tracking stop control, and explains failed or short tracking with exact frame numbers and match counts.
+- Older flight drafts are clearly identified before further camera repair.
+
+Existing media and saved solves are retained. Keyboard preferences are saved per operator in the current browser or app.
+]]></description>
+            <enclosure url="https://www.maydaystudio.app/downloads/flightline/0.1.4/Flightline-macos-universal.zip" length="2440512" type="application/octet-stream" sparkle:edSignature="Ba+UN0aNtPCMvfmqlEXFLzWWrbb5Nr7qvv23V8PD39lDnXuxVZnIw2DlnJjG+nA318Lq7NvRqATEeS918ad4Cg=="/>
+        </item>
+        <item>
             <title>0.1.3</title>
             <pubDate>Fri, 25 Sep 2026 10:49:22 -0700</pubDate>
             <sparkle:version>4</sparkle:version>
@@ -59,6 +78,6 @@ Future releases can be installed from inside Flightline.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: Cun0Bg9JSJ50vNLTdL43v5JJtX72dCV7cWRvG7TlNYwFlsTD4zmsrj80E4OdbmxicVByL/kzQLPPMZpwvyzGCw==
-length: 4165
+edSignature: j20lJj6JFOiwQwxx0MdLBD3ZFIVjEAu+Uk0yBA9cG6uLw4lQ8JDdhPVQg5d02njiL1IsDeSFJj58yHHlUqxFAQ==
+length: 5801
 -->

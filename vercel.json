@@ -20,7 +20,7 @@
   "redirects": [
     {
       "source": "/downloads/flightline/latest/Flightline-macos-universal.zip",
-      "destination": "/downloads/flightline/0.1.3/Flightline-macos-universal.zip",
+      "destination": "/downloads/flightline/0.1.4/Flightline-macos-universal.zip",
       "permanent": false
     }
   ],
